@@ -50,6 +50,8 @@ OPERATOR_PERMISSIONS = (
     "contracts.write",
     "accounting.read",
     "accounting.write",
+    "accounting.configure",
+    "accounting.restore",
     "reporting.read",
     "reporting.write",
 )

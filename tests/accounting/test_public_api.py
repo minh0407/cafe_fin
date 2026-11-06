@@ -187,23 +187,23 @@ def export_bytes(api, book_id, format_name):
     return result, status, response.content
 
 
-def test_typed_payload_errors_and_admin_configuration_restore_permissions(api):
+def test_typed_payload_errors_and_operator_configuration_restore_permissions(api):
+    # One independent-accounting Operator owns book configuration and row recovery;
+    # these two module permissions no longer require an Admin handoff.
     book = create_book(api)
-    denied = request(
+    created = request(
         api,
         "POST",
         "/books",
         role="operator",
-        expected=403,
-        json={"name": "Forbidden", "columns": COLUMNS, "request_key": key()},
+        json={"name": "Operator book", "columns": COLUMNS, "request_key": key()},
     )
-    assert denied["error"]["code"] == "PERMISSION_DENIED"
-    request(
+    assert created["version"] == 1
+    configured = request(
         api,
         "PATCH",
         f"/books/{book['id']}/schema",
         role="operator",
-        expected=403,
         json={
             "expected_version": book["version"],
             "columns": COLUMNS,
@@ -211,6 +211,7 @@ def test_typed_payload_errors_and_admin_configuration_restore_permissions(api):
             "request_key": key(),
         },
     )
+    assert configured["version"] == book["version"] + 1
     for payload in (
         {"values": {"amount": 1.25}, "request_key": key()},
         {"values": {}, "request_key": key(), "unknown": True},
@@ -226,20 +227,22 @@ def test_typed_payload_errors_and_admin_configuration_restore_permissions(api):
         role="operator",
         json={"expected_version": row["version"], "request_key": key()},
     )
-    request(
-        api,
-        "POST",
-        f"/rows/{row['id']}/restore",
-        role="operator",
-        expected=403,
-        json={"expected_version": deleted["version"], "request_key": key()},
-    )
     restored = request(
         api,
         "POST",
         f"/rows/{row['id']}/restore",
+        role="operator",
         json={"expected_version": deleted["version"], "request_key": key()},
     )
+    stale = request(
+        api,
+        "POST",
+        f"/rows/{row['id']}/restore",
+        role="operator",
+        expected=409,
+        json={"expected_version": deleted["version"], "request_key": key()},
+    )
+    assert stale["error"]["code"] == "VERSION_CONFLICT"
     assert restored["deleted_at"] is None
 
 
