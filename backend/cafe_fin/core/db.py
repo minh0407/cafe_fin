@@ -5,7 +5,7 @@ import json
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Callable, TypeVar
 
@@ -153,7 +153,10 @@ class Database:
 
     def backup_to(self, destination: Path | str) -> None:
         """Call inside writer.barrier, with no write transaction held."""
-        with sqlite3.connect(self.path) as source, sqlite3.connect(destination) as target:
+        with (
+            closing(sqlite3.connect(self.path)) as source,
+            closing(sqlite3.connect(destination)) as target,
+        ):
             source.backup(target, pages=256)
             if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise CoreError("BACKUP_INVALID", "Snapshot cơ sở dữ liệu không hợp lệ.", 500)
