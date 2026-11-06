@@ -16,8 +16,11 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Callable, Iterator
 
 from sqlalchemy import BigInteger, Column, MetaData, String, Table, select
+from sqlalchemy.engine import Connection
 
 from .audit import AuditService
+from .auth import Principal
+from .db import AUDIT
 from .errors import CoreError
 from .modules import Migration, schema_checksum
 
@@ -339,9 +342,50 @@ class FileStore:
         finally:
             staging.unlink(missing_ok=True)
 
-    def get(self, file_id: str) -> StoredFile:
-        with self.database.read() as conn:
-            row = conn.execute(select(FILES).where(FILES.c.id == file_id)).mappings().first()
+    def require_owner_or_admin(self, conn: Connection, principal: Principal, file_id: str) -> None:
+        """Check file provenance after the caller revalidates auth on this connection.
+
+        A file ID is a reference, not a capability. This helper does not authenticate
+        the principal or grant access to a module's domain object. Trusted module
+        download routes may separately authorize their saved domain references.
+        """
+        try:
+            if not isinstance(file_id, str) or str(uuid.UUID(file_id)) != file_id:
+                raise ValueError
+        except (ValueError, TypeError, AttributeError):
+            raise CoreError(
+                "FILE_ID_INVALID", "ID tệp phải là UUID canonical chữ thường.", 422
+            ) from None
+        if (
+            conn.execute(select(FILES.c.id).where(FILES.c.id == file_id)).scalar_one_or_none()
+            is None
+        ):
+            raise CoreError("FILE_NOT_FOUND", "Không tìm thấy tệp.", status=404)
+        owners = (
+            conn.execute(
+                select(AUDIT.c.actor)
+                .where(
+                    AUDIT.c.entity == "core_file",
+                    AUDIT.c.entity_id == file_id,
+                    AUDIT.c.action == "CREATE",
+                )
+                .limit(2)
+            )
+            .scalars()
+            .all()
+        )
+        if (
+            len(owners) != 1
+            or not owners[0]
+            or (principal.role != "admin" and owners[0] != principal.id)
+        ):
+            raise CoreError("PERMISSION_DENIED", "Bạn không có quyền đọc tệp này.", 403)
+
+    def get(self, file_id: str, *, connection: Connection | None = None) -> StoredFile:
+        if connection is None:
+            with self.database.read() as conn:
+                return self.get(file_id, connection=conn)
+        row = connection.execute(select(FILES).where(FILES.c.id == file_id)).mappings().first()
         if row is None:
             raise CoreError("FILE_NOT_FOUND", "Không tìm thấy tệp.", status=404)
         return StoredFile(**dict(row))
