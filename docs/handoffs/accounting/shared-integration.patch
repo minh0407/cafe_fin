@@ -1,0 +1,47 @@
+--- a/backend/cafe_fin/registry.py
++++ b/backend/cafe_fin/registry.py
+@@ -1,8 +1,9 @@
+ """Coordinator-owned registration point. Lanes deliver manifests without editing core."""
+ 
++from cafe_fin.accounting.module import module_manifest as accounting_manifest
+ from cafe_fin.core.example import module_manifest
+ from cafe_fin.core.modules import ModuleRegistry
+ 
+ 
+ def registered_modules() -> ModuleRegistry:
+-    return ModuleRegistry((module_manifest(),))
++    return ModuleRegistry((module_manifest(), accounting_manifest()))
+--- a/frontend/src/app/registry.tsx
++++ b/frontend/src/app/registry.tsx
+@@ -1,5 +1,6 @@
+ import type { ComponentType } from "react";
+ import { Empty } from "antd";
++import { accountingFeature } from "../features/accounting";
+ 
+ export interface FeatureRoute {
+   path: string;
+@@ -44,12 +45,7 @@
+     permission: "contracts.read",
+     routes: [{ path: "/contracts", component: Pending }],
+   },
+-  {
+-    id: "accounting",
+-    title: "Sổ kế toán",
+-    permission: "accounting.read",
+-    routes: [{ path: "/accounting", component: Pending }],
+-  },
++  accountingFeature,
+   {
+     id: "reporting",
+     title: "Báo cáo",
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -26,7 +26,7 @@
+ packages = ["backend/cafe_fin"]
+ 
+ [tool.pytest.ini_options]
+-testpaths = ["tests/core"]
++testpaths = ["tests"]
+ pythonpath = ["backend"]
+ 
+ [tool.ruff]
