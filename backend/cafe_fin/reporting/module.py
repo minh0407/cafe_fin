@@ -4,6 +4,7 @@ from uuid import uuid4
 from weakref import WeakKeyDictionary
 
 from fastapi import APIRouter, Query, Request
+from starlette.responses import StreamingResponse
 
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.jobs import JobHandler
@@ -11,6 +12,7 @@ from cafe_fin.core.modules import ModuleManifest
 from cafe_fin.core.periodic import PeriodicTask
 
 from . import models
+from .downloads import export_content
 from .migrations import MIGRATIONS
 from .schedule_migrations import MIGRATIONS as SCHEDULE_MIGRATIONS
 from .sender import check_connection, reconcile
@@ -78,6 +80,11 @@ def module_manifest(
     def export(identity: str, command: models.Export, request: Request):
         instance, actor = current(request)
         return instance.export(actor, identity, command)
+
+    @router.get("/reports/{identity}/exports/{export_id}/content", response_class=StreamingResponse)
+    def download_export(identity: str, export_id: str, request: Request):
+        instance, actor = current(request)
+        return export_content(instance, actor, identity, export_id)
 
     @router.post("/reports/{identity}/deliveries")
     def enqueue(identity: str, command: models.Enqueue, request: Request):

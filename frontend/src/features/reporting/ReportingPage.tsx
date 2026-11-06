@@ -242,7 +242,7 @@ function ReportingView() {
   }
   async function download(file: ExportFile) {
     const blob = await api<Blob>(
-      `/files/${encodeURIComponent(file.file_id)}/content`,
+      `/reporting/reports/${encodeURIComponent(file.report_id)}/exports/${encodeURIComponent(file.id)}/content`,
       {},
       true,
       "blob",

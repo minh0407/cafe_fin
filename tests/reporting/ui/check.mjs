@@ -82,6 +82,14 @@ const delivery = {
   error_code: "ZALO_NETWORK_ERROR",
   created_at: row.created_at,
 };
+const exportFile = {
+  id: "demo-summary-export",
+  report_id: row.id,
+  format: "pdf",
+  file_id: "service-owned-file",
+  sha256: "d".repeat(64),
+  size: 24,
+};
 await page.route("**/api/v1/**", async (route) => {
   const url = new URL(route.request().url());
   const resource = url.pathname.replace("/api/v1", "");
@@ -92,6 +100,17 @@ await page.route("**/api/v1/**", async (route) => {
     body: route.request().postData(),
   });
   let result = {};
+  if (
+    resource ===
+    "/reporting/reports/demo-report/exports/demo-summary-export/content"
+  ) {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/pdf",
+      body: "%PDF synthetic summary",
+    });
+    return;
+  }
   if (resource === "/reporting/settings")
     result = {
       version: 0,
@@ -153,6 +172,8 @@ await page.route("**/api/v1/**", async (route) => {
       page: Number(url.searchParams.get("page")),
       page_size: 25,
     };
+  else if (resource === "/reporting/reports/demo-report/exports")
+    result = exportFile;
   else if (resource === "/reporting/reports/preview") result = row;
   else if (resource === "/reporting/reports/demo-report")
     result = {
@@ -245,6 +266,18 @@ try {
   await page.getByText("Chưa đủ dữ liệu tiền", { exact: true }).waitFor();
   await page.getByText("25,250", { exact: true }).waitFor();
   assert(await page.getByRole("button", { name: "Xuất PDF" }).isVisible());
+  const downloading = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Xuất PDF", exact: true }).click();
+  const downloaded = await downloading;
+  assert.equal(downloaded.suggestedFilename(), "CafeFin-tong-hop.pdf");
+  assert(
+    calls.some(
+      (x) =>
+        x.resource ===
+        "/reporting/reports/demo-report/exports/demo-summary-export/content",
+    ),
+  );
+  assert(!calls.some((x) => x.resource.startsWith("/files/")));
   await page.waitForFunction(
     () =>
       getComputedStyle(document.querySelector(".ant-modal")).opacity === "1",
@@ -421,6 +454,7 @@ try {
         "calendar opens without submitting or changing the selected period",
         "invalid, partial and empty required dates block preview API",
         "corrected date posts new ISO inclusive bounds rather than stale date",
+        "summary export downloads through authorized reporting route, no raw file URL",
         "unmarked legacy cannot enqueue",
         "snapshot exact kg/missing mapping",
         "v2 components and deposit subset labels",

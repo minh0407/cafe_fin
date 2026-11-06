@@ -5,6 +5,9 @@ merge or READY tag has been made by this lane.
 
 Latest integration follow-ups:
 
+- [Authorized shared-summary download](export-downloads.md): dedicated report/export
+  route, verified frozen bytes and fresh authorization; generic file ACL unchanged.
+  Latest validation: **262 tests (88 reporting + 174 core), 18 browser cases PASS**.
 - [Vietnamese DateInput adoption](date-input-adoption.md): DD/MM/YYYY display,
   invalid-draft blocking, new ISO payload after correction. Latest UI harness:
   **17 synthetic browser cases PASS**.
@@ -25,6 +28,9 @@ Core periodic interface `e4f35947d086c6d892f03fe8b9a852c3cb9a28f5` is approved
 and applied unchanged as `8ed4f77`. Native tray/parent lifecycle acceptance remains pending.
 Shared DateInput `6098a1111432995ed5b6be96fd0650af382a15e2` is approved and applied
 unchanged as `f026708`. Root should skip both local duplicate shared commits.
+File scopes `22ca543106bdcc91e55e11067683f5514fbbada3` and DateInput disabled-context
+fix `3aa94c601dbf878f07b46b0902fc71b0f388c40c` are applied unchanged as `4bce76f`
+and `9e6d9fc`; root should also skip these duplicates.
 
 ## Checkout and baseline
 
@@ -45,7 +51,7 @@ unchanged as `f026708`. Root should skip both local duplicate shared commits.
   in the chat handoff.
 
 Lane-owned changes only touch reporting backend/frontend/tests/handoff paths;
-the twenty shared files in `64ae735`/`84abda4`/`60c7ba8`/`8ed4f77`/`f026708` are exactly the
+the twenty-four shared files in `64ae735`/`84abda4`/`60c7ba8`/`8ed4f77`/`f026708`/`4bce76f`/`9e6d9fc` are exactly the
 coordinator-approved cherry-picks.
 No production
 data, DB, real Excel, token, account information, images or generated binaries are
