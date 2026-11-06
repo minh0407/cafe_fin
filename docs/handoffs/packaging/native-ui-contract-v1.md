@@ -30,6 +30,25 @@ that purpose's memory binding. After INTENT/dispatch, kind/op/destination/source
 are immutable. Repeated Run/status after a lost ACK keeps the same operation.
 Begin must not replace an unfinished persistent operation.
 
+Confirmed draft-only replacement: `maintenance_begin` MAY replace a known,
+memory-only SELECTING draft when no INTENT attempt, dispatch, persistent journal,
+uncertain outcome or native busy/dialog operation exists. This returns a NEW
+operation_id and revokes all handles of the old draft. It permits choosing another
+operation after cancelling a folder dialog; it does not abandon persistent work.
+Native checks journal/latches even if renderer believes the draft is disposable.
+
+Unknown ACK must first be reconciled against fresh native state/current generation;
+a cached SELECTING label alone is not discard proof. UI offers "Chọn thao tác khác"
+only for known SELECTING while neither uncertain nor busy. Do not auto-retry Begin
+or use Restart to discard an uncertain/persistent operation. No new abandon command.
+
+Reselect replaces only the matching operation/generation/purpose binding and
+revokes its previous handle. Other purposes survive. Validate the new selection
+before revoking the old one; dialog cancellation or an invalid result keeps the
+last choice. Repeated selection does not consume another permanent handle slot.
+Native dialog results carry a private sequence ticket, so stale/duplicate callbacks
+cannot update a new draft or a newer selection of the same draft.
+
 ```typescript
 type MaintenanceKind = "backup" | "move" | "restore";
 type RuntimeState = "ACTIVE" | "QUIESCING" | "QUIESCED" | "PREPARING"

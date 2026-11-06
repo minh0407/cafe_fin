@@ -2,9 +2,11 @@ use cafe_fin_native_checks::{
     control::{ControlCommand, ControlPipe, ControlReply, ControlRequest, OperationState},
     maintenance_dto::{
         BootSession, MaintenanceKind, MaintenancePhase, PendingTransition, RuntimeState,
+        SelectionPurpose,
     },
     native_attach::{attach_existing, ExistingChild},
-    native_guards::CloseProof,
+    native_draft::DraftSlot,
+    native_guards::{CloseProof, PickerHandles, PickerPurpose},
     native_journal::{JournalStore, NativeJournal, StartupDisposition},
     native_paths::{check_local_path, derive_destination, reports_directory},
 };
@@ -708,5 +710,265 @@ fn wire_requires_real_runtime_state_and_checks_optional_activation_binding() {
             "CONTROL_RESPONSE_INVALID" | "CONTROL_RESPONSE_MISMATCH"
         ));
         assert!(child.wait().unwrap().success());
+    }
+}
+
+#[test]
+fn cancelled_draft_can_be_replaced_but_busy_dialog_cannot() {
+    let fixture = Fixture::new();
+    let store = JournalStore::new(&fixture.directory("config")).unwrap();
+    let mut handles = PickerHandles::new(GENERATION.into());
+    let mut slot = DraftSlot::default();
+    slot.begin(
+        OP.into(),
+        GENERATION.into(),
+        MaintenanceKind::Backup,
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    let ticket = slot
+        .start_selection(OP, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    assert_eq!(
+        slot.begin(
+            REQUEST.into(),
+            GENERATION.into(),
+            MaintenanceKind::Move,
+            &store,
+            &mut handles
+        )
+        .err(),
+        Some("DRAFT_BUSY")
+    );
+    slot.finish_selection(ticket, None, String::new(), &store, &mut handles)
+        .unwrap();
+    assert!(!slot.view(&store, &handles, None).unwrap().ready);
+    slot.begin(
+        REQUEST.into(),
+        GENERATION.into(),
+        MaintenanceKind::Move,
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    let view = slot.view(&store, &handles, None).unwrap();
+    assert_eq!(view.operation_id, REQUEST);
+    assert_eq!(view.kind, MaintenanceKind::Move);
+    assert_eq!(view.phase, MaintenancePhase::Selecting);
+    assert!(!view.recovery_required);
+    assert_eq!(
+        slot.view(&store, &PickerHandles::new(ROOT.into()), None)
+            .err(),
+        Some("DRAFT_GENERATION_STALE")
+    );
+    assert!(store.load().unwrap().is_none());
+}
+
+#[test]
+fn replacing_restore_draft_revokes_both_purposes_and_stale_dialog_cannot_change_new_draft() {
+    let fixture = Fixture::new();
+    let store = JournalStore::new(&fixture.directory("config")).unwrap();
+    let parent = fixture.directory("Parent");
+    let source = fixture.directory("Backup");
+    let mut handles = PickerHandles::new(GENERATION.into());
+    let mut slot = DraftSlot::default();
+    slot.begin(
+        OP.into(),
+        GENERATION.into(),
+        MaintenanceKind::Restore,
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    for (purpose, path, nonce) in [
+        (
+            SelectionPurpose::Destination,
+            &parent,
+            format!("{:064x}", 1),
+        ),
+        (
+            SelectionPurpose::BackupSource,
+            &source,
+            format!("{:064x}", 2),
+        ),
+    ] {
+        let ticket = slot
+            .start_selection(OP, GENERATION, purpose, &store)
+            .unwrap();
+        slot.finish_selection(ticket, Some(path), nonce, &store, &mut handles)
+            .unwrap();
+    }
+    assert!(slot.view(&store, &handles, None).unwrap().ready);
+    let late = slot
+        .start_selection(OP, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    slot.finish_selection(late.clone(), None, String::new(), &store, &mut handles)
+        .unwrap();
+    slot.begin(
+        REQUEST.into(),
+        GENERATION.into(),
+        MaintenanceKind::Move,
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    for (nonce, purpose) in [
+        (1, PickerPurpose::RestoreDestination),
+        (2, PickerPurpose::RestoreSource),
+    ] {
+        assert!(handles
+            .resolve(&format!("{nonce:064x}"), GENERATION, OP, purpose)
+            .is_err());
+    }
+    let current = slot
+        .start_selection(REQUEST, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    assert_eq!(
+        slot.finish_selection(
+            late,
+            Some(&parent),
+            format!("{:064x}", 3),
+            &store,
+            &mut handles
+        )
+        .err(),
+        Some("PICKER_RESULT_STALE")
+    );
+    slot.finish_selection(
+        current,
+        Some(&parent),
+        format!("{:064x}", 4),
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    assert_eq!(
+        slot.view(&store, &handles, None).unwrap().operation_id,
+        REQUEST
+    );
+}
+
+#[test]
+fn hundred_folder_reselections_preserve_source_and_invalid_reselect_preserves_last_destination() {
+    let fixture = Fixture::new();
+    let store = JournalStore::new(&fixture.directory("config")).unwrap();
+    let parent = fixture.directory("Parent");
+    let source = fixture.directory("Backup");
+    let mut handles = PickerHandles::new(GENERATION.into());
+    let mut slot = DraftSlot::default();
+    slot.begin(
+        OP.into(),
+        GENERATION.into(),
+        MaintenanceKind::Restore,
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    let ticket = slot
+        .start_selection(OP, GENERATION, SelectionPurpose::BackupSource, &store)
+        .unwrap();
+    slot.finish_selection(
+        ticket,
+        Some(&source),
+        format!("{:064x}", 1),
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    for nonce in 2..102 {
+        let ticket = slot
+            .start_selection(OP, GENERATION, SelectionPurpose::Destination, &store)
+            .unwrap();
+        slot.finish_selection(
+            ticket,
+            Some(&parent),
+            format!("{nonce:064x}"),
+            &store,
+            &mut handles,
+        )
+        .unwrap();
+    }
+    let before = slot.view(&store, &handles, None).unwrap();
+    let ticket = slot
+        .start_selection(OP, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    assert!(slot
+        .finish_selection(
+            ticket,
+            Some(Path::new("relative")),
+            format!("{:064x}", 102),
+            &store,
+            &mut handles
+        )
+        .is_err());
+    let after = slot.view(&store, &handles, None).unwrap();
+    assert_eq!(after.destination_display, before.destination_display);
+    assert_eq!(after.backup_source_display, before.backup_source_display);
+    assert!(after.ready);
+    assert!(handles
+        .resolve(
+            &format!("{:064x}", 1),
+            GENERATION,
+            OP,
+            PickerPurpose::RestoreSource
+        )
+        .is_ok());
+}
+
+#[test]
+fn persistent_corrupt_uncertain_intent_attempt_or_dispatch_cannot_be_discarded_as_draft() {
+    for latch in [
+        "uncertain",
+        "intent-attempt",
+        "dispatch",
+        "persistent",
+        "corrupt",
+    ] {
+        let fixture = Fixture::new();
+        let config = fixture.directory("config");
+        let store = JournalStore::new(&config).unwrap();
+        let mut handles = PickerHandles::new(GENERATION.into());
+        let mut slot = DraftSlot::default();
+        slot.begin(
+            OP.into(),
+            GENERATION.into(),
+            MaintenanceKind::Backup,
+            &store,
+            &mut handles,
+        )
+        .unwrap();
+        match latch {
+            "uncertain" => slot.mark_uncertain(OP).unwrap(),
+            "intent-attempt" => slot.mark_intent_attempted(OP).unwrap(),
+            "dispatch" => slot.mark_dispatched(OP).unwrap(),
+            "persistent" => {
+                store
+                    .begin(&fixture.intent(MaintenanceKind::Backup))
+                    .unwrap();
+            }
+            "corrupt" => fs::write(config.join("maintenance.json"), b"not a journal").unwrap(),
+            _ => unreachable!(),
+        }
+        let code = slot
+            .begin(
+                REQUEST.into(),
+                GENERATION.into(),
+                MaintenanceKind::Move,
+                &store,
+                &mut handles,
+            )
+            .err()
+            .unwrap();
+        assert!(matches!(
+            code,
+            "MAINTENANCE_PENDING" | "MAINTENANCE_RECOVERY_HELD"
+        ));
+        assert_eq!(slot.operation_id(), Some(OP));
+        if matches!(latch, "persistent" | "corrupt") {
+            assert!(slot.view(&store, &handles, None).is_err());
+        } else {
+            assert!(slot.view(&store, &handles, None).unwrap().recovery_required);
+        }
     }
 }

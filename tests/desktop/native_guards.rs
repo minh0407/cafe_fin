@@ -222,6 +222,90 @@ fn picker_refuses_unpaired_utf16_instead_of_lossy_path_alias() {
 }
 
 #[test]
+fn repeated_purpose_reselection_revokes_old_handles_and_retains_other_purpose() {
+    let mut vault = handles();
+    assert_eq!(vault.generation(), "generation-a");
+    let source = format!("{:064x}", 1);
+    vault
+        .register(
+            source.clone(),
+            "operation-a".into(),
+            PickerPurpose::RestoreSource,
+            native_path(),
+        )
+        .unwrap();
+    let mut previous: Option<String> = None;
+    for value in 2..102 {
+        let nonce = format!("{value:064x}");
+        vault
+            .replace_purpose(
+                nonce.clone(),
+                "operation-a".into(),
+                PickerPurpose::RestoreDestination,
+                native_path().join(format!("choice-{value}")),
+            )
+            .unwrap();
+        if let Some(old) = previous {
+            assert_eq!(
+                vault.resolve(
+                    &old,
+                    "generation-a",
+                    "operation-a",
+                    PickerPurpose::RestoreDestination
+                ),
+                Err(GuardError::HandleInvalid)
+            );
+        }
+        assert!(vault
+            .resolve(
+                &source,
+                "generation-a",
+                "operation-a",
+                PickerPurpose::RestoreSource
+            )
+            .is_ok());
+        previous = Some(nonce);
+    }
+    let old = previous.unwrap();
+    assert_eq!(
+        vault.replace_purpose(
+            "invalid".into(),
+            "operation-a".into(),
+            PickerPurpose::RestoreDestination,
+            native_path()
+        ),
+        Err(GuardError::HandleInvalid)
+    );
+    assert!(vault
+        .resolve(
+            &old,
+            "generation-a",
+            "operation-a",
+            PickerPurpose::RestoreDestination
+        )
+        .is_ok());
+    assert_eq!(
+        vault.replace_purpose(
+            old.clone(),
+            "operation-a".into(),
+            PickerPurpose::RestoreDestination,
+            native_path()
+        ),
+        Err(GuardError::HandleInvalid)
+    );
+    vault.revoke_operation("operation-a");
+    assert_eq!(
+        vault.resolve(
+            &source,
+            "generation-a",
+            "operation-a",
+            PickerPurpose::RestoreSource
+        ),
+        Err(GuardError::HandleInvalid)
+    );
+}
+
+#[test]
 fn clean_close_requires_both_matching_ack_and_zero_exit_in_either_order() {
     let mut first = proof();
     ack(&mut first);

@@ -104,18 +104,56 @@ impl PickerHandles {
         purpose: PickerPurpose,
         path: PathBuf,
     ) -> Result<String, GuardError> {
+        self.validate_selection(&nonce, &operation_id, &path)?;
+        if self.bindings.len() >= MAX_HANDLES {
+            return Err(GuardError::HandleLimit);
+        }
+        Ok(self.insert_binding(nonce, operation_id, purpose, path))
+    }
+
+    /// Replace one native purpose after a known successful dialog result. Validate
+    /// first so cancellation/invalid selection never destroys the previous choice.
+    pub fn replace_purpose(
+        &mut self,
+        nonce: String,
+        operation_id: String,
+        purpose: PickerPurpose,
+        path: PathBuf,
+    ) -> Result<String, GuardError> {
+        self.validate_selection(&nonce, &operation_id, &path)?;
+        let old = self
+            .bindings
+            .values()
+            .filter(|binding| binding.operation_id == operation_id && binding.purpose == purpose)
+            .count();
+        if self.bindings.len() - old >= MAX_HANDLES {
+            return Err(GuardError::HandleLimit);
+        }
+        self.bindings.retain(|_, binding| {
+            binding.operation_id != operation_id || binding.purpose != purpose
+        });
+        Ok(self.insert_binding(nonce, operation_id, purpose, path))
+    }
+
+    pub fn generation(&self) -> &str {
+        &self.generation
+    }
+
+    fn validate_selection(
+        &self,
+        nonce: &str,
+        operation_id: &str,
+        path: &std::path::Path,
+    ) -> Result<(), GuardError> {
         if nonce.len() != 64
             || !nonce
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
             || operation_id.is_empty()
             || operation_id.len() > 64
-            || self.bindings.contains_key(&nonce)
+            || self.bindings.contains_key(nonce)
         {
             return Err(GuardError::HandleInvalid);
-        }
-        if self.bindings.len() >= MAX_HANDLES {
-            return Err(GuardError::HandleLimit);
         }
         let text = path.to_str().ok_or(GuardError::PathInvalid)?;
         if !path.is_absolute()
@@ -125,6 +163,16 @@ impl PickerHandles {
         {
             return Err(GuardError::PathInvalid);
         }
+        Ok(())
+    }
+
+    fn insert_binding(
+        &mut self,
+        nonce: String,
+        operation_id: String,
+        purpose: PickerPurpose,
+        path: PathBuf,
+    ) -> String {
         self.bindings.insert(
             nonce.clone(),
             PickerBinding {
@@ -133,7 +181,7 @@ impl PickerHandles {
                 path,
             },
         );
-        Ok(nonce)
+        nonce
     }
 
     /// Reusable for loss-of-ACK retry, but never rebindable to a different path,
