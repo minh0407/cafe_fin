@@ -23,6 +23,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-library:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Pin Rust test toolchain
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup default 1.99.1
+      - name: Check native harness formatting
+        run: cargo fmt --manifest-path tests/desktop/Cargo.toml -- --check
+      - name: Test native journal and control pipe
+        run: cargo test --manifest-path tests/desktop/Cargo.toml --locked
+
   windows:
     runs-on: windows-2025-vs2026
     timeout-minutes: 45
