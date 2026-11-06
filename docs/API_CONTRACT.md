@@ -4,6 +4,8 @@
 
 Điều phối bổ sung [read bridge revision 2](handoffs/foundation/read-bridge-v2.md) sau baseline: phân loại biến động kho và ý nghĩa chỉ tiêu tiền là optional typed fields. Các lane áp commit cập nhật do điều phối cung cấp; không đổi tag foundation hoặc tự sửa shared types. Đây là phiên bản DTO read bridge, không đổi prefix REST `/api/v1`.
 
+[Read bridge revision 3](handoffs/foundation/read-bridge-v3.md) chỉ thêm metadata hiển thị optional: `product_name`, `warehouse_name` trên hai DTO dòng tồn/biến động và `book_name` trên tổng hợp sổ. Mặc định null; khi có là chuỗi Unicode strict, không rỗng/trắng, tối đa 256 ký tự, chỉ chứa tên hàng/kho/sổ từ nguồn tương ứng. Không dùng tên khách, ngân hàng, liên hệ hoặc ghi chú riêng tư. Consumer escape như văn bản, không thực thi markup. `CONTRACT_VERSION=3`; phép tính và identity theo ID giữ nguyên. V3 đọc được input cũ, nhưng decoder v2 `extra='forbid'` từ chối field mới kể cả null; phải phối hợp phiên bản producer/consumer. Không bổ sung tên hoặc ghi lại snapshot/hash/tệp xuất cũ từ dữ liệu live.
+
 ## Quy ước chung
 
 - REST local `/api/v1`, loopback session auth; file native qua IPC allowlist hoặc file ID. Không đưa absolute file path bất kỳ từ client vào hàm đọc tệp.

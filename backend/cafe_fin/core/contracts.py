@@ -19,6 +19,9 @@ from pydantic import (
 from .amounts import parse_kg
 
 NonEmpty = Annotated[str, StringConstraints(min_length=1)]
+SummaryDisplayName = Annotated[
+    str, StringConstraints(strict=True, min_length=1, max_length=256, pattern=r"\S")
+]
 
 
 def _aggregate_decimal(value: str, scale: int) -> str:
@@ -133,6 +136,8 @@ class CutoffDTO(FrozenDTO):
 class InventoryLineDTO(FrozenDTO):
     product_id: NonEmpty
     warehouse_id: NonEmpty
+    product_name: SummaryDisplayName | None = None
+    warehouse_name: SummaryDisplayName | None = None
     opening_kg: str
     received_kg: str
     issued_kg: str
@@ -147,6 +152,8 @@ class InventoryLineDTO(FrozenDTO):
 class InventoryMovementSummaryDTO(FrozenDTO):
     product_id: NonEmpty
     warehouse_id: NonEmpty
+    product_name: SummaryDisplayName | None = None
+    warehouse_name: SummaryDisplayName | None = None
     purchased_kg: str
     sold_kg: str
     production_input_kg: str
@@ -283,6 +290,7 @@ class MappedBookMetricDTO(FrozenDTO):
 
 class BookSummaryDTO(CutoffDTO):
     book_id: NonEmpty
+    book_name: SummaryDisplayName | None = None
     from_on: date
     through_on: date
     has_valid_money_mapping: bool
@@ -390,4 +398,4 @@ class ImportCountsDTO(FrozenDTO):
         return self
 
 
-CONTRACT_VERSION = 2
+CONTRACT_VERSION = 3
