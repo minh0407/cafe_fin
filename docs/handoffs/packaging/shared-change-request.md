@@ -30,7 +30,11 @@ core behavior and this ACK does not freeze an API or authorize active switching.
   quarantine/reconciliation hook before any startup/sender. Copied root UUID and
   current Windows credentials do not prove a delivery is safe to replay.
 
-## Exact shapes to confirm before dependent implementation
+## Historical questions (superseded by confirmed native-ui-contract-v1.md)
+
+Coordination subsequently confirmed `reporting.read` for OpenReports and core as
+the SOLE activation-marker writer. The proposal below is retained as history,
+not current implementation authority. See [confirmed contract](native-ui-contract-v1.md).
 
 1. Freeze tagged request/response schemas per command: `maintenance.quiesce`,
    `maintenance.prepare`, `maintenance.status`, `maintenance.close`,
