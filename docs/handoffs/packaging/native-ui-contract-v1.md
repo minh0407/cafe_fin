@@ -1,7 +1,9 @@
 # Native renderer contract v1
 
 Confirmed with coordination on 2026-11-07. Source baseline remains integration
-`c93ecfd26c0f232fdef9608924fc80615ab0835b`; maintenance core implementation/SHA
+`c93ecfd26c0f232fdef9608924fc80615ab0835b`; core runtime phase 1 has been imported
+from approved `6294e41706e8d878adddfa76e0c72ff4c74f52d4` as lane commit
+`4afa1b76f0d4382b3e205214ca8ff8e1f0147cd3`. Filesystem/controller/stdio phase 2
 has not yet been delivered to packaging. These commands are the agreed target
 interface, not a claim that the current main.rs exposes working maintenance.
 
@@ -88,6 +90,30 @@ No explicit abandon command is exposed in this increment: recovery remains held
 where core has not supplied a safe disposition. Do not wire Restart as cancellation
 or silently reselect/reinitialize the old root. First-install restore/bootstrap
 will be coordinated separately; it cannot boot a backup directory as active.
+
+## Lost-ACK safe attach using existing start_backend
+
+`start_backend({initialize:false})` is also an idempotent SAFE ATTACH to the CURRENT
+verified native-owned live child. This is the recovery path when Run switched to
+a target but its BootSession ACK was lost, or the initial Start ACK was lost.
+There is no generic get-token command and no source login token is transferred.
+The returned app-session BootSession lets UI clear actor/cache and require login
+against the attached child's actual database.
+
+When pending_transition exists, this invocation MUST NOT spawn, restart,
+reinitialize, activate, switch configuration or fall back to a configured/selected
+source. It returns only an already verified protocol-1 child with negotiated
+maintenance_protocol=1 and the current generation/root/journal binding. Missing,
+dead or unverified child, failed health, invalid journal, generation race or
+initialize=true returns `MAINTENANCE_RECOVERY_HELD`. Dormant bootstrap after a
+process restart is a separate controller recovery action, not this attach path.
+
+Native holds its state lock through current-child selection and rechecks alive,
+health and generation before cloning BootSession. A stale desktop_status result
+does not authorize returning an old cached child; attach returns the actual
+current verified child, or HELD. UI treats every nonnull returned BootSession as a
+session boundary even if port is unchanged. Same-child activate/status retain the
+separate null-BootSession semantics above. Restart stays forbidden while pending.
 
 ## Confirmed implementation split
 

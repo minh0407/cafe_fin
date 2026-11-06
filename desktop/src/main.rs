@@ -1,12 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use cafe_fin_desktop::{
+    control::ControlPipe,
+    maintenance_dto::{BootSession, DesktopStatus, PendingTransition, RuntimeState},
+    native_attach::{attach_existing, ExistingChild},
+    native_journal::{JournalStore, NativeJournal},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::{BufRead, BufReader, Write},
+    io::Write,
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{mpsc, Mutex},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tauri::{Manager, State};
@@ -15,25 +21,17 @@ use tauri_plugin_dialog::DialogExt;
 const PROTOCOL: u32 = 1;
 const STARTUP_DEADLINE: Duration = Duration::from_secs(20);
 
-#[derive(Clone, Serialize)]
-struct BootSession {
-    protocol_version: u32,
-    api_base: String,
-    session_token: String,
-    data_root: String,
-}
-#[derive(Serialize)]
-struct DesktopStatus {
-    data_root: Option<String>,
-    running: bool,
-}
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Handshake {
     protocol_version: u32,
     api_base: String,
     status: String,
     code: Option<String>,
     message: Option<String>,
+    maintenance_protocol: Option<u32>,
+    generation: Option<String>,
+    runtime_state: Option<RuntimeState>,
 }
 #[derive(Serialize, Deserialize)]
 struct MachineConfig {
@@ -42,8 +40,36 @@ struct MachineConfig {
 }
 struct Backend {
     child: Child,
-    stdin: ChildStdin,
+    control: ControlPipe<ChildStdin>,
     session: BootSession,
+    generation: String,
+    verified: bool,
+}
+
+impl ExistingChild for Backend {
+    fn generation(&self) -> &str {
+        &self.generation
+    }
+    fn verified(&self) -> bool {
+        self.verified
+    }
+    fn check_alive(&mut self) -> Result<(), &'static str> {
+        match self.child.try_wait() {
+            Ok(None) => Ok(()),
+            _ => Err("SIDECAR_NOT_RUNNING"),
+        }
+    }
+    fn check_health(&mut self) -> Result<(), &'static str> {
+        let client = health_client()?;
+        if healthy(&client, &self.session.api_base, &self.session.session_token) {
+            Ok(())
+        } else {
+            Err("SIDECAR_HEALTH_FAILED")
+        }
+    }
+    fn session(&self) -> &BootSession {
+        &self.session
+    }
 }
 #[derive(Default)]
 struct DesktopState {
@@ -56,6 +82,83 @@ fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_config_dir()
         .map(|path| path.join("machine.json"))
         .map_err(|_| "CONFIG_UNAVAILABLE: Không truy cập được cấu hình máy.".into())
+}
+
+fn pending_journal(app: &tauri::AppHandle) -> Result<Option<NativeJournal>, String> {
+    let directory = app
+        .path()
+        .app_config_dir()
+        .map_err(|_| "MAINTENANCE_RECOVERY_HELD")?;
+    JournalStore::new(&directory)
+        .and_then(|store| store.load())
+        .map_err(|_| "MAINTENANCE_RECOVERY_HELD: Chưa xác minh được nhật ký chuyển dữ liệu.".into())
+}
+
+fn pending_binding(
+    app: &tauri::AppHandle,
+    journal: &NativeJournal,
+    backend: &Backend,
+) -> Result<(), String> {
+    let configured = configured_root(app)
+        .map_err(|_| "MAINTENANCE_RECOVERY_HELD")?
+        .ok_or("MAINTENANCE_RECOVERY_HELD")?;
+    journal
+        .reconcile_config(&configured)
+        .map_err(|_| "MAINTENANCE_RECOVERY_HELD")?;
+    let actual = Path::new(&backend.session.data_root);
+    journal
+        .reconcile_config(actual)
+        .map_err(|_| "MAINTENANCE_RECOVERY_HELD")?;
+    let configured = configured
+        .canonicalize()
+        .map_err(|_| "MAINTENANCE_RECOVERY_HELD")?;
+    let actual = actual
+        .canonicalize()
+        .map_err(|_| "MAINTENANCE_RECOVERY_HELD")?;
+    if actual != configured {
+        return Err("MAINTENANCE_RECOVERY_HELD".into());
+    }
+    Ok(())
+}
+
+fn child_generation() -> String {
+    let mut bytes: [u8; 16] = rand::random();
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..]
+    )
+}
+
+fn health_client() -> Result<reqwest::blocking::Client, &'static str> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "HEALTH_CLIENT_FAILED")
+}
+
+fn healthy(client: &reqwest::blocking::Client, api_base: &str, token: &str) -> bool {
+    #[derive(Deserialize)]
+    struct Health {
+        status: String,
+        protocol_version: u32,
+    }
+    client
+        .get(format!("{api_base}/health"))
+        .header("X-App-Session", token)
+        .send()
+        .ok()
+        .filter(|response| response.status().is_success())
+        .and_then(|response| response.json::<Health>().ok())
+        .is_some_and(|health| health.status == "ok" && health.protocol_version == PROTOCOL)
 }
 fn configured_root(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
     let path = config_path(app)?;
@@ -90,8 +193,8 @@ fn save_root(app: &tauri::AppHandle, root: &Path) -> Result<(), String> {
     Ok(())
 }
 fn shutdown(backend: &mut Backend) {
-    let _ = backend.stdin.write_all(b"{\"command\":\"shutdown\"}\n");
-    let _ = backend.stdin.flush();
+    // Normal legacy exit only; journal-pending restart/cutover never calls this.
+    let _ = backend.control.send_legacy_shutdown();
     let deadline = Instant::now() + Duration::from_secs(8);
     while Instant::now() < deadline {
         if backend.child.try_wait().ok().flatten().is_some() {
@@ -169,22 +272,13 @@ fn spawn_backend(root: &Path, initialize: bool) -> Result<Backend, String> {
         let _ = child.kill();
         return Err("SIDECAR_PIPE_FAILED".into());
     }
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        let mut line = String::new();
-        let result = reader
-            .read_line(&mut line)
-            .ok()
-            .filter(|size| *size <= 65536)
-            .and_then(|_| serde_json::from_str::<Handshake>(&line).ok());
-        let _ = sender.send(result);
-        // Drain any later stdout without exposing backend output to the renderer or logs.
-        let mut sink = std::io::sink();
-        let _ = std::io::copy(&mut reader, &mut sink);
-    });
+    let mut control = ControlPipe::new(stdin, stdout);
     let deadline = Instant::now() + STARTUP_DEADLINE;
-    let handshake = match receiver.recv_timeout(STARTUP_DEADLINE).ok().flatten() {
+    let handshake = match control
+        .boot_frame(STARTUP_DEADLINE)
+        .ok()
+        .and_then(|frame| serde_json::from_slice::<Handshake>(&frame).ok())
+    {
         Some(value) => value,
         None => {
             let _ = child.kill();
@@ -217,25 +311,29 @@ fn spawn_backend(root: &Path, initialize: bool) -> Result<Backend, String> {
                 && url.password().is_none()
         })
         .unwrap_or(false);
-    if handshake.protocol_version != PROTOCOL || handshake.status != "ready" || !valid_url {
+    // Legacy core has not negotiated maintenance yet. Do not advertise support
+    // merely because a backend sends unsolicited new handshake fields.
+    if handshake.protocol_version != PROTOCOL
+        || handshake.status != "ready"
+        || !valid_url
+        || handshake.maintenance_protocol.is_some()
+        || handshake.generation.is_some()
+        || handshake.runtime_state.is_some()
+    {
         let _ = child.kill();
         let _ = child.wait();
         return Err("SIDECAR_PROTOCOL_MISMATCH: Backend không tương thích.".into());
     }
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(1))
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| "HEALTH_CLIENT_FAILED")?;
+    let client = match health_client() {
+        Ok(client) => client,
+        Err(code) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(code.into());
+        }
+    };
     loop {
-        let healthy = client
-            .get(format!("{}/health", handshake.api_base))
-            .header("X-App-Session", &token)
-            .send()
-            .map(|response| response.status().is_success())
-            .unwrap_or(false);
-        if healthy {
+        if healthy(&client, &handshake.api_base, &token) {
             break;
         }
         if Instant::now() >= deadline || child.try_wait().ok().flatten().is_some() {
@@ -247,38 +345,83 @@ fn spawn_backend(root: &Path, initialize: bool) -> Result<Backend, String> {
     }
     Ok(Backend {
         child,
-        stdin,
+        control,
+        generation: child_generation(),
+        verified: true,
         session: BootSession {
             protocol_version: PROTOCOL,
             api_base: handshake.api_base,
             session_token: token,
             data_root: root.to_string_lossy().into(),
+            maintenance_protocol: None,
+            generation: None,
+            runtime_state: Some(RuntimeState::Active),
+            pending_transition: None,
         },
     })
 }
 
 #[tauri::command]
-fn desktop_status(
+async fn desktop_status(
     app: tauri::AppHandle,
-    state: State<'_, Mutex<DesktopState>>,
+    state: State<'_, Arc<Mutex<DesktopState>>>,
+) -> Result<DesktopStatus, String> {
+    let state = Arc::clone(state.inner());
+    tauri::async_runtime::spawn_blocking(move || desktop_status_inner(&app, &state))
+        .await
+        .map_err(|_| "DESKTOP_TASK_FAILED".to_owned())?
+}
+
+fn desktop_status_inner(
+    app: &tauri::AppHandle,
+    state: &Mutex<DesktopState>,
 ) -> Result<DesktopStatus, String> {
     let mut state = state.lock().map_err(|_| "DESKTOP_STATE_FAILED")?;
+    let journal = pending_journal(&app)?;
     let running = state
         .backend
         .as_mut()
-        .map(|backend| backend.child.try_wait().ok().flatten().is_none())
+        .map(|backend| matches!(backend.child.try_wait(), Ok(None)))
         .unwrap_or(false);
-    let root = state.selected_root.clone().or(configured_root(&app)?);
+    let root = if journal.is_some() {
+        configured_root(&app).map_err(|_| "MAINTENANCE_RECOVERY_HELD")?
+    } else {
+        state.selected_root.clone().or(configured_root(&app)?)
+    };
+    let verified = state.backend.as_ref().filter(|backend| {
+        running
+            && backend.verified
+            && journal
+                .as_ref()
+                .is_none_or(|journal| pending_binding(&app, journal, backend).is_ok())
+    });
     Ok(DesktopStatus {
         data_root: root.map(|path| path.to_string_lossy().into()),
         running,
+        maintenance_protocol: verified.and_then(|backend| backend.session.maintenance_protocol),
+        generation: verified.and_then(|backend| backend.session.generation.clone()),
+        runtime_state: verified.and_then(|backend| backend.session.runtime_state),
+        pending_transition: journal.as_ref().map(|journal| journal.summary(true)),
     })
 }
 #[tauri::command]
 async fn choose_data_root(
     app: tauri::AppHandle,
-    state: State<'_, Mutex<DesktopState>>,
+    state: State<'_, Arc<Mutex<DesktopState>>>,
 ) -> Result<Option<String>, String> {
+    let state = Arc::clone(state.inner());
+    tauri::async_runtime::spawn_blocking(move || choose_data_root_inner(&app, &state))
+        .await
+        .map_err(|_| "DESKTOP_TASK_FAILED".to_owned())?
+}
+
+fn choose_data_root_inner(
+    app: &tauri::AppHandle,
+    state: &Mutex<DesktopState>,
+) -> Result<Option<String>, String> {
+    if pending_journal(&app)?.is_some() {
+        return Err("MAINTENANCE_RECOVERY_HELD".into());
+    }
     if state
         .lock()
         .map_err(|_| "DESKTOP_STATE_FAILED")?
@@ -296,10 +439,12 @@ async fn choose_data_root(
         .map(|value| value.into_path().map_err(|_| "DATA_ROOT_INVALID"))
         .transpose()?;
     if let Some(path) = path {
-        state
-            .lock()
-            .map_err(|_| "DESKTOP_STATE_FAILED")?
-            .selected_root = Some(path.clone());
+        let mut state = state.lock().map_err(|_| "DESKTOP_STATE_FAILED")?;
+        // A dialog result can arrive after another native command changed state.
+        if state.backend.is_some() || pending_journal(&app)?.is_some() {
+            return Err("MAINTENANCE_RECOVERY_HELD".into());
+        }
+        state.selected_root = Some(path.clone());
         return Ok(Some(path.to_string_lossy().into()));
     }
     Ok(None)
@@ -307,15 +452,44 @@ async fn choose_data_root(
 #[tauri::command]
 async fn start_backend(
     app: tauri::AppHandle,
-    state: State<'_, Mutex<DesktopState>>,
+    state: State<'_, Arc<Mutex<DesktopState>>>,
+    initialize: bool,
+) -> Result<BootSession, String> {
+    let state = Arc::clone(state.inner());
+    tauri::async_runtime::spawn_blocking(move || start_backend_inner(&app, &state, initialize))
+        .await
+        .map_err(|_| "DESKTOP_TASK_FAILED".to_owned())?
+}
+
+fn start_backend_inner(
+    app: &tauri::AppHandle,
+    state: &Mutex<DesktopState>,
     initialize: bool,
 ) -> Result<BootSession, String> {
     let mut state = state.lock().map_err(|_| "DESKTOP_STATE_FAILED")?;
-    if let Some(backend) = state.backend.as_mut() {
-        if backend.child.try_wait().ok().flatten().is_none() {
-            return Ok(backend.session.clone());
-        }
+    let journal = pending_journal(&app)?;
+    if let (Some(journal), Some(backend)) = (&journal, &state.backend) {
+        pending_binding(&app, journal, backend)?;
     }
+    let pending: Option<PendingTransition> = journal.as_ref().map(|journal| journal.summary(true));
+    if let Some(boot) = attach_existing(state.backend.as_mut(), pending.as_ref(), initialize)
+        .map_err(str::to_owned)?
+    {
+        if let Some(journal) = &journal {
+            if pending_journal(app)?.as_ref() != Some(journal) {
+                return Err("MAINTENANCE_RECOVERY_HELD".into());
+            }
+            pending_binding(
+                app,
+                journal,
+                state.backend.as_ref().ok_or("MAINTENANCE_RECOVERY_HELD")?,
+            )?;
+        }
+        return Ok(boot);
+    }
+    // attach_existing returns None only with no child AND no journal. Pending
+    // recovery has no hidden spawn/source fallback; explicit controller bootstrap
+    // will be added only after the approved dormant protocol is available.
     let root = state
         .selected_root
         .clone()
@@ -333,15 +507,28 @@ async fn start_backend(
 #[tauri::command]
 async fn restart_backend(
     app: tauri::AppHandle,
-    state: State<'_, Mutex<DesktopState>>,
+    state: State<'_, Arc<Mutex<DesktopState>>>,
+) -> Result<BootSession, String> {
+    let state = Arc::clone(state.inner());
+    tauri::async_runtime::spawn_blocking(move || restart_backend_inner(&app, &state))
+        .await
+        .map_err(|_| "DESKTOP_TASK_FAILED".to_owned())?
+}
+
+fn restart_backend_inner(
+    app: &tauri::AppHandle,
+    state: &Mutex<DesktopState>,
 ) -> Result<BootSession, String> {
     {
         let mut state = state.lock().map_err(|_| "DESKTOP_STATE_FAILED")?;
+        if pending_journal(&app)?.is_some() {
+            return Err("MAINTENANCE_RECOVERY_HELD".into());
+        }
         if let Some(mut backend) = state.backend.take() {
             shutdown(&mut backend);
         }
     }
-    start_backend(app, state, false).await
+    start_backend_inner(app, state, false)
 }
 fn main() {
     tauri::Builder::default()
@@ -351,7 +538,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .manage(Mutex::new(DesktopState::default()))
+        .manage(Arc::new(Mutex::new(DesktopState::default())))
         .invoke_handler(tauri::generate_handler![
             desktop_status,
             choose_data_root,
@@ -372,7 +559,7 @@ fn main() {
         .expect("Cafe Fin desktop startup failed")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                if let Ok(mut state) = app.state::<Mutex<DesktopState>>().lock() {
+                if let Ok(mut state) = app.state::<Arc<Mutex<DesktopState>>>().lock() {
                     if let Some(mut backend) = state.backend.take() {
                         shutdown(&mut backend);
                     }

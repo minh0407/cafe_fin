@@ -33,6 +33,7 @@ fn main() {
         response = serde_json::json!({"maintenance_protocol":1, "request_id":request["request_id"],
             "generation":request["generation"], "allowed":true,
             "root_id":"00000000-0000-4000-8000-000000000003"});
+        response["source_fingerprint"] = "opaque:reports-source".into();
     }
     match mode.as_str() {
         "wrong-generation" => {

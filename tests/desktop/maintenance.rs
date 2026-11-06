@@ -1,6 +1,9 @@
 use cafe_fin_native_checks::{
     control::{ControlCommand, ControlPipe, ControlReply, ControlRequest},
-    maintenance_dto::{MaintenanceKind, MaintenancePhase, PendingTransition},
+    maintenance_dto::{
+        BootSession, MaintenanceKind, MaintenancePhase, PendingTransition, RuntimeState,
+    },
+    native_attach::{attach_existing, ExistingChild},
     native_guards::CloseProof,
     native_journal::{JournalStore, NativeJournal, StartupDisposition},
     native_paths::{check_local_path, derive_destination, reports_directory},
@@ -467,4 +470,173 @@ fn reports_reparse_substitution_after_selection_is_refused() {
     #[cfg(unix)]
     fs::remove_file(root.join("reports")).unwrap();
     assert!(other.is_dir());
+}
+
+struct AttachChild {
+    generation: String,
+    verified: bool,
+    alive_checks: usize,
+    fail_health: bool,
+    die_after_health: bool,
+    race_generation: bool,
+    boot: BootSession,
+}
+impl AttachChild {
+    fn target(root: &Path) -> Self {
+        Self {
+            generation: GENERATION.into(),
+            verified: true,
+            alive_checks: 0,
+            fail_health: false,
+            die_after_health: false,
+            race_generation: false,
+            boot: BootSession {
+                protocol_version: 1,
+                api_base: "http://127.0.0.1:48888/api/v1".into(),
+                session_token: "synthetic-target-app-session".into(),
+                data_root: root.to_str().unwrap().into(),
+                maintenance_protocol: Some(1),
+                generation: Some(GENERATION.into()),
+                runtime_state: Some(RuntimeState::Dormant),
+                pending_transition: None,
+            },
+        }
+    }
+}
+impl ExistingChild for AttachChild {
+    fn generation(&self) -> &str {
+        &self.generation
+    }
+    fn verified(&self) -> bool {
+        self.verified
+    }
+    fn check_alive(&mut self) -> Result<(), &'static str> {
+        self.alive_checks += 1;
+        if self.die_after_health && self.alive_checks == 2 {
+            Err("CHILD_EXITED")
+        } else {
+            Ok(())
+        }
+    }
+    fn check_health(&mut self) -> Result<(), &'static str> {
+        if self.race_generation {
+            self.generation = "00000000-0000-4000-8000-000000000099".into();
+        }
+        if self.fail_health {
+            Err("HEALTH_FAILED")
+        } else {
+            Ok(())
+        }
+    }
+    fn session(&self) -> &BootSession {
+        &self.boot
+    }
+}
+
+#[test]
+fn lost_run_ack_attaches_current_target_and_overlays_current_pending_binding() {
+    let fixture = Fixture::new();
+    let store = JournalStore::new(&fixture.directory("attach-config")).unwrap();
+    let mut journal = fixture.intent(MaintenanceKind::Move);
+    store.begin(&journal).unwrap();
+    prepared(&mut journal, &store);
+    // Source/current UUID may match after copy; physical target remains distinct.
+    assert_eq!(
+        journal.source_root_id,
+        journal.candidate_root_id.clone().unwrap()
+    );
+    let mut child = AttachChild::target(&journal.destination);
+    let pending = journal.summary(true);
+    let boot = attach_existing(Some(&mut child), Some(&pending), false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(boot.data_root, journal.destination.to_str().unwrap());
+    assert_ne!(boot.data_root, journal.source_root.to_str().unwrap());
+    assert_eq!(boot.session_token, "synthetic-target-app-session");
+    assert_eq!(boot.runtime_state, Some(RuntimeState::Dormant));
+    assert_eq!(boot.pending_transition.unwrap().operation_id, OP);
+    assert_eq!(child.alive_checks, 2);
+    // A second lost ACK produces the same app session; renderer still clears its
+    // stale source actor before authenticating against this target database.
+    let repeated = attach_existing(Some(&mut child), Some(&pending), false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(repeated.generation.as_deref(), Some(GENERATION));
+    assert_eq!(repeated.session_token, "synthetic-target-app-session");
+}
+
+#[test]
+fn pending_attach_has_no_spawn_initialize_or_old_root_fallback_branch() {
+    let pending = PendingTransition {
+        operation_id: OP.into(),
+        kind: MaintenanceKind::Restore,
+        phase: MaintenancePhase::CandidateDormant,
+        recovery_required: true,
+    };
+    assert_eq!(
+        attach_existing::<AttachChild>(None, Some(&pending), false).err(),
+        Some("MAINTENANCE_RECOVERY_HELD")
+    );
+    let mut child = AttachChild::target(Path::new("unused-synthetic-path"));
+    assert_eq!(
+        attach_existing(Some(&mut child), Some(&pending), true).err(),
+        Some("MAINTENANCE_RECOVERY_HELD")
+    );
+    child.verified = false;
+    assert_eq!(
+        attach_existing(Some(&mut child), Some(&pending), false).err(),
+        Some("MAINTENANCE_RECOVERY_HELD")
+    );
+    assert_eq!(child.alive_checks, 0);
+}
+
+#[test]
+fn attach_rejects_generation_race_stale_boot_health_failure_and_exit_after_probe() {
+    let pending = PendingTransition {
+        operation_id: OP.into(),
+        kind: MaintenanceKind::Move,
+        phase: MaintenancePhase::CandidateDormant,
+        recovery_required: true,
+    };
+    for mode in [
+        "generation-race",
+        "stale-boot",
+        "health-failed",
+        "died",
+        "unnegotiated",
+    ] {
+        let mut child = AttachChild::target(Path::new("unused-synthetic-path"));
+        match mode {
+            "generation-race" => child.race_generation = true,
+            "stale-boot" => child.boot.generation = Some(REQUEST.into()),
+            "health-failed" => child.fail_health = true,
+            "died" => child.die_after_health = true,
+            "unnegotiated" => child.boot.maintenance_protocol = None,
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            attach_existing(Some(&mut child), Some(&pending), false).err(),
+            Some("MAINTENANCE_RECOVERY_HELD")
+        );
+    }
+}
+
+#[test]
+fn lost_initial_start_ack_can_attach_legacy_verified_child_without_reinitializing() {
+    let mut child = AttachChild::target(Path::new("unused-synthetic-path"));
+    child.boot.maintenance_protocol = None;
+    child.boot.generation = None;
+    child.boot.runtime_state = Some(RuntimeState::Active);
+    let boot = attach_existing(Some(&mut child), None, false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(boot.session_token, "synthetic-target-app-session");
+    assert!(boot.pending_transition.is_none());
+    assert!(attach_existing::<AttachChild>(None, None, false)
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        attach_existing(Some(&mut child), None, true).err(),
+        Some("ATTACH_INITIALIZE_DENIED")
+    );
 }

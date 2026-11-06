@@ -142,6 +142,7 @@ pub struct ReportsReply {
     pub generation: String,
     pub allowed: bool,
     pub root_id: Option<String>,
+    pub source_fingerprint: Option<String>,
     pub status: Option<ReplyStatus>,
     pub code: Option<String>,
 }
@@ -264,6 +265,24 @@ impl<W: Write> ControlPipe<W> {
         Ok(())
     }
 
+    /// Existing boot-v1 parent shutdown only. This has no correlated CLOSED ACK
+    /// and must NEVER be used as proof for a maintenance/config transition.
+    pub fn send_legacy_shutdown(&mut self) -> Result<(), &'static str> {
+        if self.broken || !self.boot_received {
+            return Err("CONTROL_PIPE_FAILED");
+        }
+        if self.pending.is_some() {
+            return Err("CONTROL_REQUEST_PENDING");
+        }
+        self.writer
+            .write_all(b"{\"command\":\"shutdown\"}\n")
+            .and_then(|_| self.writer.flush())
+            .map_err(|_| {
+                self.broken = true;
+                "CONTROL_PIPE_FAILED"
+            })
+    }
+
     /// On timeout, caller retains journal and can wait for the SAME pending ACK.
     /// A late ACK is not permission to replay a new operation with changed inputs.
     pub fn receive(&mut self, timeout: Duration) -> Result<ControlReply, &'static str> {
@@ -345,6 +364,9 @@ fn decode_reply(frame: &[u8], expected: &Expected) -> Result<ControlReply, &'sta
             || reply.generation != expected.generation
             || reply.request_id != expected.request_id
             || reply.root_id.as_ref().is_some_and(|id| !valid_uuid(id))
+            || reply.source_fingerprint.as_ref().is_some_and(|value| {
+                value.is_empty() || value.len() > 256 || value.chars().any(char::is_control)
+            })
             || !valid_code(reply.code.as_deref())
             || (reply.allowed
                 && (reply.root_id.is_none()
