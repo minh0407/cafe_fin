@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Callable, TypeVar
+from urllib.parse import quote
 
 from sqlalchemy import (
     URL,
@@ -26,7 +27,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.pool import NullPool
 
 from .errors import CoreError
-from .modules import Migration
+from .modules import Migration, schema_checksum
 from .time import utc_now
 
 T = TypeVar("T")
@@ -71,8 +72,9 @@ def canonical_json(value) -> str:
 
 
 class Database:
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, *, create: bool = True):
         self.path = Path(path).resolve()
+        self._allow_initialize = create
         if sqlite3.sqlite_version_info < (3, 51, 3) or sqlite3.sqlite_version_info == (3, 52, 0):
             raise CoreError(
                 "SQLITE_UNSUPPORTED",
@@ -80,8 +82,32 @@ class Database:
                 503,
                 details={"sqlite_version": sqlite3.sqlite_version},
             )
+        if not self.path.is_file():
+            if not create:
+                raise CoreError(
+                    "DATABASE_MISSING",
+                    "Không tìm thấy cơ sở dữ liệu đã cấu hình. Kiểm tra ổ đĩa và khôi phục dữ liệu.",
+                    409,
+                )
+            try:
+                with self.path.open("xb"):
+                    pass
+            except OSError as exc:
+                raise CoreError(
+                    "DATABASE_UNAVAILABLE", "Không thể tạo cơ sở dữ liệu tại thư mục đã chọn.", 409
+                ) from exc
+        elif not create and self.path.stat().st_size == 0:
+            raise CoreError(
+                "DATABASE_INVALID",
+                "Cơ sở dữ liệu hiện có bị rỗng; cần kiểm tra hoặc khôi phục bản sao lưu.",
+                409,
+            )
+        # Every subsequent connection is mode=rw: losing the file can never create an
+        # empty replacement. Quote URI metacharacters while retaining the drive prefix.
+        database_uri = "file:" + quote(self.path.as_posix(), safe="/:")
+        self._source_uri = database_uri + "?mode=rw"
         self.engine = create_engine(
-            URL.create("sqlite", database=str(self.path)),
+            URL.create("sqlite", database=database_uri, query={"mode": "rw", "uri": "true"}),
             poolclass=NullPool,
             connect_args={"timeout": 10, "check_same_thread": False},
         )
@@ -101,23 +127,41 @@ class Database:
     @contextmanager
     def read(self):
         with self.engine.connect() as conn:
+            # Readers cannot accidentally bypass the serialized writer or retain writes.
+            # NullPool ensures this connection-local restriction never reaches a writer.
+            conn.exec_driver_sql("PRAGMA query_only=ON")
             yield conn
 
     def migrate(self, migrations: tuple[Migration, ...] = ()) -> None:
         """Run at boot before readers/jobs. Versions are contiguous within each namespace."""
-        planned = {("core", 1): Migration("core", 1, "foundation_tables", metadata.create_all)}
+        planned = {
+            ("core", 1): Migration(
+                "core",
+                1,
+                "foundation_tables",
+                metadata.create_all,
+                checksum=schema_checksum(metadata),
+            )
+        }
         for migration in migrations:
             key = migration.namespace, migration.version
             if key in planned:
                 raise CoreError("DUPLICATE_MIGRATION", "Migration bị đăng ký lặp.", 503)
             planned[key] = migration
-        for namespace in {key[0] for key in planned}:
+        namespaces = list(dict.fromkeys(key[0] for key in planned))
+        for namespace in namespaces:
             versions = sorted(v for ns, v in planned if ns == namespace)
             if versions != list(range(1, len(versions) + 1)):
                 raise CoreError("MIGRATION_GAP", "Thiếu thứ tự migration.", 503)
         with self.engine.connect() as conn:
             conn.exec_driver_sql("BEGIN IMMEDIATE")
             try:
+                if not self._allow_initialize and not conn.dialect.has_table(conn, SCHEMA.name):
+                    raise CoreError(
+                        "DATABASE_INVALID",
+                        "Cơ sở dữ liệu chưa có registry Cafe Fin; không tự khởi tạo dữ liệu thay thế.",
+                        409,
+                    )
                 SCHEMA.create(conn, checkfirst=True)
                 applied = {
                     (row.namespace, row.version): row
@@ -133,8 +177,16 @@ class Database:
                         raise CoreError(
                             "MIGRATION_CHANGED", "Migration đã áp dụng bị thay đổi.", 409
                         )
-                # Caller orders module migrations by ModuleRegistry. Preserve that dependency order.
-                for key, migration in planned.items():
+                # Preserve first-seen namespace dependency order, sorting versions inside
+                # each namespace even when a caller supplied its migration tuple backwards.
+                ordered_keys = [
+                    key
+                    for namespace in namespaces
+                    for key in sorted(planned)
+                    if key[0] == namespace
+                ]
+                for key in ordered_keys:
+                    migration = planned[key]
                     if key not in applied:
                         migration.apply(conn)
                         conn.execute(
@@ -154,7 +206,7 @@ class Database:
     def backup_to(self, destination: Path | str) -> None:
         """Call inside writer.barrier, with no write transaction held."""
         with (
-            closing(sqlite3.connect(self.path)) as source,
+            closing(sqlite3.connect(self._source_uri, uri=True)) as source,
             closing(sqlite3.connect(destination)) as target,
         ):
             source.backup(target, pages=256)

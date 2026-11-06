@@ -16,7 +16,7 @@ from sqlalchemy import Boolean, Column, Integer, MetaData, String, Table, func, 
 from .audit import AuditService, require_version
 from .db import Database, WriteCoordinator
 from .errors import CoreError
-from .modules import Migration
+from .modules import Migration, schema_checksum
 from .time import utc_now
 
 _meta = MetaData()
@@ -32,7 +32,9 @@ USERS = Table(
     Column("created_at", String, nullable=False),
     Column("updated_at", String, nullable=False),
 )
-MIGRATIONS = (Migration("core_auth", 1, "local_users", _meta.create_all),)
+MIGRATIONS = (
+    Migration("core_auth", 1, "local_users", _meta.create_all, checksum=schema_checksum(_meta)),
+)
 OPERATOR_PERMISSIONS = (
     "core.read",
     "core.write",
@@ -78,7 +80,7 @@ class AuthService:
         self._dummy = self._hasher.hash(secrets.token_urlsafe(24))
         self._lock = threading.Lock()
         self._sessions: dict[str, tuple[str, float]] = {}
-        self._failures: deque[float] = deque()
+        self._failures: deque[tuple[float, object]] = deque()
 
     @staticmethod
     def _validate(username: str, password: str):
@@ -155,14 +157,15 @@ class AuthService:
             raise CoreError("LOGIN_FAILED", "Tài khoản hoặc mật khẩu không đúng.", 401)
         with self._lock:
             now = time.monotonic()
-            while self._failures and self._failures[0] < now - 60:
+            while self._failures and self._failures[0][0] < now - 60:
                 self._failures.popleft()
             if len(self._failures) >= 8:
                 raise CoreError(
                     "LOGIN_RATE_LIMIT", "Đăng nhập sai nhiều lần, hãy thử lại sau.", 429
                 )
             # Reserve the attempt before expensive hashing to bound concurrent brute force.
-            self._failures.append(now)
+            reservation = (now, object())
+            self._failures.append(reservation)
         with self.database.read() as conn:
             row = conn.execute(select(USERS).where(USERS.c.username == username)).mappings().first()
         try:
@@ -171,6 +174,12 @@ class AuthService:
             valid = False
         if not row or not valid or not row.active:
             raise CoreError("LOGIN_FAILED", "Tài khoản hoặc mật khẩu không đúng.", 401)
+        with self._lock:
+            try:
+                self._failures.remove(reservation)
+            except ValueError:
+                # A very slow successful hash may have aged out of the window already.
+                pass
         return self._issue(self._principal(row))
 
     def authenticate(self, token: str | None) -> Principal:

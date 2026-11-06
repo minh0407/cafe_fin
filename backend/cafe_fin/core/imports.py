@@ -34,7 +34,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.sql.elements import ColumnElement
 
 from .errors import CoreError
-from .modules import Migration
+from .modules import Migration, schema_checksum
 from .time import utc_now
 
 MAX_CHUNK_ROWS = 500
@@ -124,26 +124,39 @@ def _hash(value: str) -> str:
     return sha256(value.encode("utf-8")).hexdigest()
 
 
+_TRIGGER_RULES = {
+    "core_import_manifest_sealed_update": "BEFORE UPDATE ON core_import_manifests WHEN OLD.state = 'SEALED'",
+    "core_import_manifest_delete": "BEFORE DELETE ON core_import_manifests",
+    "core_import_row_update": "BEFORE UPDATE ON core_import_manifest_rows",
+    "core_import_row_delete": "BEFORE DELETE ON core_import_manifest_rows",
+    "core_import_row_sealed_insert": "BEFORE INSERT ON core_import_manifest_rows WHEN (SELECT state FROM core_import_manifests WHERE id = NEW.manifest_id) != 'BUILDING'",
+    "core_import_attempt_pins_update": "BEFORE UPDATE ON core_import_attempts WHEN NEW.manifest_id != OLD.manifest_id OR NEW.job_id != OLD.job_id OR NEW.expected_count != OLD.expected_count",
+    "core_import_receipt_update": "BEFORE UPDATE ON core_import_receipts",
+    "core_import_receipt_delete": "BEFORE DELETE ON core_import_receipts",
+    "core_import_claim_update": "BEFORE UPDATE ON core_import_claims",
+}
+IMPORT_TRIGGER_STATEMENTS = tuple(
+    f"CREATE TRIGGER {name} {statement} BEGIN SELECT RAISE(ABORT, 'immutable import snapshot'); END"
+    for name, statement in _TRIGGER_RULES.items()
+)
+
+
 def _apply(conn: Connection) -> None:
     metadata.create_all(conn)
-    # Enforce immutability in SQLite, including against accidental domain SQL updates.
-    for name, statement in {
-        "core_import_manifest_sealed_update": "BEFORE UPDATE ON core_import_manifests WHEN OLD.state = 'SEALED'",
-        "core_import_manifest_delete": "BEFORE DELETE ON core_import_manifests",
-        "core_import_row_update": "BEFORE UPDATE ON core_import_manifest_rows",
-        "core_import_row_delete": "BEFORE DELETE ON core_import_manifest_rows",
-        "core_import_row_sealed_insert": "BEFORE INSERT ON core_import_manifest_rows WHEN (SELECT state FROM core_import_manifests WHERE id = NEW.manifest_id) != 'BUILDING'",
-        "core_import_attempt_pins_update": "BEFORE UPDATE ON core_import_attempts WHEN NEW.manifest_id != OLD.manifest_id OR NEW.job_id != OLD.job_id OR NEW.expected_count != OLD.expected_count",
-        "core_import_receipt_update": "BEFORE UPDATE ON core_import_receipts",
-        "core_import_receipt_delete": "BEFORE DELETE ON core_import_receipts",
-        "core_import_claim_update": "BEFORE UPDATE ON core_import_claims",
-    }.items():
-        conn.exec_driver_sql(
-            f"CREATE TRIGGER {name} {statement} BEGIN SELECT RAISE(ABORT, 'immutable import snapshot'); END"
-        )
+    # Exactly these declared statements are both applied and included in the checksum.
+    for statement in IMPORT_TRIGGER_STATEMENTS:
+        conn.exec_driver_sql(statement)
 
 
-MIGRATIONS = (Migration("core_imports", 1, "immutable import manifests and attempts", _apply),)
+MIGRATIONS = (
+    Migration(
+        "core_imports",
+        1,
+        "immutable import manifests and attempts",
+        _apply,
+        checksum=schema_checksum(metadata, IMPORT_TRIGGER_STATEMENTS),
+    ),
+)
 
 
 @dataclass(frozen=True)

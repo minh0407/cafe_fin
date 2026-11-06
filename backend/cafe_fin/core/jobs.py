@@ -3,6 +3,7 @@
 import hashlib
 import json
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Callable
@@ -22,7 +23,7 @@ from sqlalchemy import (
 
 from .db import Database, WriteCoordinator, canonical_json
 from .errors import CoreError
-from .modules import Migration
+from .modules import Migration, schema_checksum
 from .time import utc_now
 
 _metadata = MetaData()
@@ -51,7 +52,15 @@ RECEIPTS = Table(
     Column("payload_hash", String, nullable=False),
     Column("result_json", Text, nullable=False),
 )
-MIGRATIONS = (Migration("core_jobs", 1, "durable_jobs_and_receipts", _metadata.create_all),)
+MIGRATIONS = (
+    Migration(
+        "core_jobs",
+        1,
+        "durable_jobs_and_receipts",
+        _metadata.create_all,
+        checksum=schema_checksum(_metadata),
+    ),
+)
 
 
 def _dto(row):
@@ -291,6 +300,7 @@ class JobRunner:
     def __init__(self, service: JobService):
         self.service = service
         self.stop_event = threading.Event()
+        self.error_code: str | None = None
         self.thread = threading.Thread(target=self._loop, name="cafe-fin-jobs", daemon=True)
 
     def start(self):
@@ -316,9 +326,35 @@ class JobRunner:
             )
             return dict(row)
 
+    def _write_with_backpressure(self, operation: Callable, *, finish: bool = False):
+        while finish or not self.stop_event.is_set():
+            try:
+                return self.service.writer.run(operation)
+            except CoreError as exc:
+                if exc.code != "WRITER_BUSY":
+                    raise
+                # A claimed job must durably finish even during graceful shutdown.
+                # Other failures are surfaced by _loop; never retry programming errors.
+                if finish and self.stop_event.is_set():
+                    time.sleep(0.05)
+                else:
+                    self.stop_event.wait(0.05)
+        return None
+
     def _loop(self):
+        try:
+            self._run_loop()
+        except CoreError as exc:
+            self.error_code = exc.code
+            self.stop_event.set()
+        except Exception:
+            # Health exposes only the stable code, never payloads or exception text.
+            self.error_code = "JOB_RUNNER_FAILED"
+            self.stop_event.set()
+
+    def _run_loop(self):
         while not self.stop_event.is_set():
-            row = self.service.writer.run(self._claim)
+            row = self._write_with_backpressure(self._claim)
             if row is None:
                 self.service.wake.wait(0.2)
                 self.service.wake.clear()
@@ -329,6 +365,7 @@ class JobRunner:
                 if not handler:
                     raise CoreError("UNKNOWN_JOB", "Tác vụ chưa được đăng ký.")
                 context = JobContext(self.service, row["id"], self.stop_event)
+                context.check_cancelled()
                 handler.run(context, json.loads(row["payload_json"]))
                 if self.service.status(row["id"])["state"] != "COMPLETED":
                     context.check_cancelled()
@@ -353,7 +390,7 @@ class JobRunner:
                     .values(state=final_state, error_code=error, updated_at=utc_now())
                 )
 
-            self.service.writer.run(finish)
+            self._write_with_backpressure(finish, finish=True)
 
     def close(self):
         self.stop_event.set()

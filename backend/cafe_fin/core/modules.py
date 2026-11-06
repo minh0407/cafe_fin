@@ -1,13 +1,37 @@
 """Module registration is explicit; discovery never executes arbitrary disk plugins."""
 
 import hashlib
+import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Callable
 
-from sqlalchemy import Connection
+from sqlalchemy import Connection, MetaData
+from sqlalchemy.dialects import sqlite
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 from .errors import CoreError
+
+
+def schema_checksum(metadata: MetaData, statements: Iterable[str] = ()) -> str:
+    """Fingerprint deterministic SQLite DDL, including indexes and declared triggers.
+
+    Data-only/ALTER migrations must also pass their exact ordered SQL statements here.
+    No runtime source introspection is needed, so signatures work in frozen sidecars.
+    """
+    dialect = sqlite.dialect()
+    ddl: list[str] = []
+    for table in sorted(metadata.tables.values(), key=lambda item: item.fullname):
+        ddl.append(str(CreateTable(table).compile(dialect=dialect)).strip())
+        ddl.extend(
+            sorted(
+                str(CreateIndex(index).compile(dialect=dialect)).strip() for index in table.indexes
+            )
+        )
+    ddl.extend(statement.replace("\r\n", "\n").strip() for statement in statements)
+    encoded = json.dumps(ddl, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -49,6 +73,11 @@ class ModuleRegistry:
             raise CoreError("INVALID_MODULE", "API prefix không thuộc module.")
         if any(m.namespace != module.id for m in module.migrations):
             raise CoreError("INVALID_MIGRATION", "Migration phải thuộc namespace module.")
+        if any(not re.fullmatch(r"[0-9a-f]{64}", m.checksum) for m in module.migrations):
+            raise CoreError(
+                "MIGRATION_CHECKSUM_REQUIRED",
+                "Migration module phải khai báo checksum schema/SQL hợp lệ.",
+            )
         self._modules[module.id] = module
 
     def ordered(self) -> tuple[ModuleManifest, ...]:
