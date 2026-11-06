@@ -34,6 +34,7 @@ export interface User {
   username: string;
   role: "admin" | "operator";
   permissions: string[];
+  version: number;
 }
 export interface AuthResponse {
   access_token: string;
@@ -85,7 +86,7 @@ export interface ImportCounts {
   published_rows: number;
   pending: number;
 }
-export type JobState =
+export type ImportJobState =
   | "UPLOADED"
   | "PARSING"
   | "READY_FOR_MAPPING"
@@ -97,3 +98,28 @@ export type JobState =
   | "CANCELLED"
   | "FAILED"
   | "RECOVERABLE";
+
+// Core execution state is distinct from an accounting import's domain state/phase.
+export type JobState =
+  | "WAITING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED"
+  | "RECOVERABLE";
+
+export interface JobDTO {
+  id: string;
+  kind: string;
+  actor: string;
+  state: JobState;
+  phase: string;
+  attempts: number;
+  generation: number;
+  counts: Record<string, number>;
+  checkpoint: Record<string, unknown>;
+  cancel_requested: boolean;
+  error_code: string | null;
+  created_at: string;
+  updated_at: string;
+}

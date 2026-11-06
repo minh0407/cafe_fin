@@ -31,6 +31,18 @@ export function App() {
   const [initialize, setInitialize] = useState(false);
   const [route, setRoute] = useState(location.hash.slice(1) || "/foundation");
   const initialized = useRef(false);
+  useEffect(
+    () =>
+      useSession.subscribe((current, previous) => {
+        if (current.generation === previous.generation) return;
+        void cache.cancelQueries();
+        cache.clear();
+        setError("");
+        setBusy(false);
+        authForm.resetFields();
+      }),
+    [cache, authForm],
+  );
   useEffect(() => {
     const changed = () => setRoute(location.hash.slice(1) || "/foundation");
     addEventListener("hashchange", changed);
@@ -39,46 +51,59 @@ export function App() {
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
+    let generation = useSession.getState().generation;
     void desktop
       .status()
       .then(async (status) => {
+        if (useSession.getState().generation !== generation) return;
         setPath(status.data_root);
         if (status.data_root) {
           setBusy(true);
           try {
-            useSession.getState().setBoot(await desktop.start(false));
+            const boot = await desktop.start(false);
+            if (useSession.getState().generation !== generation) return;
+            useSession.getState().setBoot(boot);
+            generation += 1;
           } finally {
-            setBusy(false);
+            if (useSession.getState().generation === generation) setBusy(false);
           }
         }
       })
-      .catch((err) => setError(messageOf(err)));
+      .catch((err) => {
+        if (useSession.getState().generation === generation)
+          setError(messageOf(err));
+      });
   }, []);
   const health = useQuery({
-    queryKey: ["health", session.boot?.api_base],
+    queryKey: ["health", session.generation, session.boot?.api_base],
     queryFn: () => api<Health>("/health", {}, false),
     enabled: !!session.boot,
     refetchInterval: 5000,
     retry: false,
   });
   async function start(restart = false) {
+    let generation = useSession.getState().generation + 1;
+    useSession.getState().logout();
+    if (useSession.getState().generation !== generation) return;
     setBusy(true);
     setError("");
     cache.clear();
-    useSession.getState().logout();
     try {
-      useSession
-        .getState()
-        .setBoot(
-          restart ? await desktop.restart() : await desktop.start(initialize),
-        );
+      const boot = restart
+        ? await desktop.restart()
+        : await desktop.start(initialize);
+      if (useSession.getState().generation !== generation) return;
+      useSession.getState().setBoot(boot);
+      generation += 1;
     } catch (err) {
-      setError(messageOf(err));
+      if (useSession.getState().generation === generation)
+        setError(messageOf(err));
     } finally {
-      setBusy(false);
+      if (useSession.getState().generation === generation) setBusy(false);
     }
   }
   async function authenticate(values: { username: string; password: string }) {
+    let generation = useSession.getState().generation;
     setBusy(true);
     setError("");
     try {
@@ -87,9 +112,11 @@ export function App() {
         { method: "POST", body: JSON.stringify(values) },
         false,
       );
+      if (useSession.getState().generation !== generation) return;
       useSession.getState().login(auth.access_token, auth.user);
-      await health.refetch();
+      generation += 1;
     } catch (err) {
+      if (useSession.getState().generation !== generation) return;
       if (err instanceof ApiError)
         authForm.setFields(
           err.fields.map((field) => ({
@@ -99,19 +126,24 @@ export function App() {
         );
       setError(messageOf(err));
     } finally {
-      setBusy(false);
+      if (useSession.getState().generation === generation) setBusy(false);
     }
   }
   async function logout() {
+    const generation = useSession.getState().generation;
+    let failure = "";
+    setBusy(true);
     try {
       await api("/auth/logout", { method: "POST" });
     } catch (err) {
-      setError(messageOf(err));
+      if (useSession.getState().generation === generation)
+        failure = messageOf(err);
     } finally {
-      useSession.getState().logout();
-      cache.removeQueries({
-        predicate: (query) => query.queryKey[0] !== "health",
-      });
+      if (useSession.getState().generation === generation) {
+        useSession.getState().logout();
+        setBusy(false);
+        if (failure) setError(failure);
+      }
     }
   }
   const available = modules.filter(
@@ -144,7 +176,9 @@ export function App() {
           {session.user && (
             <>
               <span>{session.user.username}</span>
-              <Button onClick={() => void logout()}>Đăng xuất</Button>
+              <Button loading={busy} onClick={() => void logout()}>
+                Đăng xuất
+              </Button>
             </>
           )}
         </Space>
@@ -258,7 +292,7 @@ export function App() {
           </Card>
         </Layout.Content>
       ) : (
-        <Layout>
+        <Layout key={session.generation}>
           <Layout.Sider theme="light" width={220}>
             <Menu
               selectedKeys={[route]}

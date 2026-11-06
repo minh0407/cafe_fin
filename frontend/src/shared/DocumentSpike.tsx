@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Button, Card, List, Space, Typography } from "antd";
 import { api, messageOf } from "./api";
+import { useSession } from "./session";
 interface SpikeDocument {
   format: string;
   file_id: string;
@@ -13,26 +14,31 @@ interface DocumentResult {
   errors: { format: string; code: string; message: string }[];
 }
 export function DocumentSpike() {
+  const ownerGeneration = useRef(useSession.getState().generation).current;
   const [result, setResult] = useState<DocumentResult | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function generate() {
+    const generation = ownerGeneration;
+    if (useSession.getState().generation !== generation) return;
     setBusy(true);
     setError("");
     try {
-      setResult(
-        await api<DocumentResult>("/spikes/documents", {
-          method: "POST",
-          body: JSON.stringify({ request_key: crypto.randomUUID() }),
-        }),
-      );
+      const output = await api<DocumentResult>("/spikes/documents", {
+        method: "POST",
+        body: JSON.stringify({ request_key: crypto.randomUUID() }),
+      });
+      if (useSession.getState().generation === generation) setResult(output);
     } catch (err) {
-      setError(messageOf(err));
+      if (useSession.getState().generation === generation)
+        setError(messageOf(err));
     } finally {
-      setBusy(false);
+      if (useSession.getState().generation === generation) setBusy(false);
     }
   }
   async function download(document: SpikeDocument) {
+    const generation = ownerGeneration;
+    if (useSession.getState().generation !== generation) return;
     setError("");
     try {
       const blob = await api<Blob>(
@@ -41,6 +47,7 @@ export function DocumentSpike() {
         true,
         "blob",
       );
+      if (useSession.getState().generation !== generation) return;
       const url = URL.createObjectURL(blob);
       const link = window.document.createElement("a");
       link.href = url;
@@ -48,7 +55,8 @@ export function DocumentSpike() {
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
-      setError(messageOf(err));
+      if (useSession.getState().generation === generation)
+        setError(messageOf(err));
     }
   }
   return (
