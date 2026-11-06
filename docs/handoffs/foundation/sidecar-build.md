@@ -1,9 +1,9 @@
 # Windows sidecar build
 
 Current final candidate: backend source commit
-`976475c1df7b78eb7e7e9a32105e9f1d79945994`, executable SHA-256
-`ef636343329730d3b0cc6a73f9f6c72c55d0121fb149a75b0ec1baac324f357e`,
-33,008,864 bytes. Build, archive/native inventory and expanded frozen runtime
+`3fd4aa0edb91189f2f5a81f7c0ef3f658daf8fb3`, executable SHA-256
+`b9377e8a173a92eac8827a4a73bdf503d185cdb8cc40151f498babfe98384ecb`,
+33,017,856 bytes. Build, archive/native inventory and expanded frozen runtime
 smoke PASS on the developer Windows host. Final details are below; an earlier
 hash's Application Control block is retained as distinct historical evidence.
 Clean-Windows installer acceptance, DOCX visual/print and iconv provenance
@@ -203,3 +203,110 @@ The smoke driver is outside the repository at
 `%TEMP%\cafe-fin-frozen-sidecar-smoke.py`. Root owns committing source and
 reviewable notices. The executable and proof data remain ignored/outside Git;
 no commit, push, merge, release or READY tag was made by this subtask.
+
+### Superseding final source freeze 3fd4aa0
+
+The parent fixed reviewed HTTP/export/file-stream issues and froze the backend
+again at `3fd4aa0edb91189f2f5a81f7c0ef3f658daf8fb3`. One build was run for those
+committed source changes. The backend diff against that commit was empty before
+and after build. No Python source/dependency changes or security-policy changes
+were made by this packaging subtask.
+
+Current executable SHA-256:
+`b9377e8a173a92eac8827a4a73bdf503d185cdb8cc40151f498babfe98384ecb`.
+Current size: **33,017,856 bytes**. Build/native-archive checks PASS, with 51
+DLL/PYD entries. `desktop/notices/sidecar-native-inventory.json` now identifies
+this hash and supersedes the previous candidate inventory.
+
+The expanded frozen smoke PASS results above were rerun against this exact
+executable, including the raw UTF-8 root, handshake/error/auth/origin guards,
+module registration/migration/idempotent note, actual XLSX paging, both document
+formats, per-format downloads/receipts, a competing second process, logout-free
+restart with a new sidecar token, persisted local user/note and orderly shutdown.
+
+Additional frozen HTTP proof: a 2,097,421-byte synthetic binary original,
+labelled `Nguồn tổng hợp 0001.xlsm`, was uploaded as a raw octet stream. Metadata
+size/hash, downloaded bytes, same-key replay and changed-payload 409 conflict
+all PASS. These checks were repeated after sidecar restart against the same
+saved original. This fixture tests byte preservation, not XLSM parsing or VBA
+fidelity; no macro was executed. It exceeds the 2 MiB JSON-command limit while
+using the bounded raw-file endpoint.
+
+Final PDF/DOCX text and shared snapshot identity PASS. Final PDF Poppler render
+produced one page and was visually inspected without overlap, clipping or
+Vietnamese glyph loss. DOCX visual/printing and clean-Windows NSIS acceptance
+remain NOT RUN. Proof directory:
+`%TEMP%\cafe-fin-frozen-proof-f2ywx5ki`.
+
+- DOCX SHA-256: `387431ba3c30eaad02f54ca5a3cb9eee9770b1256992c9278042223e959505ba`
+- PDF SHA-256: `9ec11b6c6885315cfa4aea93f3fb119cba6972b8cb9088ed7ae5e97495e696b6`
+- Snapshot SHA-256: `4fdbb1ccade9fe86b9b02915bf9c8c5a1f06faafebf9c8ac9916efc9e5be0b1d`
+
+### Additional iconv provenance investigation
+
+The exact locked Windows CPython 3.12 wheel is
+https://files.pythonhosted.org/packages/1b/89/45198e9624762af2dfd2cb8782598477ceb29f6e59caab560388ae1f4ec1/lxml-6.1.1-cp312-cp312-win_amd64.whl .
+Its downloaded SHA-256 is
+`26e6eda8d38c1fcab1090dd196ee87cbd13788e531937610e2589085de074e77`,
+matching `uv.lock`. Its `etree.cp312-win_amd64.pyd` is byte-identical to the
+installed file, SHA-256
+`b5cef7d22ab972de3fee18e3787730ba74ecd12d5896eaa3660ebde418219669`.
+The wheel's generated `xmlversion.h` specifies libxml2 2.11.9 and iconv enabled,
+matching the loaded module. It has no iconv header, source archive, native-build
+manifest or relink objects. The PyPI provenance endpoint for this exact wheel
+returned HTTP 404:
+https://pypi.org/integrity/lxml/6.1.1/lxml-6.1.1-cp312-cp312-win_amd64.whl/provenance .
+
+The lxml tag `lxml-6.1.1` resolves to source commit
+`b4a4c595fb875d6f50ae113449834209a364643a`. Its Windows build helper selects
+prebuilt static libraries from the most recent lxml Windows-native release;
+the generic workflow's `LIBICONV_VERSION=1.18` setting alone does not establish
+the Windows artifact's linked iconv version. Sources:
+https://raw.githubusercontent.com/lxml/lxml/b4a4c595fb875d6f50ae113449834209a364643a/buildlibxml.py and
+https://raw.githubusercontent.com/lxml/lxml/b4a4c595fb875d6f50ae113449834209a364643a/.github/workflows/wheels.yml .
+
+The preceding native release `2026.05.17`, commit
+`4e8ae01f61145dc823ce2ae1d79f06241b7b46de`, has verified build rules for
+`iconv-1.17.1.win64`, `libxml2-2.11.9.win64`, `libxslt-1.1.45.win64` and zlib
+1.3.2. It compiles the iconv static project and bundles its static library.
+Its gitlink fixes `winlibs/libiconv` at
+`880a1fa8b5581e37e136a7b051947d3ea39097b6`. The corresponding MSVC project,
+source and LGPL license are publicly available; the parent build's
+`libiconv.patch` records SDK/project changes. Verified primary sources:
+
+- https://github.com/lxml/libxml2-win-binaries/tree/4e8ae01f61145dc823ce2ae1d79f06241b7b46de
+- https://raw.githubusercontent.com/lxml/libxml2-win-binaries/4e8ae01f61145dc823ce2ae1d79f06241b7b46de/build.ps1
+- https://raw.githubusercontent.com/lxml/libxml2-win-binaries/4e8ae01f61145dc823ce2ae1d79f06241b7b46de/.gitmodules
+- https://raw.githubusercontent.com/lxml/libxml2-win-binaries/4e8ae01f61145dc823ce2ae1d79f06241b7b46de/libiconv.patch
+- https://github.com/winlibs/libiconv/tree/880a1fa8b5581e37e136a7b051947d3ea39097b6
+
+The native release asset
+https://github.com/lxml/libxml2-win-binaries/releases/download/2026.05.17/iconv-1.17.1.win64.zip
+was downloaded and verified as SHA-256
+`090225898fc0b37fe1f0d3ecc3938c926de77cd7f8c3636a5c9712b61e7af849`.
+It contains `iconv_a.lib`, `iconv_a.pdb` and headers. Its iconv header defines
+`_LIBICONV_VERSION` as `0x0111` (GNU libiconv 1.17); the Windows release package
+labels its fork as 1.17.1. The source header has the same version constant:
+https://raw.githubusercontent.com/winlibs/libiconv/880a1fa8b5581e37e136a7b051947d3ea39097b6/source/include/iconv.h .
+The final wheel PE exports only `PyInit_etree`, without a readable exported
+`_libiconv_version`, and imports no iconv DLL. An arbitrary integer match in
+stripped PE data would not prove a version. The release recipe and matching
+libxml2/libxslt versions support Windows libiconv 1.17.1 as the corresponding
+upstream build; an artifact-specific attestation/reproducible link has not been
+established, so this report does not promote that inference to binary proof.
+
+The corresponding library license is LGPL 2.1:
+https://raw.githubusercontent.com/winlibs/libiconv/880a1fa8b5581e37e136a7b051947d3ea39097b6/source/COPYING.LIB .
+Its Section 6 requires prominent library/license notices and terms allowing
+user modification and debugging of modifications. The static-link route in
+6(a) requires corresponding library source including changes, plus source or
+object material for the linked work sufficient to relink with a modified
+library; build scripts and required data also matter. A copied license alone
+does not demonstrate that route has been fulfilled.
+
+Research therefore narrows the unresolved gate: the upstream Windows source
+commit/version/project/patch chain is identified, but the candidate does not
+ship a verified corresponding-source/relink package or an artifact-specific
+build proof. Those deliverables and the applicable distribution terms must be
+completed before commercial redistribution is called cleared. No paid license,
+dependency replacement or backend change was used to bypass the obligations.
