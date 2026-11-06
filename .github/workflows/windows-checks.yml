@@ -81,6 +81,10 @@ jobs:
         run: cargo fmt --manifest-path desktop/Cargo.toml -- --check
       - name: Build Python sidecar and notices
         run: ./desktop/scripts/build-sidecar.ps1
+      - name: Smoke frozen sidecar without developer PATH
+        run: |
+          $env:CAFE_FIN_TEST_SIDECAR = (Resolve-Path 'desktop/binaries/cafe-fin-sidecar-x86_64-pc-windows-msvc.exe').Path
+          uv run --frozen python -m pytest tests/core/test_api_sidecar.py::test_sidecar_real_loopback_unicode_second_instance_and_restart -q
       - name: Build native installer candidate
         working-directory: desktop
         run: ../frontend/node_modules/.bin/tauri.cmd build --bundles nsis --ci -- --locked
@@ -93,7 +97,9 @@ jobs:
           "This runner is a build environment, not clean Windows client acceptance. No release was published." >> $env:GITHUB_STEP_SUMMARY
           foreach ($candidate in $candidateFiles) {
             $digest = Get-FileHash -LiteralPath $candidate.FullName -Algorithm SHA256
-            "$($candidate.Name) | $($candidate.Length) bytes | SHA256 $($digest.Hash)" >> $env:GITHUB_STEP_SUMMARY
+            $receipt = "$($candidate.Name) | $($candidate.Length) bytes | SHA256 $($digest.Hash)"
+            Write-Output $receipt
+            $receipt >> $env:GITHUB_STEP_SUMMARY
           }
 
 # Only source and synthetic fixtures run here. No application data, credentials,
