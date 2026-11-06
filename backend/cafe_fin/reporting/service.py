@@ -253,7 +253,7 @@ class ReportingService:
                 io.BytesIO(content),
                 category="reports",
                 original_name=f"CafeFin-{row.from_on}-v{row.version}.{command.format}",
-                actor=actor.id,
+                actor="reporting.export",
                 request_key=f"report-{identity}-{command.format}",
                 media_type=media_type,
                 authorize=self.authorize(actor),
@@ -592,7 +592,7 @@ class ReportingService:
             conn.execute(
                 OUTBOX.update()
                 .where(
-                    OUTBOX.c.state == "SENDING",
+                    OUTBOX.c.state.in_(("SENDING", "UNKNOWN")),
                     OUTBOX.c.message_id.is_not(None),
                     OUTBOX.c.attachment_export_id.is_(None),
                 )

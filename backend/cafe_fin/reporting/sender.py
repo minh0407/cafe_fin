@@ -6,7 +6,7 @@ from contextlib import contextmanager
 
 from sqlalchemy import select
 
-from cafe_fin.core.audit import AuditService
+from cafe_fin.core.audit import AuditService, require_version
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.time import utc_now
 
@@ -64,11 +64,34 @@ def sender_lock(service):
             )
 
 
-def finish(service, identity, state, phase, *, code=None, message_id=None, file_message_id=None):
+def finish(
+    service,
+    identity,
+    state,
+    phase,
+    *,
+    code=None,
+    message_id=None,
+    file_message_id=None,
+    authorize=None,
+    expected_version=None,
+    expected_state=None,
+):
     code = safe_code(code)
 
     def operation(conn):
+        nonlocal state, phase, code
+        if authorize is not None:
+            authorize(conn)
         row = conn.execute(select(OUTBOX).where(OUTBOX.c.id == identity)).mappings().one()
+        if expected_version is not None:
+            require_version(row.version, expected_version)
+        if expected_state is not None and row.state != expected_state:
+            raise CoreError("DELIVERY_RECONCILE_CONFLICT", "Trạng thái lượt gửi đã đổi.", 409)
+        if row.state == "SENT":
+            return outbox_dto(row)
+        if state == "UNKNOWN" and row.message_id and not row.attachment_export_id:
+            state, phase, code = "SENT", "complete", None
         values = dict(
             state=state, phase=phase, error_code=code, version=row.version + 1, updated_at=utc_now()
         )
@@ -158,6 +181,7 @@ def dispatch_one(service):
         if not row:
             return {"state": "IDLE"}
         identity, phase = row["id"], "preflight"
+        confirmed_text = confirmed_file = None
         try:
             if json.loads(row["payload_json"]).get("date_range_contract") != DATE_RANGE_CONTRACT:
                 raise DeliveryError("REPORT_PERIOD_CONTRACT_REQUIRED")
@@ -180,6 +204,9 @@ def dispatch_one(service):
                     r"[A-Za-z0-9_-]{1,256}", receipt
                 ):
                     raise DeliveryError("ZALO_RECEIPT_INVALID", unknown=True)
+                confirmed_text = receipt
+                if not row["attachment_export_id"]:
+                    return finish(service, identity, "SENT", "complete", message_id=receipt)
                 # Save text receipt before any attachment work. Crash cannot resend text.
                 finish(
                     service,
@@ -209,6 +236,7 @@ def dispatch_one(service):
                     r"[A-Za-z0-9_-]{1,256}", receipt
                 ):
                     raise DeliveryError("ZALO_RECEIPT_INVALID", unknown=True)
+                confirmed_file = receipt
                 return finish(service, identity, "SENT", "complete", file_message_id=receipt)
             return finish(service, identity, "SENT", "complete")
         except DeliveryError as exc:
@@ -219,6 +247,10 @@ def dispatch_one(service):
             )
             return finish(service, identity, state, phase, code=exc.code)
         except Exception:
+            if confirmed_file:
+                return finish(service, identity, "SENT", "complete", file_message_id=confirmed_file)
+            if confirmed_text and not row["attachment_export_id"]:
+                return finish(service, identity, "SENT", "complete", message_id=confirmed_text)
             # Unknown implementation/IO error after entering send: keep ambiguous,
             # persist only a fixed code, never exception text or credential values.
             return finish(
@@ -278,5 +310,21 @@ def reconcile(service, actor, identity, command):
             and row.phase == "text"
             and not row.attachment_export_id
         ):
-            return finish(service, identity, "SENT", "complete", message_id=receipt)
-        return outbox_dto(row)  # unresolved -> stays UNKNOWN, no retry or fabricated success
+            return finish(
+                service,
+                identity,
+                "SENT",
+                "complete",
+                message_id=receipt,
+                authorize=service.authorize(actor, "core.manage"),
+                expected_version=command.expected_version,
+                expected_state="UNKNOWN",
+            )
+
+        def unresolved(conn):
+            service.authorize(actor, "core.manage")(conn)
+            current = conn.execute(select(OUTBOX).where(OUTBOX.c.id == identity)).mappings().one()
+            require_version(current.version, command.expected_version)
+            return outbox_dto(current)
+
+        return service.runtime.writer.run(unresolved)

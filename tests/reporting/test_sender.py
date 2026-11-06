@@ -82,7 +82,7 @@ def test_durable_unique_queue_and_receipt_network_outside_writer(env):
     assert dispatch_one(env.service)["state"] == "IDLE"
     assert len(env.transport.texts) == 1
     attempts = env.service.attempts(result["id"], 1, 1)
-    assert attempts["total"] == 3 and len(attempts["items"]) == 1
+    assert attempts["total"] == 2 and len(attempts["items"]) == 1
     assert env.service.detail(row["id"])["state"] == "SAVED"
 
 
