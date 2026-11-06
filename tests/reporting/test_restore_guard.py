@@ -588,3 +588,86 @@ def test_review_allows_future_day_generation_without_replacement_of_old_unknown(
             .one()
         )
         assert old.state == "NEEDS_MANUAL" and old.error_code == REVIEW_CODE
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+def test_held_series_blocks_existing_saved_revision_but_future_and_explicit_send_work(
+    lab, automatic
+):
+    today = datetime(2026, 11, 7, 12, tzinfo=timezone.utc)
+    first, first_export, queued = queue(lab.source, "2026-11-07")
+    preview = lab.source.service.preview(
+        lab.source.actor,
+        models.Preview(
+            request_key="saved-revision-before-backup",
+            from_on="2026-11-07",
+            through_on="2026-11-07",
+            book_ids=[],
+            reason="Synthetic saved adjustment, not explicitly queued.",
+        ),
+    )
+    second = lab.source.service.save(
+        lab.source.actor,
+        preview["id"],
+        models.Save(
+            request_key="save-revision-before-backup",
+            expected_version=preview["version"],
+        ),
+    )
+    second_export = lab.source.service.export(
+        lab.source.actor,
+        second["id"],
+        models.Export(
+            request_key="export-revision-before-backup",
+            format="txt",
+        ),
+    )
+    assert second["version"] == 2 and lab.source.service.list("deliveries")["total"] == 1
+    frozen = []
+    for row, item in ((first, first_export), (second, second_export)):
+        with lab.source.runtime.files.read(item["file_id"]) as stream:
+            frozen.append((row, item, stream.read()))
+    candidate = lab.prepare()
+    activate(candidate)
+    clock = {"now": today}
+    candidate.service.clock = lambda: clock["now"]
+    config(candidate.service, candidate.actor, enabled=True, auto=automatic)
+    held = delivery(candidate.runtime, queued["id"])
+    captures = lab.dto_source.calls
+    for _ in range(2):
+        candidate.service.tick(clock["now"])
+    assert lab.transport.calls == [] and lab.dto_source.calls == captures
+    assert candidate.service.list("deliveries")["total"] == 1
+    assert candidate.service.list("reports")["total"] == 2
+    assert delivery(candidate.runtime, queued["id"]) == held
+    with candidate.runtime.reader() as conn:
+        assert conn.execute(select(func.count()).select_from(ATTEMPTS)).scalar_one() == 0
+        assert manual_report(conn, "2026-11-07", candidate.service.settings(conn)) == (
+            None,
+            "RESTORE_REQUIRES_MANUAL",
+        )
+
+    clock["now"] = today + timedelta(days=1)
+    if not automatic:
+        report(candidate, "2026-11-08")
+    assert candidate.service.tick(clock["now"])["delivery"]["state"] == "SENT"
+    assert lab.transport.calls.count("text") == 1
+    assert delivery(candidate.runtime, queued["id"]) == held
+
+    # Existing explicit Admin enqueue/dispatch is allowed after settings review.
+    explicit = candidate.service.enqueue(
+        candidate.actor,
+        second["id"],
+        models.Enqueue(
+            request_key="explicit-admin-revision-send",
+        ),
+    )
+    assert explicit["state"] == "WAITING"
+    assert sender.dispatch_one(candidate.service)["state"] == "SENT"
+    assert lab.transport.calls.count("text") == 2
+    assert delivery(candidate.runtime, queued["id"]) == held
+    for row, item, content in frozen:
+        current = candidate.service.detail(row["id"])
+        assert current["snapshot"] == row["snapshot"] and current["sha256"] == row["sha256"]
+        with candidate.runtime.files.read(item["file_id"]) as stream:
+            assert stream.read() == content

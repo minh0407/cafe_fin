@@ -19,7 +19,7 @@ from .local_export_migrations import LOCAL_EXPORTS
 from .local_exports import ensure_local_copy, local_state
 from .migrations import ATTEMPTS, EXPORTS, LOCKS, OUTBOX, REPORTS, SETTINGS
 from .models import DATE_RANGE_CONTRACT
-from .restore import REVIEW_CODE, apply_guard, held_report, require_reviewed, suspended
+from .restore import REVIEW_CODE, apply_guard, held_series, require_reviewed, suspended
 from .sources import UnboundSources, build_snapshot
 
 
@@ -797,6 +797,12 @@ class ReportingService:
                     OUTBOX.update()
                     .where(
                         OUTBOX.c.state == "UNCONFIGURED",
+                        ~select(REPORTS.c.id)
+                        .where(
+                            REPORTS.c.id == OUTBOX.c.report_id,
+                            held_series(REPORTS.c.series_key),
+                        )
+                        .exists(),
                         func.json_extract(OUTBOX.c.payload_json, "$.date_range_contract")
                         == DATE_RANGE_CONTRACT,
                         OUTBOX.c.destination == config["group_id"],
@@ -822,7 +828,7 @@ class ReportingService:
                 select(REPORTS)
                 .where(
                     REPORTS.c.state == "SAVED",
-                    ~held_report(REPORTS.c.id),
+                    ~held_series(REPORTS.c.series_key),
                     func.json_extract(REPORTS.c.snapshot_json, "$.period.date_range_contract")
                     == DATE_RANGE_CONTRACT,
                     REPORTS.c.through_on <= local_now.date().isoformat(),

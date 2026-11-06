@@ -15,7 +15,7 @@ from cafe_fin.core.time import utc_now
 
 from . import models
 from .migrations import LOCKS, OUTBOX, REPORTS
-from .restore import REVIEW_CODE, held_report, suspended
+from .restore import REVIEW_CODE, held_series, suspended
 from .schedule_migrations import DAILY_CURSOR, DAILY_RUNS
 from .service import new_id
 
@@ -114,6 +114,8 @@ def manual_report(conn, day, config):
             {"from_on": day, "through_on": day, "book_ids": config["daily_book_ids"]}
         ).encode()
     ).hexdigest()
+    if conn.execute(select(held_series(series))).scalar_one():
+        return None, "RESTORE_REQUIRES_MANUAL"
     # Prefer a version already queued for this destination, even if a newer manual
     # version exists: automatic work must not silently send a second version.
     queued = (
@@ -122,7 +124,6 @@ def manual_report(conn, day, config):
             .join(OUTBOX, OUTBOX.c.report_id == REPORTS.c.id)
             .where(
                 REPORTS.c.series_key == series,
-                ~held_report(REPORTS.c.id),
                 OUTBOX.c.destination == config["group_id"],
                 OUTBOX.c.oa_id == config["oa_id"],
                 func.json_extract(REPORTS.c.snapshot_json, "$.period.date_range_contract")
@@ -142,7 +143,6 @@ def manual_report(conn, day, config):
             .where(
                 REPORTS.c.series_key == series,
                 REPORTS.c.state == "SAVED",
-                ~held_report(REPORTS.c.id),
                 func.json_extract(REPORTS.c.snapshot_json, "$.period.date_range_contract")
                 == models.DATE_RANGE_CONTRACT,
             )
@@ -154,14 +154,7 @@ def manual_report(conn, day, config):
     )
     if saved:
         return saved, "REUSED_SAVED_MANUAL"
-    held = conn.execute(
-        select(REPORTS.c.id)
-        .where(REPORTS.c.series_key == series, held_report(REPORTS.c.id))
-        .limit(1)
-    ).first()
-    # Do not sidestep an uncertain restored delivery by creating an automatic
-    # replacement version of the same day/book selection.
-    return None, "RESTORE_REQUIRES_MANUAL" if held else "GENERATED_CURRENT_DAY"
+    return None, "GENERATED_CURRENT_DAY"
 
 
 def insert_run(conn, day, config, *, missed=False, scheduled_due_at=None):

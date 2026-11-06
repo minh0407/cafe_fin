@@ -74,9 +74,10 @@ and timestamp; the client cannot author the guard metadata. Automatic generation
 remains a separate opt-in switch, cleared by restore.
 
 Old restore UNKNOWN rows never become retryable because credentials, enabled state
-or destination changed. Automatic catch-up excludes their report IDs across
-destinations. Daily generation also avoids creating an automatic replacement
-version for the same held day/book selection; it records NEEDS_MANUAL with
+or destination changed. Automatic catch-up excludes their entire day/book series
+across destinations, including an existing newer SAVED version. Daily generation
+checks the series hold before either queued/saved reuse or creating a replacement
+version; it records NEEDS_MANUAL with
 `RESTORE_REQUIRES_MANUAL`. Future days can create/save/export/send normally after
 review. Explicit provider reconciliation can establish SENT only with the existing
 positive evidence rules. There is no forced retry or manual fake-SENT command.
@@ -97,7 +98,7 @@ approval workflow was introduced.
   resend and persistent UNKNOWN. Browser coverage extends `ui/check-books.mjs`.
 - **No migration.** Existing reporting v1/v2/v3 DDL/checksums are unchanged.
 
-## Verification
+## Verification (initial guard)
 
 Environment: Windows 11 build 26200, Python 3.12.16, SQLite 3.53.1. Synthetic local
 SQLite/FileStore backups and default reporting manifest, fake transport and an
@@ -152,3 +153,35 @@ DORMANT/ACTIVATION_REPLAY_REQUIRED. Reporting does not bypass that admission gat
 the supplied core increment has no recovery/disposition API to finish it.
 Constructor migrations changing original backup DB bytes also remain a core
 cross-version restore limitation. Neither boundary is claimed resolved here.
+
+## Follow-up: existing saved versions in a held series
+
+Coordinator review reproduced v1 WAITING plus v2 SAVED but not queued in a backup.
+After restore and Admin settings review, the initial report-ID filter left v1
+UNKNOWN but automatically queued/sent v2. Both auto-generation settings could take
+this path. The original 117-case result above predates this correction.
+
+`held_series(series_key)` now correlates any restore UNKNOWN/REVIEW_CODE version
+with the full same-day/book series. Catch-up filters newly selected reports and
+UNCONFIGURED automatic promotion by this predicate. Daily selection checks it
+before queued/saved reuse, so an already-existing v2 cannot bypass the hold.
+Explicit Admin enqueue/retry/dispatch after global review keeps its existing
+behavior; the automatic hold does not become a new manual-send approval workflow.
+No migration, UI, shared interface, receipt, report hash or export bytes changed.
+
+New parameterized real backup/dormant/activation tests first failed in both modes
+with observed refresh/verify/text calls, then passed after the predicate change.
+Two repeated automatic ticks leave zero provider calls and zero delivery attempts,
+do not capture a replacement, and preserve the old UNKNOWN row exactly. The same
+test verifies an unheld future day sends normally, an explicit Admin enqueue of v2
+can send, and both original snapshots/export bytes stay unchanged.
+
+```powershell
+.venv/Scripts/python.exe -m pytest tests/reporting/test_restore_guard.py -q -p no:cacheprovider
+.venv/Scripts/python.exe -m pytest tests/reporting/test_sender.py tests/reporting/test_daily_generation.py -q -p no:cacheprovider
+```
+
+PASS: **10 restore cases in 13.63s**, **29 sender/daily cases in 10.88s**, Ruff
+lint/format (4 Python paths) and Git whitespace. Full backend, full reporting,
+build and browser are NOT RUN for this Python
+predicate-only follow-up, as requested; the coordinator owns integration runs.

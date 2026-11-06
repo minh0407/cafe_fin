@@ -8,7 +8,7 @@ from cafe_fin.core.db import canonical_json
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.time import utc_now
 
-from .migrations import OUTBOX, SETTINGS
+from .migrations import OUTBOX, REPORTS, SETTINGS
 from .schedule_migrations import DAILY_RUNS
 
 REVIEW_CODE = "RESTORE_REVIEW_REQUIRED"
@@ -41,6 +41,17 @@ def held_report(report_id):
             hold.c.state == "UNKNOWN",
             hold.c.error_code == REVIEW_CODE,
         )
+        .exists()
+    )
+
+
+def held_series(series_key):
+    # Any restored uncertain version holds automatic work for the whole day/book
+    # series, including an already-saved newer version and another destination.
+    report = REPORTS.alias("restore_held_series")
+    return (
+        select(report.c.id)
+        .where(report.c.series_key == series_key, held_report(report.c.id))
         .exists()
     )
 
