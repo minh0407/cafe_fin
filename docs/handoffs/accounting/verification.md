@@ -1,5 +1,10 @@
 # Verification and versioned measurements
 
+Follow-up export-status P2: one authorized domain/job snapshot, four new tests
+PASS, relevant core/public API33 PASS and importlib12 PASS. Real browser export
+flow PASS25.9s (27.8s total). See export-status-snapshot.md. The full-lane552
+result below predates that narrow delta; no new full integrated count is claimed.
+
 Frozen baseline is foundation-ready-v1/e668355. Approved shared commits were
 cherry-picked unchanged: root57a2ed26 ->0da9c87 (read bridge v2), root22ca5431
 ->59d94da (file/job scopes), root48858654 ->1be5a0f (ApiError.details).

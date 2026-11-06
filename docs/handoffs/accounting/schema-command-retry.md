@@ -29,7 +29,7 @@ normal real1000 flow **PASS21.7s** (23.7s total); strict frontend/harness TypeSc
 and build PASS. All browser work uses the dedicated test1424 origin adapter.
 
 An earlier normalflow export UI failure remains separately documented in ui.md.
-The failed attempt did not capture a raw COMPLETED/null response; its suggested
-two-reader race is an inference. The subsequent real flow captured two valid
-COMPLETED/file_id responses. This SchemaEditor fix does not claim to repair that
-unconfirmed issue, nor does it claim native WebView2/installer acceptance.
+At that stage its suggested two-reader race was an inference; the failed attempt
+did not capture a raw response. Root later confirmed it independently and the
+separate [export snapshot fix](export-status-snapshot.md) repairs the endpoint.
+This SchemaEditor fix does not claim native WebView2/installer acceptance.

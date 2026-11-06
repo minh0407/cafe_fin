@@ -27,10 +27,11 @@ development schema definitions are not application release points.
 | ae495d7 | P2 blank filter includes missing historical nullable cells |
 | 8312023 | v3 book name from the same read snapshot as totals |
 | e0359c1 | SchemaEditor lost-ACK command freeze and real POST/PATCH regressions |
+| 749d19a | Final UI harnesses and versioned volume evidence |
 
-The final test-harness/evidence commit follows these commits in branch history.
-Its exact ID is supplied with the final chat handoff. It does not change the
-frozen backend/runner used for the final CSV measurements.
+The later export-status snapshot module fix follows749d19a; its exact SHA is
+supplied in the follow-up chat handoff. Neither that narrow read fix nor the
+test-harness commit relabels the frozen volume measurements.
 The SchemaEditor regression config imports the shared test-only1424 harness
 helper supplied by that final commit; apply the complete series before testing.
 
@@ -47,6 +48,7 @@ commits and must not apply both the original and its local cherry-pick copy.
 | 6098a1111432995ed5b6be96fd0650af382a15e2 | ef29e46 |
 | 3aa94c601dbf878f07b46b0902fc71b0f388c40c | 545d75e |
 | 206a7e30ce702d8064084c90296aed3634ef28b7 | 6052d13 |
+| 2fb38e323520697d745b7aab7ddde5e327755265 | ad19e16 |
 
 Only the explicitly approved shared commits were cherry-picked. No later core
 proposal is assumed present or validated by this lane's results.

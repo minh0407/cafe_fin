@@ -71,10 +71,13 @@ responsiveness/native acceptance claim. OS/SQLite temp outside app-data was not
 measured. Standalone UI probes were around6–7s; UI memory is sampled/checkpointed,
 Vite/Chromium with eager module preload, not native/release/lifetime maxima.
 
-One earlier normalflow export UI attempt showed COMPLETED without a download
-action; its raw status response was not captured. A later normalflow passed and
-captured two COMPLETED responses with valid file IDs. The suggested two-reader
-race remains an inference, preserved in ui.md, not a confirmed or repaired bug.
+The earlier export UI observation was subsequently confirmed by root's real
+worker proof: independent reads could return COMPLETED/null. The follow-up
+endpoint fix uses one explicitly begun, freshly authorized snapshot and the
+approved core status(connection=conn) seam. New race/auth tests4, relevant group33
+and importlib group12 PASS; the real browser/export flow PASS25.9s. See
+[export-status-snapshot.md](export-status-snapshot.md). Prior failures remain
+versioned; the earlier552 full-suite/volume results are not relabelled.
 
 Native WebView2, clean-Windows installer and integrated registry build/release
 remain coordinator gates. Apply shared-integration.patch while preserving every

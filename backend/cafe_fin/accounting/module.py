@@ -435,6 +435,8 @@ def module_manifest():
     def export_status(job_id: str, request: Request):
         service, actor = services(request)
         with service.rt.reader() as conn:
+            conn.exec_driver_sql("BEGIN")
+            actor = service.rt.auth.authorize(conn, actor, "accounting.read")
             row = (
                 conn.execute(select(s.exports).where(s.exports.c.job_id == job_id))
                 .mappings()
@@ -444,7 +446,7 @@ def module_manifest():
                 raise CoreError("EXPORT_NOT_FOUND", "Không tìm thấy bản xuất.", 404)
             if row.actor_id != actor.id and actor.role != "admin":
                 raise CoreError("PERMISSION_DENIED", "Bản xuất thuộc tài khoản khác.", 403)
-            return service.rt.jobs.status(job_id) | {
+            return service.rt.jobs.status(job_id, connection=conn) | {
                 "file_id": row.file_id,
                 "derived": True,
                 "numeric_encoding": "numeric_up_to_15_digits_else_exact_text"

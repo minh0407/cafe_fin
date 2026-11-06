@@ -127,6 +127,10 @@ SchemaEditor lost-ACK protection is a separate frontend fix `e0359c1`, with
 real1000 passing. See [schema-command-retry.md](schema-command-retry.md).
 The final harness/evidence commit completes the test-only1424 helpers; apply the
 whole commit series before running the SchemaEditor test configuration.
+The subsequently confirmed export-status race is fixed through one authorized
+snapshot using approved core seam2fb38e3 (local copyad19e16). Focused race/auth,
+relevant core/public API and the real browser export flow pass; see
+[export-status-snapshot.md](export-status-snapshot.md) for exact scope and commands.
 
 ## Independent review fixes after the 45bc416 benchmark freeze
 

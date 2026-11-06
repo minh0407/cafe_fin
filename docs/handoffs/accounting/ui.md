@@ -1,5 +1,11 @@
 # Bàn giao giao diện kế toán
 
+Follow-up export P2 đã được root xác nhận bằng worker thật và sửa riêng tại
+endpoint cùng snapshot qua seam core2fb38e3. Regression race/auth4 PASS,
+core/public API33 PASS, importlib12 PASS; real browser flow25,9s PASS, có nút tải
+và bytes export đúng. Không sửa UI polling. Xem export-status-snapshot.md;
+những ghi nhận inference/lỗi trước đó bên dưới giữ đúng bối cảnh lịch sử.
+
 Trạng thái mới nhất: UI trên sổ đã lưu 1 triệu dòng **PASS** với backend
 `3aa8c47`; shared DateInput13, accounting mock17 và real1000 cũng PASS trên cổng
 test1424. Xem **Actual UI1m PASS — attempt004** bên dưới để lấy số đo/phạm vi.
