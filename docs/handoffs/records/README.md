@@ -148,6 +148,13 @@ Sau fix:131 records tests PASS/61.86s, gồm52 raw-SQL regression cases. Ruff,
 compileall và diff check PASS. Bằng chứng core/browser v2 phía trên là mốc trước
 patch guard; không suy là đã chạy lại chúng khi core/UI không đổi.
 
+Sau Windows CI42255278298, test cạnh tranh được sửa để chỉ capture hai command
+mục tiêu thay vì mọi BEGIN của engine (gồm JobRunner poll). Không đổi source app,
+executor hoặc assertion đúng hai connections.20/20 focused subprocess PASS;
+full131 records PASS/64.40s; Ruff/compileall/diff PASS. Chi tiết bằng chứng
+unrelated writer, lock, ledger/audit/receipts và lệnh kiểm trong tests.md. CI
+recovery do root chạy sau khi cherry-pick patch test riêng.
+
 Native Tauri GUI/installer/Windows sạch và workflow sau root integration chưa
 nghiệm thu ở lane này. Browser harness riêng dùng API/DB thật sẽ ghi tách biệt
 với native acceptance; không suy native PASS từ Chromium. Không có test trên DB
