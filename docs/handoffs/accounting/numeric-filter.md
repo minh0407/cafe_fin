@@ -10,7 +10,9 @@ Tests cover integer/decimal/money/formula, all three operators, exact values abo
 2**53, multiple conditions, book isolation, date/text conditions, deleted rows,
 whole-dataset page totals and real pending→PUBLISHED visibility. Missing newly
 added nullable cells keep their previous filter behavior: entries remain in an
-unfiltered page but missing cells do not match numeric/null/empty cell filters.
+unfiltered page but missing cells do not match numeric/null-equality filters.
+The separate P2 correction makes the empty operator include missing cells; see
+[empty-filter.md](empty-filter.md).
 eq null matches a present null cell. Empty gte/lte returns FILTER_INVALID400
 instead of constructing an invalid SQLAlchemy comparison. Sort is unchanged;
 no inner join can drop older rows that lack a later nullable column.

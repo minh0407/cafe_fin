@@ -841,7 +841,20 @@ class AccountingService:
                     raise CoreError("FILTER_INVALID", "Cột hoặc toán tử lọc không được hỗ trợ.")
                 col, op, val = columns[f["column_id"]], f["op"], f.get("value")
                 if op == "empty":
-                    condition = or_(s.cells.c.text_value.is_(None), s.cells.c.text_value == "")
+                    # Missing historical cells and present null/empty cells are
+                    # blank. A stored zero or other nonempty value is not blank.
+                    predicates.append(
+                        ~exists(
+                            select(1).where(
+                                s.cells.c.book_id == book_id,
+                                s.cells.c.column_id == col["id"],
+                                s.cells.c.row_id == s.entries.c.id,
+                                s.cells.c.text_value.is_not(None),
+                                s.cells.c.text_value != "",
+                            )
+                        )
+                    )
+                    continue
                 elif col["kind"] in ("integer", "decimal", "money", "formula") and op != "contains":
                     _, scaled = normalize_value(val, col)
                     if scaled is None and op != "eq":

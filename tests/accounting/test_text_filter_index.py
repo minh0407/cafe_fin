@@ -141,7 +141,7 @@ def test_contains_escapes_literal_percent_underscore_slash_and_unicode(account):
 
 
 @pytest.mark.parametrize("kind", ["text", "date"])
-def test_empty_matches_present_null_cells_but_not_missing_new_nullable_cells(account, kind):
+def test_empty_matches_present_null_and_missing_new_nullable_cells(account, kind):
     _, actor, service = account
     created = book(account)
     old = add(account, created["id"], "old-missing", "old")
@@ -168,8 +168,8 @@ def test_empty_matches_present_null_cells_but_not_missing_new_nullable_cells(acc
     empty = service.list_rows(
         actor, created["id"], filters=[{"column_id": "new_nullable", "op": "empty"}]
     )
-    assert {row["id"] for row in empty["items"]} == {null["id"], blank["id"]}
-    assert empty["total"] == 2
+    assert {row["id"] for row in empty["items"]} == {old["id"], null["id"], blank["id"]}
+    assert empty["total"] == 3
     equal = service.list_rows(
         actor, created["id"], filters=[{"column_id": "new_nullable", "op": "eq", "value": value}]
     )

@@ -185,12 +185,12 @@ def test_numeric_null_and_missing_new_nullable_cell_keep_existing_filter_semanti
                 actor, book["id"], filters=[{"column_id": "bonus", "op": op, "value": None}]
             )
         assert error.value.code == "FILTER_INVALID"
-    assert [
+    assert {
         row["id"]
         for row in service.list_rows(
             actor, book["id"], filters=[{"column_id": "bonus", "op": "empty"}]
         )["items"]
-    ] == [null["id"]]
+    } == {old["id"], null["id"]}
     assert [
         row["id"]
         for row in service.list_rows(

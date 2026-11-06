@@ -12,9 +12,11 @@ not a quiet-machine measurement or a successful million-row UI result.
 Remaining cell filters now select entry IDs through the same book/column/value
 subquery used by numeric filters. The actual text/date eq/gte/lte count/page
 plans use accounting_cells_text rather than a row-correlated cell lookup. The
-original condition expression is retained for contains and empty; literal LIKE
-escaping, null/missing behavior, sorting and core published visibility are
-unchanged. There is no DDL, index hint, inner join or global predicate change.
+original condition expression is retained for contains; literal LIKE escaping,
+sorting and core published visibility are unchanged. A later independent P2
+review corrected empty to include historical missing cells, as documented in
+[empty-filter.md](empty-filter.md). There is no DDL, index hint, inner join or
+global predicate change.
 
 Targeted tests: 7 PASS in 3.05s, covering text/date plans, %, _, slash, Unicode
 and quote literals, empty/present-null/physically missing cells, unfiltered old
