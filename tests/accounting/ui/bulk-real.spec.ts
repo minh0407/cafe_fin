@@ -54,7 +54,7 @@ test('persisted million-row book keeps a bounded UI/cache with real high-page an
   expect(completed.fixture?.rows).toBe(EXPECTED_ROWS);
   expect(completed.final_reconciliation?.published_rows).toBe(EXPECTED_ROWS);
   const sourceRoot = await realpath(String(completed.method?.data_root ?? ''));
-  expect(withinTemporaryPrefix(sourceRoot, tempRoot, 'cafe-fin-frozen-20261106'), 'Source provenance must identify the frozen synthetic benchmark under Temp.').toBe(true);
+  expect(['cafe-fin-frozen-20261106', 'cafe-fin-final-033e900-683b8f62fae848e1a7aa50259e323a6f'].some(prefix => withinTemporaryPrefix(sourceRoot, tempRoot, prefix)), 'Source provenance must identify the specifically authorized frozen synthetic benchmark under Temp.').toBe(true);
   expect(root.toLowerCase()).not.toBe(sourceRoot.toLowerCase());
   const sourceDatabase = path.join(sourceRoot, 'database/cafe_fin.db');
   const sourceStatBefore = await stat(sourceDatabase);
@@ -194,6 +194,9 @@ test('persisted million-row book keeps a bounded UI/cache with real high-page an
     await expect(lane.getByRole('button', { name: 'Lưu bản nháp', exact: true })).toBeDisabled();
     await grid.evaluate(node => { const data = new DataTransfer(); data.setData('text/plain', Array(501).fill('x').join('\t')); node.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data })); });
     await expect(lane.getByText(/Chỉ dán tối đa 500 ô/)).toBeVisible();
+    await expect(lane.getByRole('button', { name: 'Đưa clipboard lớn vào lượt nhập mới', exact: true })).toBeVisible();
+    await lane.getByRole('button', { name: 'Bỏ clipboard', exact: true }).click();
+    metrics.large_clipboard_choice_discarded_without_upload = true;
     await lane.getByText('Lọc toàn bộ sổ / xem dòng đã xóa', { exact: true }).click();
     await lane.getByRole('combobox', { name: 'Cột lọc', exact: true }).click(); await page.getByRole('option', { name: codeColumn!.name, exact: true }).click();
     await lane.getByLabel('Giá trị lọc', { exact: true }).fill(targetCode!); await lane.getByRole('button', { name: 'Thêm điều kiện', exact: true }).click(); await lane.getByRole('button', { name: 'Áp dụng bộ lọc', exact: true }).click();

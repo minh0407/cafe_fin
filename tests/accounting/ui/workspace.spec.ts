@@ -3,10 +3,12 @@ import type { Batch } from '../../../frontend/src/features/accounting/types';
 const initial = { id: 'row1', version: 3, logical_row: 1, values: { code: '001', amount: '92233720368547758.07' }, issues: [] };
 const book = { id: 'book1', name: 'Sổ tổng hợp', version: 1, schema_revision: 1, data_revision: 1, columns: [{ id: 'code', name: 'Mã', kind: 'text', editable: true }, { id: 'amount', name: 'Số tiền', kind: 'money', editable: true }], semantics: {} };
 const batch = { id: 'batch1', book_id: 'book1', file_id: 'file1', state: 'READY_FOR_CONFIRM', version: 7, revision: 4, mapping_revision: 2, decision_revision: 3, validation_token: 'validated-exact-revisions', mapping: { code: 'A', amount: 'B' }, profile: {}, counts: { source_rows: 5, valid: 3, invalid: 1, potential_duplicates: 1, excluded: 0, published_rows: 0, staged_committed_rows: 0, pending: 5 } };
-async function setup(page: Page, conflict = false, secondRow = false) {
+async function setup(page: Page, conflict = false, secondRow = false, dates = false) {
   page.on('pageerror', error => console.error('Browser error:', error.message));
   page.on('console', message => { if (message.type() === 'error') console.error('Browser console:', message.text()); });
   const writes: { path: string; body: any }[] = []; let row = structuredClone(initial); let currentBatch: Batch = structuredClone(batch);
+  const activeBook = dates ? { ...book, columns: [...book.columns, { id: 'day', name: 'Ngày nghiệp vụ', kind: 'date', editable: true, required: true }, { id: 'due', name: 'Hạn tùy chọn', kind: 'date', editable: true, required: false }] } : book;
+  if (dates) row = { ...row, values: { ...row.values, day: '2026-11-06', due: '2026-11-07' } } as typeof row;
   await page.route('**/src/app/main.tsx', async route => {
     const response = await route.fetch();
     const source = (await response.text())
@@ -26,15 +28,18 @@ async function setup(page: Page, conflict = false, secondRow = false) {
       }
       if (path === '/import-jobs/batch1/confirm') return respond({ ...batch, state: 'COMMITTING' });
       if (path === '/import-jobs') { currentBatch = { ...batch, id: 'clipboard-batch', file_id: body.file_id, profile: body.profile, mapping: {}, state: 'READY_FOR_MAPPING', validation_token: null, counts: { source_rows: 501, valid: 0, invalid: 0, potential_duplicates: 0, excluded: 0, published_rows: 0, pending: 501 } }; return respond(currentBatch); }
+      if (path === '/books/book1/exports') return respond({ job_id: 'whole-book-export' });
+      if (path === '/books/book1/rows') return respond({ ...initial, id: 'created-row', logical_row: 2, version: 1, values: body.values });
       return respond(batch);
     }
-    if (path === '/books') return respond({ items: [book], total: 1, page: 1, page_size: 200 });
+    if (path === '/books') return respond({ items: [activeBook], total: 1, page: 1, page_size: 200 });
     if (path === '/books/book1/rows') return respond({ items: [row, ...(secondRow ? [{ ...initial, id: 'row2', version: 1, logical_row: 2, values: { code: '002', amount: '1.00' } }] : [])], total: secondRow ? 2 : 1, page: 1, page_size: 200 });
     if (path === '/rows/row1') return respond({ ...initial, version: 4, values: { code: 'OTHER', amount: '11.00' } });
-    if (path === '/books/book1/summary') return respond({ totals: {}, has_valid_money_mapping: false, validation_flags: ['MAPPING_REQUIRED'] });
+    if (path === '/books/book1/summary') return respond(dates ? { totals: { VND: { income: '12.34', expense: '0.00' } }, has_valid_money_mapping: true, validation_flags: [] } : { totals: {}, has_valid_money_mapping: false, validation_flags: ['MAPPING_REQUIRED'] });
     if (path === '/import-jobs') return respond({ items: [currentBatch], total: 1, page: 1, page_size: 50 });
     if (path === `/import-jobs/${currentBatch.id}`) return respond(currentBatch);
-    if (path === '/import-jobs/batch1/summary') return respond({ before: { totals: {}, has_valid_money_mapping: false }, new_batch: {}, after: {}, provisional: true });
+    if (path === '/import-jobs/batch1/summary') return respond(dates ? { before: { totals: { VND: { income: '12.34', expense: '0.00' } }, has_valid_money_mapping: true }, new_batch: { VND: { income: '8.00', expense: '0.00' } }, after: { VND: { income: '20.34', expense: '0.00' } }, provisional: true } : { before: { totals: {}, has_valid_money_mapping: false }, new_batch: {}, after: {}, provisional: true });
+    if (path === '/exports/whole-book-export') return respond({ state: 'COMPLETED', file_id: 'derived-file' });
     if (path === '/import-jobs/batch1/duplicates') return respond({ items: [{ row_id: 'stage1', source_row: 2, duplicate_count: 1, file_matches: [{ source_sheet: 'Sheet1', source_row: 4, raw_values: { A: 'MATCH_IN_FILE' } }], matches: [] }], total: 1, page: 1, page_size: 100 });
     if (path === `/import-jobs/${currentBatch.id}/staging`) return respond({ items: [{ row_id: 'stage1', revision: 1, source_sheet: 'Sheet1', source_row: 2, raw_values: { A: '001', B: '12.00' }, typed_values: { code: '001', amount: '12.00' }, edited_values: {}, issues: [], duplicate_count: 0, decision: null, imported: false }], total: currentBatch.id === 'clipboard-batch' ? 501 : 1, page: 1, page_size: 200 });
     return respond({ items: [], total: 0, page: 1, page_size: 100 });
@@ -113,12 +118,12 @@ test('native drag fill and explicit range fill preview only the loaded page', as
 test('inclusive business-date summary accepts one day and labels both endpoints', async ({ page }) => {
   await setup(page);
   await page.getByText('Tổng thu / chi theo đơn vị tiền', { exact: true }).click();
-  await expect(page.getByText('Ngày nghiệp vụ theo Asia/Ho_Chi_Minh. Tính cả ngày đầu và ngày cuối; có thể chọn cùng một ngày.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Ngày nghiệp vụ theo Asia/Ho_Chi_Minh. Tính cả ngày đầu và ngày cuối; có thể chọn cùng một ngày. Nhập DD/MM/YYYY.', { exact: true })).toBeVisible();
   const singleDay = page.waitForRequest(request => { const url = new URL(request.url()); return url.pathname.endsWith('/books/book1/summary') && url.searchParams.get('from_on') === '2026-01-15' && url.searchParams.get('through_on') === '2026-01-15'; });
-  await page.getByLabel('Từ ngày (bao gồm)', { exact: true }).fill('2026-01-15');
-  await page.getByLabel('Đến hết ngày (bao gồm)', { exact: true }).fill('2026-01-15');
+  await page.getByLabel('Từ ngày (bao gồm)', { exact: true }).fill('15/01/2026');
+  await page.getByLabel('Đến hết ngày (bao gồm)', { exact: true }).fill('15/01/2026');
   await singleDay;
-  await expect(page.getByText('Chọn đủ hai ngày; ngày bắt đầu không được sau ngày kết thúc.', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Chọn đủ hai ngày hợp lệ DD/MM/YYYY; ngày bắt đầu không được sau ngày kết thúc.', { exact: true })).toHaveCount(0);
 });
 test('in-file duplicate pairs are displayed separately from published-book matches', async ({ page }) => {
   const writes = await setup(page);
@@ -172,4 +177,78 @@ test('large clipboard cannot discard an existing dirty draft and prepared source
   await expect(page.getByRole('dialog', { name: 'Nhập dữ liệu · Sổ tổng hợp' })).toHaveCount(0);
   await expect(page.getByText(/Tệp clipboard đã chuẩn bị:/)).toHaveCount(0);
   expect(writes).toHaveLength(0);
+});
+test('invalid DateInput draft blocks automatic/manual summaries and cached preview while whole-book export remains usable', async ({ page }) => {
+  const writes = await setup(page, false, false, true);
+  const summaries: string[] = []; const comparisons: string[] = [];
+  page.on('request', request => { const url = new URL(request.url()); if (url.pathname.endsWith('/books/book1/summary')) summaries.push(request.url()); if (url.pathname.endsWith('/import-jobs/batch1/summary')) comparisons.push(request.url()); });
+  await page.getByText('Tổng thu / chi theo đơn vị tiền', { exact: true }).click();
+  const from = page.getByLabel('Từ ngày (bao gồm)', { exact: true }); const through = page.getByLabel('Đến hết ngày (bao gồm)', { exact: true });
+  const validPeriod = page.waitForResponse(response => { const url = new URL(response.url()); return url.pathname.endsWith('/books/book1/summary') && url.searchParams.get('from_on') === '2026-11-05' && url.searchParams.get('through_on') === '2026-11-06'; });
+  await from.fill('05/11/2026'); await through.fill('06/11/2026'); await validPeriod;
+  await expect(page.getByText('VND: thu 12.34 · chi 0.00', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Nhập Excel / CSV · mở job đã lưu' }).click();
+  const workspace = page.getByRole('dialog', { name: 'Nhập dữ liệu · Sổ tổng hợp' });
+  await workspace.getByRole('combobox', { name: 'Job import đã lưu' }).click(); await page.getByText('batch1 · READY_FOR_CONFIRM', { exact: false }).click();
+  await workspace.getByText(/^Thu \/ chi trước và sau nhập dự kiến/).click();
+  await expect(workspace.getByText(/Thu 20\.34/)).toBeVisible();
+  await workspace.getByRole('button', { name: 'Đóng', exact: true }).click();
+  const beforeSummary = summaries.length; const beforePreview = comparisons.length;
+  await from.fill('31/02/2026'); await from.blur();
+  await expect(from).toHaveValue('31/02/2026'); await expect(from).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByText('VND: thu 12.34 · chi 0.00', { exact: true })).toHaveCount(0);
+  const refreshedBooks = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/accounting/books'));
+  await page.getByRole('button', { name: 'Tải lại dữ liệu', exact: true }).click(); await refreshedBooks;
+  expect(summaries).toHaveLength(beforeSummary);
+  await page.getByRole('button', { name: 'Nhập Excel / CSV · mở job đã lưu' }).click();
+  await workspace.getByText(/^Thu \/ chi trước và sau nhập dự kiến/).click();
+  await expect(workspace.getByText('Chọn hai ngày hợp lệ DD/MM/YYYY trước khi xem dự kiến; ngày đầu không được sau ngày cuối.', { exact: true })).toBeVisible();
+  await expect(workspace.getByText(/Thu 20\.34/)).toHaveCount(0); expect(comparisons).toHaveLength(beforePreview);
+  await workspace.getByRole('button', { name: 'Đóng', exact: true }).click();
+  await page.getByRole('button', { name: 'Xuất CSV', exact: true }).click();
+  await expect.poll(() => writes.filter(write => write.path === '/books/book1/exports').length).toBe(1);
+  expect(Object.keys(writes.find(write => write.path === '/books/book1/exports')!.body).sort()).toEqual(['format', 'request_key']);
+  await expect(from).toHaveValue('31/02/2026');
+  const corrected = page.waitForRequest(request => { const url = new URL(request.url()); return url.pathname.endsWith('/books/book1/summary') && url.searchParams.get('from_on') === '2026-11-01' && url.searchParams.get('through_on') === '2026-11-06'; });
+  await from.fill('01/11/2026'); await corrected; await expect(from).toHaveValue('01/11/2026');
+});
+test('required and optional new-row dates retain invalid draft and never submit old ISO or implicit empty', async ({ page }) => {
+  const writes = await setup(page, false, false, true);
+  await page.getByRole('button', { name: 'Thêm dòng', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: 'Thêm dòng vào sổ' }); const save = modal.getByRole('button', { name: 'Xác nhận thêm dòng', exact: true });
+  const day = modal.getByLabel('Dòng mới Ngày nghiệp vụ'); const due = modal.getByLabel('Dòng mới Hạn tùy chọn');
+  await expect(save).toBeDisabled(); await day.fill('06/11/2026'); await due.fill('07/11/2026'); await expect(save).toBeEnabled();
+  await due.fill('31/02/2026'); await due.blur(); await expect(due).toHaveValue('31/02/2026'); await expect(save).toBeDisabled();
+  await expect(modal.getByText(/Hạn tùy chọn: ngày không hợp lệ/)).toBeVisible(); expect(writes).toHaveLength(0);
+  await due.press('Enter'); expect(writes).toHaveLength(0);
+  await due.fill('08/11/2026'); await save.click(); await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toMatchObject({ path: '/books/book1/rows', body: { values: { day: '2026-11-06', due: '2026-11-08' } } });
+  await page.getByRole('button', { name: 'Thêm dòng', exact: true }).click(); await day.fill('09/11/2026'); await due.fill('10/11/2026'); await due.fill('');
+  await expect(save).toBeEnabled(); await due.fill('31/02/2026'); await expect(due).toHaveValue('31/02/2026'); await expect(save).toBeDisabled(); expect(writes).toHaveLength(1);
+  await due.fill(''); await save.click();
+  await expect.poll(() => writes.length).toBe(2); expect(writes[1].body.values).toMatchObject({ day: '2026-11-09', due: '' });
+  await page.getByRole('button', { name: 'Thêm dòng', exact: true }).click(); await day.fill('31/02/2026');
+  await expect(day).toHaveValue('31/02/2026'); await expect(save).toBeDisabled(); expect(writes).toHaveLength(2);
+});
+test('date filter builder, advanced JSON and direct URL all block invalid dates before rows network', async ({ page }) => {
+  await setup(page, false, false, true); const rowRequests: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/books/book1/rows')) rowRequests.push(request.url()); });
+  await page.getByText('Lọc toàn bộ sổ / xem dòng đã xóa', { exact: true }).click();
+  await page.getByRole('combobox', { name: 'Cột lọc', exact: true }).click(); await page.locator('.ant-select-dropdown .ant-select-item-option-content').filter({ hasText: /^Ngày nghiệp vụ$/ }).click();
+  const value = page.getByLabel('Giá trị lọc', { exact: true }); await value.fill('31/02/2026'); await value.blur();
+  await expect(value).toHaveValue('31/02/2026'); await expect(page.getByRole('button', { name: 'Thêm điều kiện', exact: true })).toBeDisabled(); expect(rowRequests).toHaveLength(0);
+  await value.fill('06/11/2026'); await page.getByRole('button', { name: 'Thêm điều kiện', exact: true }).click();
+  await value.fill('31/02/2026'); await expect(value).toHaveValue('31/02/2026'); await expect(page.getByRole('button', { name: 'Áp dụng bộ lọc', exact: true })).toBeDisabled(); expect(rowRequests).toHaveLength(0);
+  await value.fill('06/11/2026');
+  await page.getByText('Nâng cao: JSON bộ lọc', { exact: true }).click();
+  const invalid = JSON.stringify([{ column_id: 'day', op: 'eq', value: '31/02/2026' }]); const json = page.getByLabel('Bộ lọc sổ JSON');
+  await json.fill(invalid); await page.getByRole('button', { name: 'Áp dụng bộ lọc', exact: true }).click();
+  await expect(page.getByText(/Ngày nghiệp vụ: ngày lọc không hợp lệ/).first()).toBeVisible(); expect(rowRequests).toHaveLength(0); await expect(json).toHaveValue(invalid);
+  await page.evaluate(filters => { location.hash = `/accounting?filters=${encodeURIComponent(filters)}`; }, invalid);
+  await expect(page).toHaveURL(/filters=/); const refreshed = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/accounting/books'));
+  await page.getByRole('button', { name: 'Tải lại dữ liệu', exact: true }).click(); await refreshed; expect(rowRequests).toHaveLength(0);
+  const valid = JSON.stringify([{ column_id: 'day', op: 'eq', value: '2026-11-08' }]); await json.fill(valid);
+  const requested = page.waitForRequest(request => { const url = new URL(request.url()); return url.pathname.endsWith('/books/book1/rows') && url.searchParams.get('filters') === valid; });
+  await page.getByRole('button', { name: 'Áp dụng bộ lọc', exact: true }).click(); await requested;
+  expect(JSON.parse(new URL(rowRequests.at(-1)!).searchParams.get('filters')!)[0].value).toBe('2026-11-08');
 });
