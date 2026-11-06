@@ -4,9 +4,9 @@
 
 ## Trạng thái
 
-Repo đã có core, API local và shell giao diện được điều phối review: số liệu chính xác, migration, serialized writer, tài khoản local, job phục hồi, snapshot import, lưu tệp, sao lưu, mẫu Word/PDF và grid phân trang. [Kiểm tra core increment 01](docs/reviews/CORE_INCREMENT_01.md), [kiểm tra API/UI increment 02](docs/reviews/FOUNDATION_INCREMENT_02.md).
+Repo đã có core, API local, shell và module ghi nhận được điều phối review: đối tác/hàng/cân tay, phiếu nhập/xuất/sản xuất/chuyển kho, ledger chặn tồn âm, lịch sử và tổng hợp. Core có tài khoản local, jobs/import primitives, tệp/sao lưu, mẫu Word/PDF và grid phân trang. [Core 01](docs/reviews/CORE_INCREMENT_01.md), [API/UI 02](docs/reviews/FOUNDATION_INCREMENT_02.md), [ghi nhận 03](docs/reviews/RECORDS_INCREMENT_03.md).
 
-Baseline phát triển được điều phối chốt tại tag `cafe-fin-foundation-ready-v1` để các module nghiệp vụ bắt đầu. [Biên bản freeze](docs/reviews/FOUNDATION_BASELINE_V1.md) ghi bằng chứng và phần còn thiếu. Chưa có ứng dụng nghiệp vụ hoặc bộ cài hoàn chỉnh; chưa nghiệm thu production. Native/Windows sạch vẫn phải qua [gate phát hành](docs/adr/20261106_COORDINATION_GATES.md).
+Baseline phát triển được điều phối chốt tại tag `cafe-fin-foundation-ready-v1` để các module bắt đầu. [Biên bản freeze](docs/reviews/FOUNDATION_BASELINE_V1.md) ghi bằng chứng và phần còn thiếu. Hợp đồng, kế toán và báo cáo đang được kiểm tích hợp riêng; chưa có bộ cài hoàn chỉnh hoặc nghiệm thu production. Native/Windows sạch vẫn phải qua [gate phát hành](docs/adr/20261106_COORDINATION_GATES.md).
 
 - [Yêu cầu sản phẩm](docs/SPEC.md)
 - [Kiến trúc và quyết định kỹ thuật](docs/ARCHITECTURE.md)

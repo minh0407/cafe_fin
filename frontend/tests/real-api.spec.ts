@@ -282,6 +282,12 @@ test("real sidecar API integrates auth, original uploads, paged grid and verifie
     expect(await grid.getByRole("row").count()).toBeLessThan(40);
     await page.getByRole("listitem", { name: "2", exact: true }).click();
     await expect(grid.getByText("00000501", { exact: true })).toBeVisible();
+    const recordsResponse = page.waitForResponse((item) =>
+      item.url().includes("/api/v1/records/parties?") && item.request().method() === "GET");
+    await page.getByRole("menuitem", { name: "Ghi nhận cà phê", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Ghi nhận cà phê" })).toBeVisible();
+    expect((await recordsResponse).status()).toBe(200);
+    await expect(page.getByRole("tab", { name: "Phiếu cân tay", exact: true })).toBeVisible();
     // Exercise coordinator wiring through the actual app shell and default registry.
     const realSources = await page.evaluate(async () => {
       const modulePath = "/src/shared/api.ts";
