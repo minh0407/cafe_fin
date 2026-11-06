@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Button, Input, Space, Table, Typography } from "antd";
+import { Alert, Button, Space, Table, Typography } from "antd";
 import { api } from "../../shared/api";
 import { useSession } from "../../shared/session";
 import type { Page } from "../../shared/types";
-import { Coverage, decimal, ErrorNotice, todayVN } from "./helpers";
+import { Coverage, dateRangeValid, decimal, displayBusinessDate, ErrorNotice, REQUIRED_AS_OF_MESSAGE, REQUIRED_DATE_RANGE_MESSAGE, todayVN } from "./helpers";
+import { DateInput, isDateInputValueValid } from "../../shared/DateInput";
 import { ReferenceText } from "./RecordDetail";
 import { entryLabels, type Entry, type InventoryMovementLine, type InventorySummary, type Receivables, type StockMovement } from "./types";
 
 function DateRange({ from, through, onChange }: { from: string; through: string; onChange: (from: string, through: string) => void }) {
-  return <Space wrap><label>Từ ngày <Input aria-label="Từ ngày báo cáo" type="date" value={from} onChange={(event) => onChange(event.target.value, through)} /></label><label>Đến ngày <Input aria-label="Đến ngày báo cáo" type="date" value={through} onChange={(event) => onChange(from, event.target.value)} /></label></Space>;
+  const valid = dateRangeValid(from, through, true);
+  return <Space wrap><label>Từ ngày <DateInput aria-label="Từ ngày báo cáo" aria-required="true" aria-invalid={!valid || undefined} status={!valid ? "error" : undefined} value={from} onChange={(value) => onChange(value, through)} /></label><label>Đến ngày <DateInput aria-label="Đến ngày báo cáo" aria-required="true" aria-invalid={!valid || undefined} status={!valid ? "error" : undefined} value={through} onChange={(value) => onChange(from, value)} /></label></Space>;
 }
 function rangeDefaults() {
   const today = todayVN();
@@ -72,9 +74,12 @@ function InventoryClassification({ summary }: { summary: InventorySummary }) {
 export function InventoryView() {
   const [range, setRange] = useState(rangeDefaults);
   const generation = useSession((state) => state.generation);
-  const valid = !!range.from && !!range.through && range.from <= range.through;
-  const query = useQuery({ queryKey: ["records", generation, "inventory", range], queryFn: () => api<InventorySummary>(`/records/stock-balances?${new URLSearchParams({ from_on: range.from, through_on: range.through })}`), enabled: valid, gcTime: 0, retry: false });
-  return <Space orientation="vertical" className="full" size="middle"><DateRange {...range} onChange={(from, through) => setRange({ from, through })} /><Coverage cutoff={query.data?.cutoff} />{!valid && <Alert type="warning" title="Chọn khoảng ngày hợp lệ; ngày đầu không sau ngày cuối." />}<ErrorNotice error={query.error} /><Flags flags={query.data?.validation_flags} /><Table rowKey={(row) => `${row.product_id}/${row.warehouse_id}`} loading={query.isPending && valid} dataSource={query.data?.items ?? []} size="small" pagination={{ pageSize: 25, showSizeChanger: false }} columns={[
+  const valid = dateRangeValid(range.from, range.through, true);
+  const query = useQuery({ queryKey: ["records", generation, "inventory", range], queryFn: () => {
+    if (!dateRangeValid(range.from, range.through, true)) throw new Error(REQUIRED_DATE_RANGE_MESSAGE);
+    return api<InventorySummary>(`/records/stock-balances?${new URLSearchParams({ from_on: range.from, through_on: range.through })}`);
+  }, enabled: valid, gcTime: 0, retry: false });
+  return <Space orientation="vertical" className="full" size="middle"><DateRange {...range} onChange={(from, through) => setRange({ from, through })} /><Coverage cutoff={query.data?.cutoff} />{!valid && <Alert type="warning" showIcon title={REQUIRED_DATE_RANGE_MESSAGE} />}<ErrorNotice error={query.error} /><Flags flags={query.data?.validation_flags} /><Table rowKey={(row) => `${row.product_id}/${row.warehouse_id}`} loading={query.isPending && valid} dataSource={query.data?.items ?? []} size="small" pagination={{ pageSize: 25, showSizeChanger: false }} columns={[
     { title: "Hàng hóa", dataIndex: "product_id", render: (id: string) => <ReferenceText resource="products" id={id} /> },
     { title: "Vị trí", dataIndex: "warehouse_id", render: (id: string) => <ReferenceText resource="products/warehouses" id={id} /> },
     { title: "Đầu kỳ (kg)", dataIndex: "opening_kg", render: decimal, align: "right" },
@@ -91,8 +96,11 @@ export function MovementView({ onView }: { onView: (entry: Entry) => void }) {
   const [page, setPage] = useState(1);
   const [error, setError] = useState<unknown>();
   const generation = useSession((state) => state.generation);
-  const valid = !!range.from && !!range.through && range.from <= range.through;
-  const query = useQuery({ queryKey: ["records", generation, "movements", range, page], queryFn: () => api<Page<StockMovement>>(`/records/stock-movements?${new URLSearchParams({ page: String(page), page_size: "25", filters: JSON.stringify({ from_on: range.from, through_on: range.through }), sort: "-occurred_on" })}`), enabled: valid, gcTime: 0, retry: false });
+  const valid = dateRangeValid(range.from, range.through, true);
+  const query = useQuery({ queryKey: ["records", generation, "movements", range, page], queryFn: () => {
+    if (!dateRangeValid(range.from, range.through, true)) throw new Error(REQUIRED_DATE_RANGE_MESSAGE);
+    return api<Page<StockMovement>>(`/records/stock-movements?${new URLSearchParams({ page: String(page), page_size: "25", filters: JSON.stringify({ from_on: range.from, through_on: range.through }), sort: "-occurred_on" })}`);
+  }, enabled: valid, gcTime: 0, retry: false });
   async function load(id: string) {
     setError(undefined);
     try {
@@ -100,8 +108,8 @@ export function MovementView({ onView }: { onView: (entry: Entry) => void }) {
       if (useSession.getState().generation === generation) onView(entry);
     } catch (err) { if (useSession.getState().generation === generation) setError(err); }
   }
-  return <Space orientation="vertical" className="full" size="middle"><DateRange {...range} onChange={(from, through) => { setRange({ from, through }); setPage(1); }} /><Coverage /><Typography.Paragraph>Lịch sử chuyển động truy ngược về phiếu nguồn. Các phiên bản/đảo phiếu được giữ theo lịch sử.</Typography.Paragraph><ErrorNotice error={error || query.error} />{!valid && <Alert type="warning" title="Chọn khoảng ngày hợp lệ." />}<Table<StockMovement> rowKey="id" loading={query.isPending && valid} size="small" dataSource={query.data?.items ?? []} pagination={{ current: page, pageSize: 25, total: query.data?.total ?? 0, showSizeChanger: false, onChange: setPage }} columns={[
-    { title: "Ngày nghiệp vụ", dataIndex: "occurred_on" },
+  return <Space orientation="vertical" className="full" size="middle"><DateRange {...range} onChange={(from, through) => { setRange({ from, through }); setPage(1); }} /><Coverage /><Typography.Paragraph>Lịch sử chuyển động truy ngược về phiếu nguồn. Các phiên bản/đảo phiếu được giữ theo lịch sử.</Typography.Paragraph><ErrorNotice error={error || query.error} />{!valid && <Alert type="warning" showIcon title={REQUIRED_DATE_RANGE_MESSAGE} />}<Table<StockMovement> rowKey="id" loading={query.isPending && valid} size="small" dataSource={query.data?.items ?? []} pagination={{ current: page, pageSize: 25, total: query.data?.total ?? 0, showSizeChanger: false, onChange: setPage }} columns={[
+    { title: "Ngày nghiệp vụ", dataIndex: "occurred_on", render: displayBusinessDate },
     { title: "Loại phiếu", dataIndex: "entry_type", render: (kind: keyof typeof entryLabels) => entryLabels[kind] },
     { title: "Hàng hóa", dataIndex: "product_id", render: (id: string) => <ReferenceText resource="products" id={id} /> },
     { title: "Vị trí", dataIndex: "warehouse_id", render: (id: string) => <ReferenceText resource="products/warehouses" id={id} /> },
@@ -114,8 +122,12 @@ export function MovementView({ onView }: { onView: (entry: Entry) => void }) {
 export function ReceivableView() {
   const [asOf, setAsOf] = useState(todayVN);
   const generation = useSession((state) => state.generation);
-  const query = useQuery({ queryKey: ["records", generation, "receivables", asOf], queryFn: () => api<Receivables>(`/records/receivables?${new URLSearchParams({ as_of: asOf })}`), enabled: !!asOf, gcTime: 0, retry: false });
-  return <Space orientation="vertical" className="full" size="middle"><label>Số dư đến ngày <Input aria-label="Ngày công nợ" type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} /></label><Coverage cutoff={query.data?.cutoff} /><Typography.Paragraph>Số dư thương mại do người nhập ghi trên phiếu hàng. Nhật ký thu/chi kế toán độc lập; số này chưa khẳng định đã thu, đã trả hoặc đã đối chiếu toàn bộ doanh nghiệp.</Typography.Paragraph><ErrorNotice error={query.error} /><Flags flags={query.data?.validation_flags} /><Table rowKey="party_id" loading={query.isPending && !!asOf} size="small" dataSource={query.data?.items ?? []} pagination={{ pageSize: 25, showSizeChanger: false }} columns={[
+  const valid = !!asOf && isDateInputValueValid(asOf);
+  const query = useQuery({ queryKey: ["records", generation, "receivables", asOf], queryFn: () => {
+    if (!asOf || !isDateInputValueValid(asOf)) throw new Error(REQUIRED_AS_OF_MESSAGE);
+    return api<Receivables>(`/records/receivables?${new URLSearchParams({ as_of: asOf })}`);
+  }, enabled: valid, gcTime: 0, retry: false });
+  return <Space orientation="vertical" className="full" size="middle"><label>Số dư đến ngày <DateInput aria-label="Ngày công nợ" aria-required="true" aria-invalid={!valid || undefined} status={!valid ? "error" : undefined} value={asOf} onChange={setAsOf} /></label>{!valid && <Alert type="warning" showIcon title={REQUIRED_AS_OF_MESSAGE} />}<Coverage cutoff={query.data?.cutoff} /><Typography.Paragraph>Số dư thương mại do người nhập ghi trên phiếu hàng. Nhật ký thu/chi kế toán độc lập; số này chưa khẳng định đã thu, đã trả hoặc đã đối chiếu toàn bộ doanh nghiệp.</Typography.Paragraph><ErrorNotice error={query.error} /><Flags flags={query.data?.validation_flags} /><Table rowKey="party_id" loading={query.isPending && valid} size="small" dataSource={query.data?.items ?? []} pagination={{ pageSize: 25, showSizeChanger: false }} columns={[
     { title: "Đối tác", dataIndex: "party_id", render: (id: string) => <ReferenceText resource="parties" id={id} /> },
     { title: "Số dư ghi nhận (VND, có dấu)", dataIndex: "amount_vnd", render: decimal, align: "right" },
   ]} /></Space>;

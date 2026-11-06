@@ -1,5 +1,6 @@
 import { Button, Card, Col, Form, Input, Row, Select, Space, Switch, Typography } from "antd";
 import { DecimalInput, required } from "./helpers";
+import { DateInput, dateInputRule } from "../../shared/DateInput";
 import { ReferenceSelect } from "./ReferenceSelect";
 import { entryLabels, type EntryType, type Resource } from "./types";
 
@@ -17,7 +18,7 @@ function PartyFields() {
 }
 
 function DatedFields() {
-  return <><CommonFields /><Row gutter={16}><Col span={12}><Form.Item label="Ngày nghiệp vụ (giờ Việt Nam)" name="occurred_on" rules={required}><Input type="date" /></Form.Item></Col><Col span={12}><Form.Item label="Đối tác (tùy chọn)" name="party_id"><ReferenceSelect resource="parties" /></Form.Item></Col><Col span={12}><Form.Item label="Thời điểm nghiệp vụ có múi giờ (tùy chọn)" name="occurred_at"><Input placeholder="2026-11-06T08:30:00+07:00" /></Form.Item></Col><Col span={12}><Form.Item label="Người thực hiện thực tế (tùy chọn)" name="physical_actor"><Input /></Form.Item></Col></Row></>;
+  return <><CommonFields /><Row gutter={16}><Col span={12}><Form.Item label="Ngày nghiệp vụ (giờ Việt Nam)" name="occurred_on" rules={[...required, dateInputRule]}><DateInput aria-label="Ngày nghiệp vụ (giờ Việt Nam)" /></Form.Item></Col><Col span={12}><Form.Item label="Đối tác (tùy chọn)" name="party_id"><ReferenceSelect resource="parties" /></Form.Item></Col><Col span={12}><Form.Item label="Thời điểm nghiệp vụ có múi giờ (tùy chọn)" name="occurred_at"><Input placeholder="2026-11-06T08:30:00+07:00" /></Form.Item></Col><Col span={12}><Form.Item label="Người thực hiện thực tế (tùy chọn)" name="physical_actor"><Input /></Form.Item></Col></Row></>;
 }
 
 function WeighingLineFields({ index }: { index: number }) {

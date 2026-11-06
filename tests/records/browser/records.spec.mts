@@ -50,6 +50,13 @@ test("desktop real-API records flow, immutable weighing history and stock reject
       expect(response.status).toBe(200);
       return response.json();
     };
+    const requests: { method: string; url: string; body: Record<string, unknown> | null }[] = [];
+    page.on("request", (request) => {
+      if (request.url().startsWith(`${boot.api_base}/records/`)) requests.push({ method: request.method(), url: request.url(), body: request.method() === "POST" ? request.postDataJSON() : null });
+    });
+    const matchingRequests = (resource: string, method = "GET") => requests.filter((request) => request.method === method && new URL(request.url).pathname === `/api/v1/records/${resource}`);
+    const queryResponse = (resource: string, predicate: (url: URL) => boolean = () => true) => page.waitForResponse((response) => response.request().method() === "GET" && new URL(response.url()).pathname === `/api/v1/records/${resource}` && predicate(new URL(response.url())));
+    const businessDay = "2026-11-06", displayDay = "06/11/2026", invalidDay = "31/02/2026";
     await page.addInitScript((context) => { Object.assign(window, { recordsTest: context }); }, { boot, auth });
     await page.goto("/records-test#/records");
     expect(new URL(page.url()).origin).toBe(origin);
@@ -64,20 +71,53 @@ test("desktop real-API records flow, immutable weighing history and stock reject
       if (master.tab === "Đối tác") { await select(page, "Vai trò (có thể chọn nhiều)", "Khách mua"); await page.keyboard.press("Escape"); }
       await save(page, master.code); await closeDetail(page);
     }
+    const initialWeighings = queryResponse("weighings");
     await page.getByRole("tab", { name: "Phiếu cân tay", exact: true }).click();
+    await initialWeighings;
+    // Optional list filters retain invalid drafts and never query a stale ISO.
+    const listFrom = page.getByLabel("Từ ngày", { exact: true });
+    const listBeforeInvalid = matchingRequests("weighings").length;
+    await listFrom.fill(invalidDay);
+    await listFrom.press("Tab");
+    await expect(listFrom).toHaveValue(invalidDay);
+    await expect(listFrom).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByRole("button", { name: "Tải lại", exact: true })).toBeDisabled();
+    expect(matchingRequests("weighings")).toHaveLength(listBeforeInvalid);
+    const filteredList = queryResponse("weighings", (url) => JSON.parse(url.searchParams.get("filters") || "{}").from_on === businessDay);
+    await listFrom.fill(displayDay);
+    await filteredList;
+    await expect(listFrom).toHaveValue(displayDay);
+    const clearList = queryResponse("weighings", (url) => JSON.parse(url.searchParams.get("filters") || "{}").from_on === undefined);
+    await listFrom.fill("");
+    await clearList;
     await page.getByRole("button", { name: "Thêm mới", exact: true }).click();
     await page.getByLabel("Mã / số phiếu", { exact: true }).fill("CAN-UI");
     await select(page, "Đối tác (tùy chọn)", "DT-UI — Đối tác tổng hợp");
     await select(page, "Hàng hóa (tùy chọn)", "CP-UI — Cà phê tổng hợp");
     await page.getByLabel("Kg tịnh trực tiếp", { exact: true }).fill("100.125");
+    // A required Form date must replace the prior valid ISO with its raw draft.
+    const occurredOn = page.getByLabel("Ngày nghiệp vụ (giờ Việt Nam)", { exact: true });
+    await expect(occurredOn).toHaveValue(/^\d{2}\/\d{2}\/\d{4}$/);
+    await occurredOn.fill(invalidDay);
+    await occurredOn.press("Control+Enter");
+    await expect(page.getByText("Ngày không hợp lệ. Nhập DD/MM/YYYY.", { exact: true })).toBeVisible();
+    await expect(occurredOn).toHaveValue(invalidDay);
+    expect(matchingRequests("weighings", "POST")).toHaveLength(0);
+    expect((await get("weighings")).total).toBe(0);
+    await occurredOn.fill(displayDay);
+    await expect(occurredOn).toHaveValue(displayDay);
     await page.getByLabel("Kg tịnh trực tiếp", { exact: true }).press("Control+Enter");
     await expect(page.getByRole("dialog").getByText("Đã lưu CAN-UI", { exact: true })).toBeVisible();
     const weighing = (await get("weighings")).items[0];
+    expect(weighing.occurred_on).toBe(businessDay);
+    expect(matchingRequests("weighings", "POST")[0].body?.occurred_on).toBe(businessDay);
+    await expect(page.getByRole("dialog").getByText(displayDay, { exact: true })).toBeVisible();
     expect(weighing.lines[0]).toMatchObject({ gross_kg: null, tare_kg: null, net_kg: "100.125", quantity_source: "direct_net" });
     const balancePath = `stock-balances?from_on=${weighing.occurred_on}&through_on=${weighing.occurred_on}`;
     expect((await get(balancePath)).items).toEqual([]);
     await page.getByRole("button", { name: "Lập phiếu nhập từ cân", exact: true }).click();
     await page.getByLabel("Mã / số phiếu", { exact: true }).fill("PN-UI");
+    await expect(page.getByLabel("Ngày nghiệp vụ (giờ Việt Nam)", { exact: true })).toHaveValue(displayDay);
     await select(page, "Trạng thái dữ liệu", "Đã ghi — cập nhật sổ kho khi lưu");
     await select(page, "Vị trí / kho", "KHO-UI — Kho tổng hợp");
     await expect(page.getByLabel("Số kg", { exact: true })).toHaveValue("100.125");
@@ -86,6 +126,7 @@ test("desktop real-API records flow, immutable weighing history and stock reject
     async function issue(code: string, quantity: string) {
       await page.getByRole("button", { name: "Thêm mới", exact: true }).click();
       await page.getByLabel("Mã / số phiếu", { exact: true }).fill(code);
+      await page.getByLabel("Ngày nghiệp vụ (giờ Việt Nam)", { exact: true }).fill(displayDay);
       await select(page, "Loại phiếu hàng", "Xuất hàng");
       await select(page, "Trạng thái dữ liệu", "Đã ghi — cập nhật sổ kho khi lưu");
       await select(page, "Hàng hóa", "CP-UI — Cà phê tổng hợp");
@@ -94,6 +135,10 @@ test("desktop real-API records flow, immutable weighing history and stock reject
     }
     await issue("PX-UI", "10.001"); await save(page, "PX-UI"); await closeDetail(page);
     await page.getByRole("tab", { name: "Tổng hợp tồn", exact: true }).click();
+    const reportRange = queryResponse("stock-balances", (url) => url.searchParams.get("from_on") === businessDay && url.searchParams.get("through_on") === businessDay);
+    await page.getByLabel("Từ ngày báo cáo", { exact: true }).fill(displayDay);
+    await page.getByLabel("Đến ngày báo cáo", { exact: true }).fill(displayDay);
+    await reportRange;
     await expect(page.getByRole("cell", { name: "90,124", exact: true })).toBeVisible();
     const inventoryV2 = await get(balancePath);
     expect(inventoryV2.items[0].closing_kg).toBe("90.124");
@@ -119,6 +164,47 @@ test("desktop real-API records flow, immutable weighing history and stock reject
     await expect(page.locator(".ant-spin-blur")).toHaveCount(0);
     await expect(page.getByRole("tab", { name: "Tổng hợp tồn", exact: true })).toHaveAttribute("aria-selected", "true");
     await page.screenshot({ path: info.outputPath("records-real-api-inventory.png"), fullPage: true, animations: "disabled" });
+    const inventoryFrom = page.getByLabel("Từ ngày báo cáo", { exact: true });
+    const inventoryBeforeInvalid = matchingRequests("stock-balances").length;
+    await inventoryFrom.fill(invalidDay);
+    await inventoryFrom.press("Tab");
+    await expect(inventoryFrom).toHaveValue(invalidDay);
+    await expect(inventoryFrom).toHaveAttribute("aria-invalid", "true");
+    expect(matchingRequests("stock-balances")).toHaveLength(inventoryBeforeInvalid);
+    const correctedInventory = queryResponse("stock-balances", (url) => url.searchParams.get("from_on") === businessDay && url.searchParams.get("through_on") === businessDay);
+    await inventoryFrom.fill(displayDay);
+    await correctedInventory;
+    await expect(page.getByRole("cell", { name: "90,124", exact: true })).toBeVisible();
+
+    await page.getByRole("tab", { name: "Lịch sử kho", exact: true }).click();
+    const movementRange = queryResponse("stock-movements", (url) => {
+      const filters = JSON.parse(url.searchParams.get("filters") || "{}");
+      return filters.from_on === businessDay && filters.through_on === businessDay;
+    });
+    await page.getByLabel("Từ ngày báo cáo", { exact: true }).fill(displayDay);
+    await page.getByLabel("Đến ngày báo cáo", { exact: true }).fill(displayDay);
+    await movementRange;
+    const movementThrough = page.getByLabel("Đến ngày báo cáo", { exact: true });
+    const movementsBeforeInvalid = matchingRequests("stock-movements").length;
+    await movementThrough.fill(invalidDay);
+    await movementThrough.press("Tab");
+    await expect(movementThrough).toHaveValue(invalidDay);
+    await expect(movementThrough).toHaveAttribute("aria-invalid", "true");
+    expect(matchingRequests("stock-movements")).toHaveLength(movementsBeforeInvalid);
+
+    const initialReceivables = queryResponse("receivables");
+    await page.getByRole("tab", { name: "Số dư thương mại", exact: true }).click();
+    await initialReceivables;
+    const asOf = page.getByLabel("Ngày công nợ", { exact: true });
+    const receivablesBeforeInvalid = matchingRequests("receivables").length;
+    await asOf.fill(invalidDay);
+    await asOf.press("Tab");
+    await expect(asOf).toHaveValue(invalidDay);
+    await expect(asOf).toHaveAttribute("aria-invalid", "true");
+    expect(matchingRequests("receivables")).toHaveLength(receivablesBeforeInvalid);
+    const correctedReceivables = queryResponse("receivables", (url) => url.searchParams.get("as_of") === businessDay);
+    await asOf.fill(displayDay);
+    await correctedReceivables;
     await page.getByRole("tab", { name: "Phiếu hàng", exact: true }).click();
     await issue("PX-OVERDRAW", "1000.000");
     await page.getByRole("button", { name: "Lưu dữ liệu", exact: true }).click();

@@ -1,10 +1,28 @@
 import { Alert, Button, Form, Input, Space, Typography } from "antd";
 import type { NamePath } from "antd/es/form/interface";
 import { ApiError, messageOf } from "../../shared/api";
+import { isDateInputValueValid } from "../../shared/DateInput";
 
 export const kgRules = [{ pattern: /^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/, message: "Nhập kg bằng dấu chấm, tối đa 3 chữ số thập phân." }];
 export const moneyRules = [{ pattern: /^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$/, message: "Nhập số tiền bằng dấu chấm, tối đa 2 chữ số thập phân." }];
 export const required = [{ required: true, message: "Cần nhập thông tin này." }];
+export const OPTIONAL_DATE_RANGE_MESSAGE = "Nhập ngày theo DD/MM/YYYY; ngày đầu không được sau ngày cuối.";
+export const REQUIRED_DATE_RANGE_MESSAGE = "Nhập đủ ngày theo DD/MM/YYYY; ngày đầu không được sau ngày cuối.";
+export const REQUIRED_AS_OF_MESSAGE = "Nhập ngày công nợ hợp lệ theo DD/MM/YYYY.";
+
+/** Keep the raw draft in state; only valid ISO dates may reach a query. */
+export function dateRangeValid(from: string, through: string, requiredDates = false): boolean {
+  if (!isDateInputValueValid(from) || !isDateInputValueValid(through)) return false;
+  if (requiredDates && (!from || !through)) return false;
+  return !from || !through || from <= through;
+}
+
+/** Format business dates as text without timezone conversion or date rollover. */
+export function displayBusinessDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  if (!isDateInputValueValid(value)) return value;
+  return `${value.slice(8, 10)}/${value.slice(5, 7)}/${value.slice(0, 4)}`;
+}
 
 export function todayVN(): string {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());

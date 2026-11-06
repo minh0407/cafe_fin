@@ -4,7 +4,7 @@ import { Button, Descriptions, Drawer, List, Space, Table, Tag, Typography } fro
 import { api } from "../../shared/api";
 import { useSession } from "../../shared/session";
 import type { Page } from "../../shared/types";
-import { Coverage, decimal, ErrorNotice } from "./helpers";
+import { Coverage, decimal, displayBusinessDate, ErrorNotice } from "./helpers";
 import { entryLabels, type Entity, type Entry, type EntryLine, type Party, type RecordEntity, type Resource, type Weighing, type WeighingLine } from "./types";
 
 export function ReferenceText({ resource, id }: { resource: Resource; id?: string | null }) {
@@ -23,7 +23,7 @@ function DataView({ resource, value }: { resource: Resource; value: RecordEntity
       { key: "code", label: "Mã / số phiếu", children: value.code },
       { key: "version", label: "Phiên bản", children: value.version },
       ...(value.name ? [{ key: "name", label: "Tên", children: value.name }] : []),
-      ...(dated.occurred_on ? [{ key: "date", label: "Ngày nghiệp vụ (VN)", children: dated.occurred_on }, { key: "party", label: "Đối tác", children: <ReferenceText resource="parties" id={dated.party_id} /> }] : []),
+      ...(dated.occurred_on ? [{ key: "date", label: "Ngày nghiệp vụ (VN)", children: displayBusinessDate(dated.occurred_on) }, { key: "party", label: "Đối tác", children: <ReferenceText resource="parties" id={dated.party_id} /> }] : []),
       ...(entry.entry_type ? [{ key: "type", label: "Loại phiếu", children: entryLabels[entry.entry_type] }, { key: "status", label: "Trạng thái", children: entry.status === "posted" ? "Đã ghi" : entry.status === "draft" ? "Nháp" : "Đã hủy" }, { key: "weighing", label: "Phiếu cân liên kết", children: <ReferenceText resource="weighings" id={entry.weighing_id} /> }, { key: "commercial", label: "Số dư thương mại (VND)", children: decimal(entry.commercial_amount_vnd) }] : []),
       ...("vehicle_plate" in value ? [{ key: "vehicle", label: "Biển xe", children: value.vehicle_plate || "—" }] : []),
       ...(resource === "parties" ? [{ key: "partytype", label: "Loại đối tác", children: party.type === "person" ? "Cá nhân" : party.type === "organization" ? "Tổ chức" : party.type }, { key: "roles", label: "Vai trò", children: party.roles.map((role) => <Tag key={role}>{role === "customer" ? "Khách mua" : role === "supplier" ? "Nhà cung cấp" : role}</Tag>) }, { key: "address", label: "Địa chỉ", children: party.address || "—" }, { key: "tax", label: "Mã số thuế", children: party.tax_code || "—" }, { key: "contacts", label: "Liên hệ", children: party.contacts.map((contact, index) => <div key={index}>{contact.label || contact.kind}: {contact.value}</div>) }, { key: "representative", label: "Đại diện", children: party.representative ? `${party.representative.name}${party.representative.title ? ` — ${party.representative.title}` : ""}` : "—" }, { key: "banks", label: "Ngân hàng", children: (party.bank_details ?? []).map((bank, index) => <div key={index}>{bank.bank_name}: {bank.account_number} — {bank.account_holder}</div>) }] : []),

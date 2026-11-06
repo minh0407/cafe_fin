@@ -5,9 +5,11 @@ Branch: `codex/cafe-fin-records-20261106`.
 Baseline duy nhất: `cafe-fin-foundation-ready-v1` →
 `e668355c227322994902f7e2e38ed7ffb19ff647`.
 
-Thay đổi lane chỉ trong bốn vùng ownership records. Ngoại lệ shared duy nhất là
+Thay đổi lane chỉ trong bốn vùng ownership records. Các ngoại lệ shared đã được duyệt:
 commit root đã được cho phép cherry-pick: source `57a2ed26bf70b8d6b3c4d2c7a30620d3d6b3033a`
-→ local `1cd2da5`, read bridge v2. Không tự sửa core, push/merge/tag hoặc source/DB cũ.
+→ local `1cd2da5`, read bridge v2; source DateInput
+`6098a1111432995ed5b6be96fd0650af382a15e2` → local `999b2a6` (đúng năm file root).
+Không tự sửa core/shared, push/merge/tag hoặc source/DB cũ.
 Backend đăng ký qua `cafe_fin.records.module.module_manifest()`. UI export
 `recordsModule` tại `frontend/src/features/records/index.ts`. Registry nền vẫn
 chưa ghép records; không coi build shell stub là bằng chứng UI nghiệp vụ.
@@ -17,8 +19,8 @@ Cherry-pick theo thứ tự: backend ledger `3e6f0a9d0ef4d096ae78302a428e4eb479b
 snapshot extension `ba60228cf188f65bb76f1c39fe568d4536a0fc2e`, UI/handoff
 `e6f3847aa59165803e9ace7ffec9faaf6d3f92d2`, rồi update v2 sau khi root đã có shared
 commit nói trên. Root đã sở hữu `57a2ed2` nên không cherry-pick lại local `1cd2da5`.
-Danh sách file thuộc lane ở files.txt; bốn file shared của root được ghi riêng
-trong read-bridge-v2.md.
+Danh sách file thuộc lane ở files.txt; không gồm bốn file shared bridge v2 và
+năm file shared DateInput do root sở hữu, đã được cherry-pick theo ủy quyền.
 
 ## Ledger và dữ liệu
 
@@ -154,6 +156,19 @@ executor hoặc assertion đúng hai connections.20/20 focused subprocess PASS;
 full131 records PASS/64.40s; Ruff/compileall/diff PASS. Chi tiết bằng chứng
 unrelated writer, lock, ledger/audit/receipts và lệnh kiểm trong tests.md. CI
 recovery do root chạy sau khi cherry-pick patch test riêng.
+
+CI harness bỏ port80 bằng commit riêng1b18f3a3298bf22ee8632b9ec59feb264c52eb18:
+Vite/browser dev origin127.0.0.1:1421, strictPort, readiness /records-test,
+không reuse/kill service khác. Browser local PASS/19.7s; app production Origin/CSP
+không đổi. Xem ui.md để biết test-only bootstrap origin seam và port override.
+
+Sau shared DateInput6098a11, mọi native DATE input trong records đã được thay
+bằng controlled DateInput DD/MM/YYYY. Raw draft sai được giữ trong parent/Form;
+required Form dateInputRule và non-Form guards chặn mutation/query/refetch khi
+ngày sai, không gửi lại ISO cũ. Readback cũng DD/MM/YYYY; transport vẫn ISO,
+through_on inclusive, ngày Việt Nam và occurred_at timestamp không đổi.
+Browser date regression thực PASS1/20.6s; build/typecheck/feature build PASS.
+Root đã có shared6098a11 nên chỉ lấy commit adoption lane, không lấy lại local999b2a6.
 
 Native Tauri GUI/installer/Windows sạch và workflow sau root integration chưa
 nghiệm thu ở lane này. Browser harness riêng dùng API/DB thật sẽ ghi tách biệt
