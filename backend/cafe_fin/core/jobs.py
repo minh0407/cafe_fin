@@ -156,9 +156,31 @@ class JobService:
         self.wake.set()
         return result
 
-    def status(self, job_id: str):
-        with self.database.read() as conn:
-            row = conn.execute(select(JOBS).where(JOBS.c.id == job_id)).mappings().first()
+    def status(self, job_id: str, *, connection: Connection | None = None):
+        """Read the public DTO; a borrowed snapshot never grants authorization.
+
+        Callers must authorize and check ownership in the same connection. They
+        own its explicit read-only BEGIN transaction and its entire lifetime.
+        """
+        if connection is not None:
+            if (
+                not isinstance(connection, Connection)
+                or connection.engine is not self.database.engine
+                or connection.closed
+                or connection.invalidated
+                or not connection.in_transaction()
+                or not connection.connection.driver_connection.in_transaction
+                or connection.exec_driver_sql("PRAGMA query_only").scalar_one() != 1
+            ):
+                raise CoreError(
+                    "READ_ONLY_SNAPSHOT_REQUIRED",
+                    "Cần connection chỉ đọc đang giữ SQLite BEGIN snapshot do caller quản lý.",
+                    409,
+                )
+            row = connection.execute(select(JOBS).where(JOBS.c.id == job_id)).mappings().first()
+        else:
+            with self.database.read() as conn:
+                row = conn.execute(select(JOBS).where(JOBS.c.id == job_id)).mappings().first()
         if row is None:
             raise CoreError("JOB_NOT_FOUND", "Không tìm thấy tác vụ.", 404)
         return _dto(row)
