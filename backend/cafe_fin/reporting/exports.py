@@ -2,6 +2,7 @@
 
 import io
 import re
+import unicodedata
 import zipfile
 
 from openpyxl import Workbook
@@ -50,16 +51,50 @@ def decimal_text(value: int, places: int) -> str:
     return f"{sign}{whole}.{fraction:0{places}d}"
 
 
-def summary_rows(snapshot: dict) -> tuple[tuple[str, str, str], ...]:
-    # No arbitrary provider labels, notes, names, IDs, flags or paths go to attachments.
-    rows = []
+def display_label(value, fallback: str, limit=256):
+    if not isinstance(value, str):
+        return fallback
+    text = " ".join(
+        "".join(
+            " " if unicodedata.category(char).startswith("C") else char for char in value
+        ).split()
+    )
+    if not text:
+        return fallback
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return f"{fallback} ({text})"
+
+
+def inventory_groups(snapshot, limit=256):
     inventory = snapshot["sources"]["inventory"]["items"]
     warehouses = {x: i + 1 for i, x in enumerate(sorted({r["warehouse_id"] for r in inventory}))}
     products = {x: i + 1 for i, x in enumerate(sorted({r["product_id"] for r in inventory}))}
     breakdown = snapshot["sources"]["inventory"].get("movement_breakdown")
     components = {(x["warehouse_id"], x["product_id"]): x for x in (breakdown or [])}
     for item in inventory:
-        group = f"Kho {warehouses[item['warehouse_id']]} / Loại {products[item['product_id']]}"
+        movement = components.get((item["warehouse_id"], item["product_id"]))
+        names = movement or {}
+        warehouse = display_label(
+            item.get("warehouse_name") or names.get("warehouse_name"),
+            f"Kho {warehouses[item['warehouse_id']]}",
+            limit,
+        )
+        product = display_label(
+            item.get("product_name") or names.get("product_name"),
+            f"Loại {products[item['product_id']]}",
+            limit,
+        )
+        yield item, movement, f"{warehouse} / {product}"
+
+
+def summary_rows(snapshot: dict) -> tuple[tuple[str, str, str], ...]:
+    # Only explicit product/warehouse/book name fields are display metadata.
+    # Arbitrary descriptions, notes, IDs, provider flags and paths stay local.
+    rows = []
+    inventory = snapshot["sources"]["inventory"]["items"]
+    breakdown = snapshot["sources"]["inventory"].get("movement_breakdown")
+    for item, movement, group in inventory_groups(snapshot):
         for key, label in (
             ("opening_kg", "Đầu kỳ"),
             ("received_kg", "Nhập tổng"),
@@ -67,7 +102,6 @@ def summary_rows(snapshot: dict) -> tuple[tuple[str, str, str], ...]:
             ("closing_kg", "Cuối kỳ"),
         ):
             rows.append((group, label + " (kg)", decimal_text(scaled(item[key], 3), 3)))
-        movement = components.get((item["warehouse_id"], item["product_id"]))
         if movement:
             for key, label in MOVEMENT_LABELS.items():
                 rows.append((group, label + " (kg)", decimal_text(scaled(movement[key], 3), 3)))
@@ -76,13 +110,14 @@ def summary_rows(snapshot: dict) -> tuple[tuple[str, str, str], ...]:
     if breakdown is None:
         rows.append(("Kho", "Sản xuất", "Chưa đủ dữ liệu tách riêng"))
     for index, book in enumerate(snapshot["sources"]["books"], 1):
+        book_label = display_label(book.get("book_name"), f"Sổ {index}")
         known = [x for x in book["metrics"] if x.get("meaning") in MONEY_LABELS]
         if not book["has_valid_money_mapping"] or not known:
-            rows.append((f"Sổ {index}", "Tiền (VND)", "Chưa đủ dữ liệu"))
+            rows.append((book_label, "Tiền (VND)", "Chưa đủ dữ liệu"))
         for metric in known:
             rows.append(
                 (
-                    f"Sổ {index}",
+                    book_label,
                     MONEY_LABELS[metric["meaning"]] + " (VND)",
                     decimal_text(scaled(metric["amount_vnd"], 2), 2),
                 )
@@ -122,6 +157,16 @@ def short_message(snapshot: dict, version: int, digest: str) -> str:
                 lines.append(f"{label}: {decimal_text(total, 3)} kg")
     else:
         lines.append("Kho: chưa đủ dữ liệu")
+    named_inventory = any(
+        x.get("product_name") or x.get("warehouse_name")
+        for x in (inventory + (snapshot["sources"]["inventory"].get("movement_breakdown") or []))
+    )
+    if named_inventory:
+        for index, (item, _, group) in enumerate(inventory_groups(snapshot, limit=64)):
+            if index == 3:
+                lines.append("Các nhóm kho/hàng còn lại: xem bản tổng hợp được chọn đính kèm.")
+                break
+            lines.append(f"{group}: tồn {decimal_text(scaled(item['closing_kg'], 3), 3)} kg")
     # Bound the short message rather than accidentally sending a detailed local report.
     for index, book in enumerate(snapshot["sources"]["books"][:5], 1):
         metrics = [x for x in book["metrics"] if x.get("meaning") in MONEY_LABELS]
@@ -130,7 +175,9 @@ def short_message(snapshot: dict, version: int, digest: str) -> str:
             for x in metrics
         ]
         lines.append(
-            f"Sổ {index}: " + ("; ".join(values) + " VND" if values else "chưa đủ dữ liệu")
+            display_label(book.get("book_name"), f"Sổ {index}", limit=64)
+            + ": "
+            + ("; ".join(values) + " VND" if values else "chưa đủ dữ liệu")
         )
     if len(snapshot["sources"]["books"]) > 5:
         lines.append("Các sổ còn lại: xem bản tổng hợp được chọn đính kèm.")
@@ -178,7 +225,16 @@ def render(snapshot: dict, version: int, digest: str, format: str) -> tuple[byte
             else "Nhập/xuất tổng chưa tách sản xuất, chuyển kho và điều chỉnh."
         ),
         "Sổ tiền độc lập; không cộng các sổ hoặc cộng cọc vào tổng thu/chi. Hóa đơn không phải thu tiền.",
-        "Kho/Loại/Sổ được đánh số trong bản này; xem nguồn chi tiết tại ứng dụng local.",
+        (
+            "Tên kho/hàng/sổ theo snapshot; số thứ tự phân biệt các nhóm có tên giống nhau."
+            if any(
+                item.get("product_name") or item.get("warehouse_name")
+                for item in snapshot["sources"]["inventory"]["items"]
+                + (snapshot["sources"]["inventory"].get("movement_breakdown") or [])
+            )
+            or any(book.get("book_name") for book in snapshot["sources"]["books"])
+            else "Kho/Loại/Sổ được đánh số trong bản này; xem nguồn chi tiết tại ứng dụng local."
+        ),
     )
     if format == "pdf":
         document = DocumentSnapshot(

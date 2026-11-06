@@ -17,9 +17,20 @@ from conftest import TypedSyntheticSource, saved
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
-    output = parser.parse_args().output
+    parser.add_argument(
+        "--named",
+        action="store_true",
+        help="Use synthetic v3 names, including literal markup-like text",
+    )
+    args = parser.parse_args()
+    output = args.output
     output.mkdir(parents=True, exist_ok=True)
-    source = TypedSyntheticSource()
+    if args.named:
+        from test_display_names import NamedSource
+
+        source = NamedSource()
+    else:
+        source = TypedSyntheticSource()
     source.amount = "1234567890.01"
     source.malicious = "SYNTHETIC-LOCAL-NOTE-NOT-FOR-SHARING"
     registry = ModuleRegistry((module_manifest(source=source),))

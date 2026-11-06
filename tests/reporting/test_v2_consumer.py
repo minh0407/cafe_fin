@@ -12,7 +12,7 @@ def test_real_v2_dto_snapshot_stock_components_cash_subsets_no_double_count(env)
     service = ReportingService(env.runtime, source=source)
     preview = service.preview(env.actor, preview_command("typed-v2"))
     snapshot = preview["snapshot"]
-    assert snapshot["bridge_contract_version"] == 2
+    assert snapshot["bridge_contract_version"] == 3
     assert len(snapshot["production"]) == 3
     assert "PRODUCTION_BREAKDOWN_UNAVAILABLE" not in snapshot["warnings"]
     assert "UNINTERPRETED_MONEY_METRICS" in snapshot["warnings"]
