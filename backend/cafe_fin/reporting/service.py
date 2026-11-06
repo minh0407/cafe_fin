@@ -70,12 +70,22 @@ def outbox_dto(row):
 
 class ReportingService:
     def __init__(
-        self, runtime, *, source=None, secret_store=None, transport=None, heartbeat_bound=False
+        self,
+        runtime,
+        *,
+        source=None,
+        actor_source_factory=None,
+        secret_store=None,
+        transport=None,
+        heartbeat_bound=False,
     ):
         from .zalo import MissingSecrets, OfficialGMF
 
         self.runtime = runtime
         self.source = source or UnboundSources()
+        if source is not None and actor_source_factory is not None:
+            raise ValueError("Choose source or actor_source_factory")
+        self.actor_source_factory = actor_source_factory
         self.secrets = secret_store or MissingSecrets()
         self.transport = transport or OfficialGMF()
         self.heartbeat_bound = heartbeat_bound
@@ -137,7 +147,13 @@ class ReportingService:
             ).first()
         if previous:
             return self.command(actor, "preview", command.request_key, payload, lambda conn: None)
-        snapshot = build_snapshot(self.source, command, datetime.now(timezone.utc))
+        self.runtime.writer.run(self.authorize(actor))
+        source = (
+            self.actor_source_factory(self.runtime, actor)
+            if self.actor_source_factory
+            else self.source
+        )
+        snapshot = build_snapshot(source, command, datetime.now(timezone.utc))
         encoded = canonical_json(snapshot)
         if len(encoded.encode()) > 2 * 1024 * 1024:
             raise CoreError("REPORT_TOO_LARGE", "Báo cáo quá lớn; chọn khoảng ngắn hơn.", 413)

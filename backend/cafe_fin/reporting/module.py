@@ -16,10 +16,16 @@ from .service import ReportingService
 
 
 def module_manifest(
-    *, source=None, source_factory=None, secret_store=None, transport=None, heartbeat_bound=False
+    *,
+    source=None,
+    source_factory=None,
+    actor_source_factory=None,
+    secret_store=None,
+    transport=None,
+    heartbeat_bound=False,
 ) -> ModuleManifest:
-    if source is not None and source_factory is not None:
-        raise ValueError("Choose source or source_factory")
+    if sum(value is not None for value in (source, source_factory, actor_source_factory)) > 1:
+        raise ValueError("Choose source, source_factory or actor_source_factory")
     services = WeakKeyDictionary()
 
     def service(runtime):
@@ -27,6 +33,7 @@ def module_manifest(
             services[runtime] = ReportingService(
                 runtime,
                 source=source_factory(runtime) if source_factory else source,
+                actor_source_factory=actor_source_factory,
                 secret_store=secret_store,
                 transport=transport,
                 heartbeat_bound=heartbeat_bound,
