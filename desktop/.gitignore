@@ -1,0 +1,11 @@
+/target/
+/gen/
+/binaries/*.exe
+/icons/android/
+/icons/ios/
+/icons/icon.icns
+/icons/icon.png
+/icons/64x64.png
+/icons/128x128@2x.png
+/icons/Square*.png
+/icons/StoreLogo.png

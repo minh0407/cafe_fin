@@ -1,0 +1,7 @@
+* text=auto
+*.ttf binary
+*.ico binary
+*.png binary
+# Preserve published third-party license text verbatim, including upstream whitespace.
+backend/cafe_fin/core/assets/notices/* -whitespace
+desktop/notices/* -whitespace

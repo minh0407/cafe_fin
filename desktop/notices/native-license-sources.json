@@ -1,0 +1,52 @@
+[
+  {
+    "component": "bzip2 1.0.8",
+    "url": "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20261026/LICENSE.bzip2.txt",
+    "sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441"
+  },
+  {
+    "component": "libffi 3.8.0",
+    "url": "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20261026/LICENSE.libffi.txt",
+    "sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0"
+  },
+  {
+    "component": "OpenSSL 3.5.9",
+    "url": "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20261026/LICENSE.openssl-3.txt",
+    "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+  },
+  {
+    "component": "SQLite 3.53.1",
+    "url": "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20261026/LICENSE.sqlite.txt",
+    "sha256": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719"
+  },
+  {
+    "component": "liblzma 5.8.4",
+    "url": "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20261026/LICENSE.liblzma.txt",
+    "sha256": "9a4062de0a2c388a98cf35a35d348b62fa97c838a71c3c28ee1a2d7d0a565b02"
+  },
+  {
+    "component": "zlib 1.3.2",
+    "url": "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20261026/LICENSE.zlib.txt",
+    "sha256": "818922b2620f12801a12bf78e399644a30990e66824abd8ca8ec24d451d6f92c"
+  },
+  {
+    "component": "zlib-ng 2.2.4 Windows build dependency",
+    "url": "https://raw.githubusercontent.com/astral-sh/python-build-standalone/20261026/LICENSE.zlib-ng.txt",
+    "sha256": "6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee"
+  },
+  {
+    "component": "libxml2 2.11.9",
+    "url": "https://raw.githubusercontent.com/GNOME/libxml2/v2.11.9/Copyright",
+    "sha256": "c5c63674f8a83c4d2e385d96d1c670a03cb871ba2927755467017317878574bd"
+  },
+  {
+    "component": "libxslt/libexslt 1.1.45",
+    "url": "https://raw.githubusercontent.com/GNOME/libxslt/v1.1.45/Copyright",
+    "sha256": "7e48e290b6bfccc2ec1b297023a1d77f2fd87417f71fbb9f50aabef40a851819"
+  },
+  {
+    "component": "Microsoft Visual C++ Runtime 2015-2022, DLL version 14.44.35211.0",
+    "url": "https://visualstudio.microsoft.com/wp-content/uploads/2021/09/Visual-C-Runtime-2015-2022-License-1.docx",
+    "sha256": "f1e3d56ceb2ad68aae0711b910375009e651ac5530fa0760f0dea6e81e54fae1"
+  }
+]

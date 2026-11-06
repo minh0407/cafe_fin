@@ -1,17 +1,24 @@
 """Module registration is explicit; discovery never executes arbitrary disk plugins."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Callable
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Callable
 
 from sqlalchemy import Connection, MetaData
 from sqlalchemy.dialects import sqlite
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from .errors import CoreError
+
+if TYPE_CHECKING:
+    from .jobs import JobHandler
+    from .runtime import Runtime
 
 
 def schema_checksum(metadata: MetaData, statements: Iterable[str] = ()) -> str:
@@ -58,6 +65,12 @@ class ModuleManifest:
     dependencies: tuple[str, ...] = ()
     migrations: tuple[Migration, ...] = ()
     router: object | None = field(default=None, compare=False)
+    job_handlers: Mapping[str, JobHandler] = field(default_factory=dict, compare=False)
+    on_startup: Callable[[Runtime], None] | None = field(default=None, compare=False)
+
+    def __post_init__(self):
+        # Registration is a frozen handoff, not a live plugin dictionary.
+        object.__setattr__(self, "job_handlers", MappingProxyType(dict(self.job_handlers)))
 
 
 class ModuleRegistry:
@@ -67,6 +80,8 @@ class ModuleRegistry:
             self.register(module)
 
     def register(self, module: ModuleManifest) -> None:
+        from .jobs import JobHandler
+
         if not re.fullmatch(r"[a-z][a-z0-9_]*", module.id) or module.id in self._modules:
             raise CoreError("INVALID_MODULE", "Module trùng hoặc tên không hợp lệ.")
         if module.api_prefix != f"/{module.id}":
@@ -78,6 +93,19 @@ class ModuleRegistry:
                 "MIGRATION_CHECKSUM_REQUIRED",
                 "Migration module phải khai báo checksum schema/SQL hợp lệ.",
             )
+        if module.on_startup is not None and not callable(module.on_startup):
+            raise CoreError("INVALID_MODULE_HOOK", "Startup hook của module phải là callable.")
+        existing_jobs = {
+            kind for registered in self._modules.values() for kind in registered.job_handlers
+        }
+        for kind, handler in module.job_handlers.items():
+            prefix = module.id + "."
+            if not isinstance(kind, str) or not kind.startswith(prefix) or len(kind) == len(prefix):
+                raise CoreError("INVALID_JOB_NAMESPACE", "Loại job phải có prefix của module.")
+            if kind in existing_jobs:
+                raise CoreError("DUPLICATE_JOB_KIND", "Loại job đã được đăng ký.")
+            if not isinstance(handler, JobHandler) or not callable(handler.run):
+                raise CoreError("INVALID_JOB_HANDLER", "Job handler của module không hợp lệ.")
         self._modules[module.id] = module
 
     def ordered(self) -> tuple[ModuleManifest, ...]:

@@ -350,15 +350,28 @@ class FileStore:
     def read(self, file_id: str) -> Iterator[BinaryIO]:
         record = self.get(file_id)
         path = self.root.resolve_key(record.relative_key)
-        if not path.is_file():
+        try:
+            source = path.open("rb")
+        except FileNotFoundError:
             raise CoreError(
                 "FILE_MISSING",
                 "Tệp được tham chiếu đang bị thiếu. Cần kiểm tra bản sao lưu.",
                 status=409,
-            )
-        if path.stat().st_size != record.size or sha256_file(path) != record.sha256:
-            raise CoreError("FILE_HASH_MISMATCH", "Nội dung tệp không khớp bản đã lưu.", status=409)
-        with path.open("rb") as source:
+            ) from None
+        except OSError as exc:
+            raise _io_error(exc) from None
+        with source:
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+            if (
+                os.fstat(source.fileno()).st_size != record.size
+                or digest.hexdigest() != record.sha256
+            ):
+                raise CoreError(
+                    "FILE_HASH_MISMATCH", "Nội dung tệp không khớp bản đã lưu.", status=409
+                )
+            source.seek(0)
             yield source
 
     def export(self, file_id: str, trusted_native_destination: Path) -> dict:

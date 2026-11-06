@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Only local first-party main window may use these bounded commands.",
+  "windows": ["main"],
+  "permissions": ["allow-desktop-status", "allow-choose-data-root", "allow-start-backend", "allow-restart-backend"]
+}
