@@ -30,6 +30,7 @@ tests/records/browser/harness.tsx
 tests/records/browser/playwright.config.mts
 tests/records/browser/records.spec.mts
 tests/records/browser/server.py
+tests/records/browser/settings.mjs
 tests/records/browser/vite.config.mts
 tests/records/conftest.py
 tests/records/test_records_api.py
