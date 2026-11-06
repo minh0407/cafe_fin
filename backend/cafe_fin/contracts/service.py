@@ -757,7 +757,17 @@ class ContractService:
     def add_attachment(self, actor, key, identity, file_id, version_id, note, status):
         identity, file_id = _identity(identity), _identity(file_id)
         version_id = _identity(version_id) if version_id else None
-        stored = self.runtime.files.get(file_id)
+
+        def authorize_source(conn):
+            current = self.runtime.auth.authorize(conn, actor, "contracts.write")
+            self.runtime.files.require_owner_or_admin(conn, current, file_id)
+
+        # Reject foreign private sources before reading their metadata or bytes.
+        # The writer repeats this check, including on idempotent receipt replays.
+        with self.runtime.reader() as conn:
+            conn.exec_driver_sql("BEGIN")
+            authorize_source(conn)
+            stored = self.runtime.files.get(file_id, connection=conn)
         if stored.category != "documents" or stored.size > MAX_ATTACHMENT_BYTES:
             raise CoreError(
                 "ATTACHMENT_NOT_ALLOWED", "Chứng từ phải thuộc documents và tối đa 20 MiB.", 422
@@ -810,9 +820,9 @@ class ContractService:
             )
             return row | {"signature_verification": "not_performed"}
 
-        return self._execute(
-            actor,
-            "attachments.add",
+        return self.runtime.writer.execute(
+            actor.id,
+            "contracts.attachments.add",
             key,
             {
                 "id": identity,
@@ -822,7 +832,49 @@ class ContractService:
                 "status": status,
             },
             effect,
+            authorize=authorize_source,
         )
+
+    def attachment_file(self, actor, identity, attachment_id):
+        """Authorize a saved sharing reference; a bare file UUID grants nothing."""
+        identity, attachment_id = _identity(identity), _identity(attachment_id)
+        with self.runtime.reader() as conn:
+            conn.exec_driver_sql("BEGIN")
+            self.runtime.auth.authorize(conn, actor, "contracts.read")
+            self._draft(conn, identity, include_deleted=True)
+            linked = (
+                conn.execute(
+                    select(ATTACHMENTS).where(
+                        ATTACHMENTS.c.id == attachment_id, ATTACHMENTS.c.contract_id == identity
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if linked is None:
+                raise CoreError("NOT_FOUND", "Không tìm thấy chứng từ của hợp đồng.", 404)
+            if linked.version_id is not None:
+                self._version(conn, identity, linked.version_id)
+            try:
+                stored = self.runtime.files.get(linked.file_id, connection=conn)
+            except CoreError as exc:
+                if exc.code == "FILE_NOT_FOUND":
+                    raise CoreError(
+                        "ATTACHMENT_FILE_MISSING",
+                        "Tệp chứng từ đang bị thiếu. Cần kiểm tra bản sao lưu.",
+                        409,
+                    ) from None
+                raise
+            if (
+                stored.category != "documents"
+                or stored.sha256 != linked.sha256
+                or stored.original_name != linked.original_name
+                or stored.size > MAX_ATTACHMENT_BYTES
+            ):
+                raise CoreError(
+                    "ATTACHMENT_FILE_CHANGED", "Thông tin tệp không khớp chứng từ đã đính kèm.", 409
+                )
+            return stored
 
     def attachments(self, identity, page=1, page_size=20):
         identity = _identity(identity)

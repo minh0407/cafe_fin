@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { Alert, Button, Card, Checkbox, Col, Collapse, ConfigProvider, Input, Row, Select, Space, Tag, Typography } from "antd";
 import type { BankAccount, ContractData, ContractLine, ContractTemplate, Party, Weighing } from "./types";
 import { defaultTemplateIds, emptyAccount, emptyLine } from "./types";
+import { RecordSourcePicker } from "./RecordSourcePicker";
 
 export function Field({ label, value, onChange, area = false, type = "text", hint, required = false }: {
   label: string; value: string | null | undefined; onChange: (value: string) => void;
@@ -92,9 +93,7 @@ export function ContractEditor({ data, onChange, templates, disabled, onLoadPart
   onLoadWeighing: (id: string) => void; weighing: Weighing | null;
   onUseWeighing: (lineIndices: number[]) => void;
 }) {
-  const [partyId, setPartyId] = useState("");
   const [partyTarget, setPartyTarget] = useState<"company" | "counterparty">("counterparty");
-  const [weighingId, setWeighingId] = useState("");
   const [selectedLines, setSelectedLines] = useState<number[]>([]);
   const available = templates.filter((template) => template.kind === data.kind);
   return <ConfigProvider componentDisabled={disabled}><fieldset disabled={disabled} className="contracts-fieldset">
@@ -109,8 +108,9 @@ export function ContractEditor({ data, onChange, templates, disabled, onLoadPart
     </Card>
     <Collapse className="contracts-section" items={[{ key: "sources", label: "Tự điền từ dữ liệu đã lưu (tùy chọn)", children: <>
       <Typography.Paragraph>Có thể nhập thủ công toàn bộ hợp đồng. Dữ liệu nguồn chỉ được sao chép khi bạn chọn; kiểm tra và sửa trước khi lưu.</Typography.Paragraph>
-      <Space.Compact block className="contracts-section"><Input aria-label="ID đối tác nguồn" placeholder="ID đối tác đã lưu" value={partyId} onChange={(e) => setPartyId(e.target.value)} /><Select aria-label="Điền vào bên" disabled={disabled} style={{ minWidth: 160 }} value={partyTarget} onChange={setPartyTarget} options={[{ value: "company", label: "Công ty của bạn" }, { value: "counterparty", label: "Đối tác" }]} /><Button disabled={disabled || !partyId.trim()} onClick={() => onLoadParty(partyId.trim(), partyTarget)}>Lấy thông tin đối tác</Button></Space.Compact>
-      <Space.Compact block className="contracts-section"><Input aria-label="ID phiếu cân nguồn" placeholder="ID phiếu cân đã lưu" value={weighingId} onChange={(e) => setWeighingId(e.target.value)} /><Button disabled={disabled || !weighingId.trim()} onClick={() => { setSelectedLines([]); onLoadWeighing(weighingId.trim()); }}>Xem dòng phiếu cân</Button></Space.Compact>
+      <div className="contracts-field"><label>Điền thông tin đối tác vào bên</label><Select aria-label="Điền vào bên" disabled={disabled} value={partyTarget} onChange={setPartyTarget} options={[{ value: "company", label: "Công ty của bạn" }, { value: "counterparty", label: "Đối tác" }]} /></div>
+      <RecordSourcePicker kind="parties" disabled={disabled} onSelect={(id) => onLoadParty(id, partyTarget)} />
+      <RecordSourcePicker kind="weighings" disabled={disabled} onSelect={(id) => { setSelectedLines([]); onLoadWeighing(id); }} />
       {weighing && <Card size="small" title={`${weighing.code} · ${weighing.occurred_on} · phiên bản ${weighing.version}`}>
         <Checkbox.Group value={selectedLines} onChange={(values) => setSelectedLines(values as number[])} className="contracts-source-lines">{weighing.lines.map((line, index) => <Checkbox disabled={disabled} key={index} value={index}>Dòng {index + 1}: {line.description ?? "Chưa có mô tả"} · kg tịnh {line.net_kg ?? "chưa nhập"} · nguồn kg {line.quantity_source ?? "chưa nhập"}</Checkbox>)}</Checkbox.Group>
         <Button disabled={disabled || !selectedLines.length} onClick={() => { onUseWeighing(selectedLines); setSelectedLines([]); }}>Thêm các dòng đã chọn vào hợp đồng</Button>

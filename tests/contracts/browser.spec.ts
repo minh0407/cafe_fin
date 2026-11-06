@@ -1,6 +1,6 @@
 import { test, expect } from "../../frontend/node_modules/@playwright/test/index.mjs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,7 +13,16 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
   const sessionToken = randomBytes(32).toString("hex");
   let child: ChildProcessWithoutNullStreams | undefined;
   const errors: string[] = [];
+  const recordQueries: URL[] = [];
+  const sourceReads: string[] = [];
+  const recordsWrites: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (/\/records\/(parties|weighings)$/.test(url.pathname)) recordQueries.push(url);
+    if (url.pathname.includes("/contracts/sources/")) sourceReads.push(url.pathname);
+    if (url.pathname.startsWith("/api/v1/records/") && !["GET", "OPTIONS"].includes(request.method())) recordsWrites.push(request.method());
+  });
   try {
     child = spawn(path.join(repository, ".venv/Scripts/python.exe"), [path.join(repository, "tests/contracts/browser-server.py")], {
       cwd: repository, windowsHide: true, env: { ...process.env, PYTHONPATH: path.join(repository, "backend"), PYTHONUTF8: "1" }, stdio: "pipe",
@@ -92,20 +101,52 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
 
     await page.getByRole("tab", { name: "Nội dung hợp đồng" }).click();
     await page.getByText("Tự điền từ dữ liệu đã lưu (tùy chọn)", { exact: true }).click();
-    await page.getByLabel("ID đối tác nguồn").fill("460b42cd-3b86-43b4-90f9-c811bb912ba4");
-    await page.getByRole("button", { name: "Lấy thông tin đối tác" }).click();
-    await expect(page.getByRole("dialog")).toContainText("Đối tác nguồn phiên bản 1");
+    const partyPicker = page.getByRole("region", { name: "Tra cứu đối tác", exact: true });
+    const weighingPicker = page.getByRole("region", { name: "Tra cứu phiếu cân", exact: true });
+    await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").fill("nguồn & Đắk");
+    await partyPicker.getByRole("button", { name: "Tìm đối tác", exact: true }).click();
+    await expect(partyPicker.getByRole("row")).toHaveCount(51);
+    await expect(partyPicker.getByText("52 bản ghi", { exact: true })).toBeVisible();
+    await partyPicker.getByRole("button", { name: "Page 2", exact: true }).click();
+    await expect(partyPicker.getByRole("row")).toHaveCount(3);
+    await partyPicker.getByRole("button", { name: /Chọn đối tác .*bb912ba5$/ }).click();
+    await expect(page.getByRole("dialog")).toContainText("Địa chỉ bản ghi thứ hai");
+    await page.getByRole("button", { name: "Giữ thông tin đang nhập", exact: true }).click();
+    await expect(page.getByLabel("Tên đầy đủ").nth(1)).toHaveValue("Đối tác nhập thủ công");
+    await partyPicker.getByRole("button", { name: /Chọn đối tác .*bb912ba4$/ }).click();
+    await expect(page.getByRole("dialog")).toContainText("Đối tác nguồn & Đắk Lắk · v1");
+    await expect(page.getByRole("dialog")).toContainText("Địa chỉ tổng hợp");
     await page.getByRole("button", { name: "Dùng thông tin nguồn" }).click();
-    await expect(page.getByLabel("Tên đầy đủ").nth(1)).toHaveValue("Đối tác nguồn phiên bản 1");
-    await page.getByLabel("ID phiếu cân nguồn").fill("7836b8e8-366a-4d09-9ffc-36b6d8356385");
-    await page.getByRole("button", { name: "Xem dòng phiếu cân" }).click();
+    await expect(page.getByLabel("Tên đầy đủ").nth(1)).toHaveValue("Đối tác nguồn & Đắk Lắk · v1");
+    await weighingPicker.getByLabel("Tìm phiếu cân theo tên hoặc mã").fill("CÂN ĐẮK LẮK &");
+    await weighingPicker.getByRole("button", { name: "Tìm phiếu cân", exact: true }).click();
+    await expect(weighingPicker.getByRole("row")).toHaveCount(51);
+    await weighingPicker.getByRole("button", { name: "Page 2", exact: true }).click();
+    await expect(weighingPicker.getByRole("row")).toHaveCount(3);
+    await weighingPicker.getByRole("button", { name: /Chọn phiếu cân .*d8356386$/ }).click();
+    await expect(page.getByRole("checkbox", { name: /Dòng 1: Cà phê cân bản ghi thứ hai/ })).toBeVisible();
+    await weighingPicker.getByRole("button", { name: /Chọn phiếu cân .*d8356385$/ }).click();
     await page.getByRole("checkbox", { name: /Dòng 1: Cà phê cân tổng hợp/ }).check();
+    await page.getByText("Tự điền từ dữ liệu đã lưu (tùy chọn)", { exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("desktop-records-picker.png") });
+    await partyPicker.screenshot({ path: testInfo.outputPath("party-source-picker.png") });
+    await weighingPicker.screenshot({ path: testInfo.outputPath("weighing-source-picker.png") });
     await page.getByRole("button", { name: "Thêm các dòng đã chọn vào hợp đồng" }).click();
     await page.getByLabel("Đơn giá (VND/kg)").nth(1).fill("90000.05");
     await page.getByLabel("Số lượng hợp đồng (kg)").nth(1).fill("12.300");
     await page.getByLabel("Điều khoản bổ sung").fill("Điều khoản sửa lần hai: giữ snapshot lần đầu.");
     await page.getByRole("button", { name: "Lưu hợp đồng", exact: true }).click();
     await expect(page.getByText("Đã lưu hợp đồng HD-TONG-HOP-001 · phiên bản 2.", { exact: true })).toBeVisible();
+    const linkedContract = await (await fetch(`${api_base}/contracts/${contractId}`, { headers })).json();
+    expect(linkedContract.data.lines[1].source.id).toBe("7836b8e8-366a-4d09-9ffc-36b6d8356385");
+    expect(linkedContract.data.source_refs.find((ref: { type: string }) => ref.type === "party").id).toBe("460b42cd-3b86-43b4-90f9-c811bb912ba4");
+    for (const suffix of ["parties/460b42cd-3b86-43b4-90f9-c811bb912ba4", "parties/460b42cd-3b86-43b4-90f9-c811bb912ba5", "weighings/7836b8e8-366a-4d09-9ffc-36b6d8356385", "weighings/7836b8e8-366a-4d09-9ffc-36b6d8356386"])
+      expect(sourceReads.some((read) => read.endsWith(suffix))).toBe(true);
+    expect(recordQueries.every((url) => url.searchParams.get("page_size") === "50")).toBe(true);
+    expect(recordQueries.some((url) => url.searchParams.get("page") === "2" && url.pathname.endsWith("/parties"))).toBe(true);
+    expect(recordQueries.some((url) => url.searchParams.get("page") === "2" && url.pathname.endsWith("/weighings"))).toBe(true);
+    expect(recordQueries.find((url) => url.pathname.endsWith("/parties"))!.searchParams.get("search")).toBe("nguồn & Đắk");
+    expect(recordQueries.find((url) => url.pathname.endsWith("/parties"))!.href).toContain("%26");
     expect((await (await fetch(`${api_base}/contracts/sources/weighings/7836b8e8-366a-4d09-9ffc-36b6d8356385`, { headers })).json()).lines[0].net_kg).toBe("12.345");
     await fetch(`${api_base}/harness/source-revision`, { method: "POST", headers, body: "{}" });
 
@@ -125,6 +166,14 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     await page.getByRole("button", { name: "Lưu tệp đính kèm" }).click();
     await expect(page.getByText("Đã lưu tệp đính kèm và tình trạng do bạn ghi.", { exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Chứng từ thử tùy chọn." })).toBeVisible();
+    const attachmentResponse = page.waitForResponse((response) => response.url().startsWith(`${api_base}/contracts/${contractId}/attachments/`) && response.url().endsWith("/content"));
+    const attachmentDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Tải tệp gốc", exact: true }).click();
+    const originalAttachment = await attachmentResponse;
+    expect(originalAttachment.status()).toBe(200);
+    expect(await originalAttachment.body()).toEqual(Buffer.from(pdfBytes));
+    expect(originalAttachment.headers()["x-content-sha256"]).toBe(createHash("sha256").update(Buffer.from(pdfBytes)).digest("hex"));
+    expect((await attachmentDownload).suggestedFilename()).toBe("scan-tong-hop.pdf");
 
     // Manual sale remains independent; a failed PDF must keep the actual DOCX usable.
     await page.getByRole("button", { name: "Lập hợp đồng mới" }).click();
@@ -147,8 +196,33 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     await page.getByLabel("Ngày đợt 1").fill("2026-11-20");
     await page.getByLabel("Số tiền đợt 1 (VND)").fill("100.00");
     await page.getByLabel("Ghi chú đợt 1").fill("Đợt một đã thỏa thuận");
-    await page.getByRole("button", { name: "Lưu hợp đồng", exact: true }).click();
-    await expect(page.getByText("Đã lưu hợp đồng HD-BAN-TONG-HOP-002 · phiên bản 1.", { exact: true })).toBeVisible();
+    // Either a denied records module or an absent module leaves manual contracts usable.
+    const sourceToggle = page.getByText("Tự điền từ dữ liệu đã lưu (tùy chọn)", { exact: true });
+    if (!await partyPicker.isVisible()) await sourceToggle.click();
+    for (const status of [403, 404]) {
+      await fetch(`${api_base}/harness/records-mode/${status}`, { method: "POST", headers, body: "{}" });
+      const partyFailure = page.waitForResponse((response) => new URL(response.url()).pathname.endsWith("/records/parties") && response.status() === status);
+      await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").fill(`nguồn ${status}`);
+      await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").press("Enter");
+      await partyFailure;
+      await expect(partyPicker.getByText("Chưa tra cứu được đối tác", { exact: true })).toBeVisible();
+      const weighingFailure = page.waitForResponse((response) => new URL(response.url()).pathname.endsWith("/records/weighings") && response.status() === status);
+      await weighingPicker.getByLabel("Tìm phiếu cân theo tên hoặc mã").fill(`cân ${status}`);
+      await weighingPicker.getByLabel("Tìm phiếu cân theo tên hoặc mã").press("Enter");
+      await weighingFailure;
+      await expect(weighingPicker.getByText("Chưa tra cứu được phiếu cân", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("Tên đầy đủ").nth(1)).toHaveValue("Khách mua tổng hợp");
+      await expect(page.getByRole("button", { name: "Lưu hợp đồng", exact: true })).toBeEnabled();
+      await page.getByRole("button", { name: "Lưu hợp đồng", exact: true }).click();
+      await expect(page.getByText(`Đã lưu hợp đồng HD-BAN-TONG-HOP-002 · phiên bản ${status === 403 ? 1 : 2}.`, { exact: true })).toBeVisible();
+      if (status === 403) {
+        await page.getByRole("button", { name: "Xuất Word + PDF" }).click();
+        await expect(page.getByRole("button", { name: "Tải DOCX", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Tải PDF", exact: true })).toBeVisible();
+        await page.getByRole("tab", { name: "Nội dung hợp đồng" }).click();
+        await page.getByLabel("Điều khoản bổ sung").fill("Nhập tay khi nguồn chưa truy cập được; tiếp tục thử khi module vắng mặt.");
+      }
+    }
     await fetch(`${api_base}/harness/toggle-pdf-failure`, { method: "POST", headers, body: "{}" });
     await page.getByRole("button", { name: "Xuất Word + PDF" }).click();
     await expect(page.getByRole("button", { name: "Tải DOCX", exact: true })).toBeVisible();
@@ -162,14 +236,72 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     await expect(page.getByRole("button", { name: "Tải PDF", exact: true })).toBeVisible();
     const salesList = await (await fetch(`${api_base}/contracts?search=HD-BAN-TONG-HOP-002`, { headers })).json();
     const salesVersions = await (await fetch(`${api_base}/contracts/${salesList.items[0].id}/versions`, { headers })).json();
-    expect(salesVersions.total).toBe(1);
+    expect(salesVersions.total).toBe(2);
+    expect(salesVersions.items.map((version: { contract_version: number }) => version.contract_version).sort()).toEqual([1, 2]);
     expect(salesVersions.items[0].snapshot.data.kind).toBe("sale");
+    expect(salesVersions.items[0].snapshot.data.source_refs).toEqual([]);
     expect(salesVersions.items[0].snapshot.data.payment.method).toBe("mixed");
     expect(salesVersions.items[0].files.pdf.status).toBe("succeeded");
 
-    // A new actor generation drops the private draft and any local output state.
+    // Superseded searches and malformed pages cannot replace the latest bounded results.
     await page.getByRole("tab", { name: "Nội dung hợp đồng" }).click();
+    await fetch(`${api_base}/harness/records-mode/200`, { method: "POST", headers, body: "{}" });
+    if (!await partyPicker.isVisible()) await sourceToggle.click();
+    let releaseOld!: () => void, oldReady!: () => void;
+    const oldGate = new Promise<void>((resolve) => { releaseOld = resolve; });
+    const oldStarted = new Promise<void>((resolve) => { oldReady = resolve; });
+    let releaseActor!: () => void, actorReady!: () => void;
+    const actorGate = new Promise<void>((resolve) => { releaseActor = resolve; });
+    const actorStarted = new Promise<void>((resolve) => { actorReady = resolve; });
+    await page.route(`${api_base}/records/parties?**`, async (route) => {
+      const query = new URL(route.request().url()).searchParams.get("search");
+      if (query === "metadata lỗi") return route.fulfill({ json: { items: [], total: "52", page: 0, page_size: 500 } });
+      if (query === "chờ cũ" || query === "actor cũ") {
+        const response = await route.fetch();
+        if (query === "chờ cũ") { oldReady(); await oldGate; }
+        else { actorReady(); await actorGate; }
+        await route.fulfill({ response }).catch(() => {});
+      } else await route.continue();
+    });
+    await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").fill("metadata lỗi");
+    await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").press("Enter");
+    await expect(partyPicker.getByText("Chưa tra cứu được đối tác", { exact: true })).toBeVisible();
+    await expect(partyPicker).toContainText("Danh sách nguồn không đúng giới hạn một trang");
+    await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").fill("chờ cũ");
+    await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").press("Enter");
+    await oldStarted;
+    await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").fill("nguồn & Đắk");
+    await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").press("Enter");
+    await expect(partyPicker.getByRole("row")).toHaveCount(51);
+    const oldCompleted = page.waitForResponse((response) => new URL(response.url()).searchParams.get("search") === "chờ cũ").then((response) => response.finished());
+    releaseOld();
+    await oldCompleted;
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(partyPicker.getByRole("row")).toHaveCount(51);
+    await expect(partyPicker.getByText("52 bản ghi", { exact: true })).toBeVisible();
+
+    // A second real local actor cannot receive A's delayed search or draft state.
+    const createB = await fetch(`${api_base}/users`, { method: "POST", headers, body: JSON.stringify({ request_key: randomBytes(16).toString("hex"), username: "contractsoperator", password: "synthetic-contracts-b-password", role: "operator" }) });
+    expect(createB.status).toBe(200);
+    const authBResponse = await fetch(`${api_base}/auth/login`, { method: "POST", headers, body: JSON.stringify({ username: "contractsoperator", password: "synthetic-contracts-b-password" }) });
+    expect(authBResponse.status).toBe(200);
+    const authB = await authBResponse.json();
     await page.getByLabel("Số hợp đồng").fill("PRIVATE-UNSAVED-A");
+    await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").fill("actor cũ");
+    await partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã").press("Enter");
+    await actorStarted;
+    await page.evaluate(async (authB) => {
+      const modulePath = "/frontend/src/shared/session.ts";
+      const { useSession } = await import(modulePath);
+      useSession.getState().login(authB.access_token, authB.user);
+    }, authB);
+    releaseActor();
+    await expect(page.getByLabel("Số hợp đồng")).toHaveValue("");
+    await page.getByText("Tự điền từ dữ liệu đã lưu (tùy chọn)", { exact: true }).click();
+    await expect(partyPicker.getByRole("row")).toHaveCount(0);
+    await expect(partyPicker.getByLabel("Tìm đối tác theo tên hoặc mã")).toHaveValue("");
+    await expect(page.getByText("PRIVATE-UNSAVED-A")).toHaveCount(0);
+    expect(recordsWrites).toEqual([]);
     await page.evaluate(async () => {
       const modulePath = "/frontend/src/shared/session.ts";
       const { useSession } = await import(modulePath);

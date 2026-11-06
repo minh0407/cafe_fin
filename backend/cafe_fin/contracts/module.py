@@ -6,6 +6,7 @@ Coordinator binds an optional RecordsReadBridge at registration; manual entry al
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Literal
 from urllib.parse import quote
 
@@ -13,9 +14,12 @@ from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from cafe_fin.core.api import require
+from cafe_fin.core.auth import Principal
 from cafe_fin.core.contracts import PartyDTO, RecordsReadBridge, WeighingDTO
+from cafe_fin.core.errors import CoreError
 from cafe_fin.core.http_types import ResponseDTO
 from cafe_fin.core.modules import ModuleManifest
+from cafe_fin.core.runtime import Runtime
 
 from .migrations import MIGRATIONS
 from .schemas import ContractData
@@ -189,11 +193,23 @@ class AttachmentPage(ResponseDTO):
     page_size: int
 
 
-def module_manifest(records: RecordsReadBridge | None = None) -> ModuleManifest:
+def module_manifest(
+    records: RecordsReadBridge | None = None,
+    *,
+    records_factory: Callable[[Runtime, Principal], RecordsReadBridge] | None = None,
+) -> ModuleManifest:
+    if records is not None and records_factory is not None:
+        raise ValueError("Chọn records hoặc records_factory; không cấu hình đồng thời.")
     router = APIRouter(tags=["Hợp đồng local"])
 
-    def service(request):
-        return ContractService(request.app.state.runtime, records)
+    def service(request, *, with_records=False):
+        runtime = request.app.state.runtime
+        bridge = records
+        if with_records and records_factory is not None:
+            # Construct a fresh provider with this request's current principal.
+            # Manual workflows never initialize an optional records dependency.
+            bridge = records_factory(runtime, request.state.principal)
+        return ContractService(runtime, bridge)
 
     @router.get("", response_model=ContractPage)
     def list_contracts(
@@ -233,13 +249,15 @@ def module_manifest(records: RecordsReadBridge | None = None) -> ModuleManifest:
     @router.get("/sources/parties/{source_id}", response_model=PartyDTO)
     def source_party(source_id: str, request: Request):
         require(request, "records.read")
-        return PartyDTO.model_validate_json(json.dumps(service(request).source_party(source_id)))
+        return PartyDTO.model_validate_json(
+            json.dumps(service(request, with_records=True).source_party(source_id))
+        )
 
     @router.get("/sources/weighings/{source_id}", response_model=WeighingDTO)
     def source_weighing(source_id: str, request: Request):
         require(request, "records.read")
         return WeighingDTO.model_validate_json(
-            json.dumps(service(request).source_weighing(source_id))
+            json.dumps(service(request, with_records=True).source_weighing(source_id))
         )
 
     @router.post("/preview", response_model=PreviewDTO)
@@ -345,6 +363,29 @@ def module_manifest(records: RecordsReadBridge | None = None) -> ModuleManifest:
             payload.version_id,
             payload.note,
             payload.status,
+        )
+
+    @router.get("/{contract_id}/attachments/{attachment_id}/content")
+    def attachment_content(contract_id: str, attachment_id: str, request: Request):
+        runtime, actor = request.app.state.runtime, request.state.principal
+        contracts = service(request)
+        stored = contracts.attachment_file(actor, contract_id, attachment_id)
+        # No read transaction is held while verifying/reading the bounded document.
+        with runtime.files.read(stored.id) as source:
+            content = source.read()
+        # A permission/reference change while hashing must fail before HTTP 200.
+        if contracts.attachment_file(actor, contract_id, attachment_id) != stored:
+            raise CoreError(
+                "ATTACHMENT_FILE_CHANGED", "Thông tin chứng từ đã thay đổi; hãy thử tải lại.", 409
+            )
+        return Response(
+            content,
+            media_type=stored.media_type,
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''"
+                + quote(stored.original_name),
+                "X-Content-SHA256": stored.sha256,
+            },
         )
 
     @router.get("/{contract_id}/history")
