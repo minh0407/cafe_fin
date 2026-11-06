@@ -216,7 +216,7 @@ impl NativeJournal {
 
 // Fingerprints are opaque core values, not a native hash of a path spelling.
 fn opaque_fingerprint(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+    valid_digest(value)
 }
 
 fn transition_phase(phase: MaintenancePhase) -> Option<TransitionPhase> {
@@ -238,7 +238,139 @@ pub struct JournalStore {
     path: PathBuf,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MachineConfig {
+    version: u32,
+    data_root: PathBuf,
+}
+
 impl JournalStore {
+    pub fn configured_root(&self) -> Result<Option<PathBuf>, &'static str> {
+        let path = self.path.with_file_name("machine.json");
+        check_local_path(&path)?;
+        if !path.try_exists().map_err(|_| "CONFIG_UNAVAILABLE")? {
+            return Ok(None);
+        }
+        let config: MachineConfig =
+            serde_json::from_slice(&read_bounded(&path)?).map_err(|_| "CONFIG_INVALID")?;
+        if config.version != 1 {
+            return Err("CONFIG_NEWER");
+        }
+        check_local_path(&config.data_root).map_err(|_| "CONFIG_ROOT_UNAVAILABLE")?;
+        Ok(Some(config.data_root))
+    }
+
+    pub fn save_initial_root(&self, root: &Path, nonce: &str) -> Result<(), &'static str> {
+        if self.load()?.is_some() {
+            return Err("MAINTENANCE_PENDING");
+        }
+        self.write_machine(root, nonce)
+    }
+
+    /// The durable OLD_CLOSED record is required before any config mutation.
+    /// This does not advance phase: caller readbacks first, then CONFIG_SWITCHED.
+    pub fn switch_candidate(&self, journal: &NativeJournal) -> Result<(), &'static str> {
+        if journal.phase != MaintenancePhase::OldClosed || self.load()?.as_ref() != Some(journal) {
+            return Err("CLOSE_PROOF_REQUIRED");
+        }
+        let current = self.configured_root()?.ok_or("CONFIG_UNAVAILABLE")?;
+        journal.reconcile_config(&current)?;
+        let target = journal
+            .destination
+            .canonicalize()
+            .map_err(|_| "CANDIDATE_UNAVAILABLE")?;
+        if current
+            .canonicalize()
+            .map_err(|_| "CONFIG_ROOT_UNAVAILABLE")?
+            != target
+        {
+            self.write_machine(&target, &journal.operation_id)?;
+        }
+        let readback = self.configured_root()?.ok_or("CONFIG_WRITE_FAILED")?;
+        if readback.canonicalize().map_err(|_| "CONFIG_WRITE_FAILED")? != target {
+            return Err("CONFIG_WRITE_FAILED");
+        }
+        Ok(())
+    }
+
+    fn write_machine(&self, root: &Path, nonce: &str) -> Result<(), &'static str> {
+        check_local_path(root)?;
+        if !valid_uuid(nonce) {
+            return Err("CONFIG_WRITE_FAILED");
+        }
+        let root = root.canonicalize().map_err(|_| "CONFIG_ROOT_UNAVAILABLE")?;
+        let bytes = serde_json::to_vec(&MachineConfig {
+            version: 1,
+            data_root: root,
+        })
+        .map_err(|_| "CONFIG_WRITE_FAILED")?;
+        atomic_bytes(
+            &self.path.with_file_name("machine.json"),
+            &bytes,
+            nonce,
+            true,
+        )
+        .map_err(|_| "CONFIG_WRITE_FAILED")
+    }
+
+    /// Only the transition controller calls this after fresh verified core proof.
+    /// Retain a private completion record; never remove source/candidate data.
+    pub(crate) fn finish(&self, journal: &NativeJournal) -> Result<(), &'static str> {
+        let terminal = (journal.kind == MaintenanceKind::Backup
+            && journal.phase == MaintenancePhase::Prepared)
+            || (journal.kind != MaintenanceKind::Backup
+                && journal.phase == MaintenancePhase::Active);
+        if !terminal || self.load()?.as_ref() != Some(journal) {
+            return Err("COMPLETION_PROOF_REQUIRED");
+        }
+        let history = self
+            .path
+            .parent()
+            .ok_or("JOURNAL_INVALID")?
+            .join("maintenance-history");
+        check_local_path(&history)?;
+        fs::create_dir_all(&history).map_err(|_| "JOURNAL_WRITE_FAILED")?;
+        check_local_path(&history)?;
+        let archived = history.join(format!("{}.json", journal.operation_id));
+        let bytes = serde_json::to_vec(journal).map_err(|_| "JOURNAL_INVALID")?;
+        if archived.try_exists().map_err(|_| "JOURNAL_READ_FAILED")? {
+            if read_bounded(&archived)? != bytes {
+                return Err("JOURNAL_CONFLICT");
+            }
+        } else {
+            atomic_bytes(&archived, &bytes, &journal.operation_id, false)?;
+        }
+        if self.load()?.as_ref() != Some(journal) {
+            return Err("JOURNAL_CONFLICT");
+        }
+        check_local_path(&self.path)?;
+        fs::remove_file(&self.path).map_err(|_| "JOURNAL_WRITE_FAILED")?;
+        Ok(())
+    }
+
+    pub fn completed(&self, operation_id: &str) -> Result<Option<NativeJournal>, &'static str> {
+        if !valid_uuid(operation_id) {
+            return Err("OPERATION_ID_INVALID");
+        }
+        let path = self
+            .path
+            .parent()
+            .ok_or("JOURNAL_INVALID")?
+            .join("maintenance-history")
+            .join(format!("{operation_id}.json"));
+        check_local_path(&path)?;
+        if !path.try_exists().map_err(|_| "JOURNAL_READ_FAILED")? {
+            return Ok(None);
+        }
+        let journal: NativeJournal =
+            serde_json::from_slice(&read_bounded(&path)?).map_err(|_| "JOURNAL_INVALID")?;
+        journal.validate()?;
+        if journal.operation_id != operation_id {
+            return Err("JOURNAL_CONFLICT");
+        }
+        Ok(Some(journal))
+    }
     /// app_config is native-owned. Calling this does not select a data root.
     pub fn new(app_config: &Path) -> Result<Self, &'static str> {
         check_local_path(app_config)?;
@@ -314,39 +446,42 @@ impl JournalStore {
 
     fn write(&self, journal: &NativeJournal, replace: bool) -> Result<(), &'static str> {
         let bytes = serde_json::to_vec(journal).map_err(|_| "JOURNAL_INVALID")?;
-        if bytes.len() > JOURNAL_LIMIT {
-            return Err("JOURNAL_TOO_LARGE");
-        }
-        check_local_path(&self.path)?;
-        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let temporary = self.path.with_file_name(format!(
-            "maintenance.{}.{}.{sequence}.tmp",
-            journal.operation_id,
-            std::process::id()
-        ));
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            options.custom_flags(0x80000000 | 0x00200000);
-        }
-        let mut file = options
-            .open(&temporary)
-            .map_err(|_| "JOURNAL_WRITE_FAILED")?;
-        // A failed temp/write is retained as diagnostic evidence, never adopted.
-        file.write_all(&bytes)
-            .and_then(|_| file.sync_all())
-            .map_err(|_| "JOURNAL_WRITE_FAILED")?;
-        drop(file);
-        check_local_path(&self.path)?;
-        check_local_path(&temporary)?;
-        replace_file(&temporary, &self.path, replace)?;
-        if read_bounded(&self.path)? != bytes {
-            return Err("JOURNAL_READBACK_FAILED");
-        }
-        Ok(())
+        atomic_bytes(&self.path, &bytes, &journal.operation_id, replace)
     }
+}
+
+fn atomic_bytes(path: &Path, bytes: &[u8], nonce: &str, replace: bool) -> Result<(), &'static str> {
+    if bytes.len() > JOURNAL_LIMIT {
+        return Err("JOURNAL_TOO_LARGE");
+    }
+    check_local_path(path)?;
+    let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temporary = path.with_file_name(format!(
+        "state.{nonce}.{}.{sequence}.tmp",
+        std::process::id()
+    ));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x80000000 | 0x00200000);
+    }
+    let mut file = options
+        .open(&temporary)
+        .map_err(|_| "JOURNAL_WRITE_FAILED")?;
+    // A failed temp/write is retained as diagnostic evidence, never adopted.
+    file.write_all(bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|_| "JOURNAL_WRITE_FAILED")?;
+    drop(file);
+    check_local_path(path)?;
+    check_local_path(&temporary)?;
+    replace_file(&temporary, path, replace)?;
+    if read_bounded(path)? != bytes {
+        return Err("JOURNAL_READBACK_FAILED");
+    }
+    Ok(())
 }
 
 fn read_bounded(path: &Path) -> Result<Vec<u8>, &'static str> {

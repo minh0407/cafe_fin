@@ -21,6 +21,10 @@ path = "native_guards.rs"
 name = "maintenance"
 path = "maintenance.rs"
 
+[[test]]
+name = "transition"
+path = "transition.rs"
+
 [[bin]]
 name = "control-peer"
 path = "fixtures/control_peer.rs"

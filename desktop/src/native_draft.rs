@@ -9,7 +9,7 @@ use crate::{
     native_journal::JournalStore,
     native_paths::{check_local_path, derive_destination, valid_uuid},
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 struct Draft {
     operation_id: String,
@@ -262,6 +262,49 @@ impl DraftSlot {
         self.current
             .as_ref()
             .map(|draft| draft.operation_id.as_str())
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.selection.is_some()
+    }
+
+    /// Native-only paths, resolved from capabilities; output display strings are
+    /// never parsed back into authority by the controller.
+    pub fn selected_paths(
+        &self,
+        journal: &JournalStore,
+        handles: &PickerHandles,
+    ) -> Result<(PathBuf, Option<PathBuf>), &'static str> {
+        let view = self.view(journal, handles, None)?;
+        if !view.ready {
+            return Err("DRAFT_NOT_READY");
+        }
+        let draft = self.current.as_ref().ok_or("DRAFT_NOT_FOUND")?;
+        let destination = handles
+            .resolve(
+                draft.destination.as_deref().ok_or("DRAFT_NOT_READY")?,
+                &draft.generation,
+                &draft.operation_id,
+                binding_purpose(draft.kind, SelectionPurpose::Destination)?,
+            )
+            .map_err(|error| error.code())?
+            .to_path_buf();
+        let source = draft
+            .backup_source
+            .as_ref()
+            .map(|handle| {
+                handles
+                    .resolve(
+                        handle,
+                        &draft.generation,
+                        &draft.operation_id,
+                        PickerPurpose::RestoreSource,
+                    )
+                    .map(Path::to_path_buf)
+                    .map_err(|error| error.code())
+            })
+            .transpose()?;
+        Ok((destination, source))
     }
 }
 

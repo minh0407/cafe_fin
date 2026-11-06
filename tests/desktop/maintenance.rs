@@ -66,7 +66,7 @@ impl Fixture {
                 None
             },
             source_root_id: ROOT.into(),
-            source_fingerprint: "opaque:source-fingerprint".into(),
+            source_fingerprint: "11".repeat(32),
             candidate_root_id: None,
             candidate_fingerprint: None,
             manifest_sha256: None,
@@ -174,10 +174,43 @@ fn reports_request_has_no_operation_or_native_path_capability() {
     pipe.send(&req).unwrap();
     match pipe.receive(Duration::from_secs(5)).unwrap() {
         ControlReply::Reports(reply) => {
-            assert!(reply.allowed);
+            assert_eq!(reply.allowed, Some(true));
             assert_eq!(reply.root_id.as_deref(), Some(ROOT));
         }
         _ => panic!("wrong reply kind"),
+    }
+    assert!(child.wait().unwrap().success());
+}
+
+#[test]
+fn source_identity_has_no_operation_path_or_allowed_field_and_report_errors_omit_allowed() {
+    let mut req = request(ControlCommand::SourceIdentity);
+    assert_eq!(req.encode().err(), Some("CONTROL_REQUEST_INVALID"));
+    req.operation_id = None;
+    req.origin_generation = None;
+    let (mut child, mut pipe) = peer("");
+    pipe.send(&req).unwrap();
+    match pipe.receive(Duration::from_secs(5)).unwrap() {
+        ControlReply::Identity(reply) => {
+            assert_eq!(reply.root_id.as_deref(), Some(ROOT));
+            assert_eq!(
+                reply.source_fingerprint.as_deref(),
+                Some("1111111111111111111111111111111111111111111111111111111111111111")
+            );
+            assert!(reply.allowed.is_none());
+        }
+        _ => panic!("wrong reply purpose"),
+    }
+    assert!(child.wait().unwrap().success());
+    req.command = ControlCommand::ReportsAuthorizeOpen;
+    let (mut child, mut pipe) = peer("reports-denied");
+    pipe.send(&req).unwrap();
+    match pipe.receive(Duration::from_secs(5)).unwrap() {
+        ControlReply::Reports(reply) => {
+            assert!(reply.allowed.is_none());
+            assert_eq!(reply.code.as_deref(), Some("PERMISSION_DENIED"));
+        }
+        _ => panic!("wrong reply purpose"),
     }
     assert!(child.wait().unwrap().success());
 }
@@ -190,7 +223,7 @@ fn invalid_id_and_large_or_control_containing_token_are_rejected_before_write() 
     req.request_id = REQUEST;
     req.access_token = "secret\nframe";
     assert_eq!(req.encode().err(), Some("CONTROL_REQUEST_INVALID"));
-    let huge = "x".repeat(4097);
+    let huge = "x".repeat(129);
     req.access_token = &huge;
     assert_eq!(req.encode().err(), Some("CONTROL_REQUEST_INVALID"));
 }
@@ -250,10 +283,10 @@ fn prepare_requires_matching_kind_and_state() {
         req.kind = Some(MaintenanceKind::Move);
         req.destination = Some(&fixture.path);
         pipe.send(&req).unwrap();
-        assert_eq!(
+        assert!(matches!(
             pipe.receive(Duration::from_secs(5)).err(),
-            Some("CONTROL_RESPONSE_MISMATCH")
-        );
+            Some("CONTROL_RESPONSE_INVALID" | "CONTROL_RESPONSE_MISMATCH")
+        ));
         assert!(child.wait().unwrap().success());
     }
 }
@@ -309,7 +342,7 @@ fn prepared(journal: &mut NativeJournal, store: &JournalStore) {
     store.advance(journal).unwrap();
     journal.phase = MaintenancePhase::Prepared;
     journal.candidate_root_id = Some(ROOT.into()); // copied UUID is lineage, not physical identity
-    journal.candidate_fingerprint = Some("opaque:candidate-fingerprint".into());
+    journal.candidate_fingerprint = Some("22".repeat(32));
     journal.manifest_sha256 = Some("ab".repeat(32));
     fs::create_dir(&journal.destination).unwrap();
     store.advance(journal).unwrap();
@@ -683,10 +716,10 @@ fn close_authorization_or_undrained_runtime_plus_exit_zero_is_not_closed() {
     for mode in ["close-authorized", "close-not-drained"] {
         let (mut child, mut pipe) = peer(mode);
         pipe.send(&request(ControlCommand::Close)).unwrap();
-        assert_eq!(
+        assert!(matches!(
             pipe.receive(Duration::from_secs(5)).err(),
-            Some("CONTROL_RESPONSE_MISMATCH")
-        );
+            Some("CONTROL_RESPONSE_INVALID" | "CONTROL_RESPONSE_MISMATCH")
+        ));
         let mut proof = CloseProof::new(GENERATION.into(), OP.into(), REQUEST.into());
         proof.observe_exit(child.wait().unwrap().code());
         assert!(!proof.is_clean());

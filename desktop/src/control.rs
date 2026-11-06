@@ -29,6 +29,8 @@ pub enum ControlCommand {
     Activate,
     #[serde(rename = "reports.authorize_open")]
     ReportsAuthorizeOpen,
+    #[serde(rename = "maintenance.source_identity")]
+    SourceIdentity,
 }
 
 // No Debug or Deserialize: private trusted-native input, not a renderer command.
@@ -57,12 +59,15 @@ impl ControlRequest<'_> {
             || !valid_uuid(self.request_id)
             || !valid_uuid(self.generation)
             || self.access_token.is_empty()
-            || self.access_token.len() > 4096
+            || self.access_token.chars().count() > 128
             || self.access_token.chars().any(char::is_control)
         {
             return Err("CONTROL_REQUEST_INVALID");
         }
-        if self.command == ControlCommand::ReportsAuthorizeOpen {
+        if matches!(
+            self.command,
+            ControlCommand::ReportsAuthorizeOpen | ControlCommand::SourceIdentity
+        ) {
             if self.operation_id.is_some()
                 || self.origin_generation.is_some()
                 || self.kind.is_some()
@@ -129,7 +134,6 @@ pub enum OperationState {
     Activating,
     FailedHeld,
     ReplayRequired,
-    CloseAuthorized,
 }
 
 #[derive(Deserialize)]
@@ -144,17 +148,21 @@ pub struct MaintenanceReply {
     pub runtime_state: RuntimeState,
     // At quiesce/status before intent, kind may not yet be known to core. No
     // prepared/cutover action may proceed without exact expected kind matching.
-    #[serde(deserialize_with = "required_kind")]
+    #[serde(default, deserialize_with = "present")]
     pub kind: Option<MaintenanceKind>,
+    #[serde(default, deserialize_with = "present")]
+    pub root_id: Option<String>,
+    #[serde(default, deserialize_with = "present")]
     pub source_root_id: Option<String>,
+    #[serde(default, deserialize_with = "present")]
     pub candidate_root_id: Option<String>,
+    #[serde(default, deserialize_with = "present")]
     pub manifest_sha256: Option<String>,
+    #[serde(default, deserialize_with = "present")]
     pub source_fingerprint: Option<String>,
+    #[serde(default, deserialize_with = "present")]
     pub candidate_fingerprint: Option<String>,
-    pub origin_generation: Option<String>,
-    pub activation_id: Option<String>,
-    pub activation_completed: Option<bool>,
-    pub format: Option<u32>,
+    #[serde(default, deserialize_with = "present")]
     pub code: Option<String>,
 }
 
@@ -164,24 +172,29 @@ pub struct ReportsReply {
     pub maintenance_protocol: u32,
     pub request_id: String,
     pub generation: String,
-    pub allowed: bool,
+    pub status: ReplyStatus,
+    pub state: OperationState,
+    pub runtime_state: RuntimeState,
+    #[serde(default, deserialize_with = "present")]
+    pub allowed: Option<bool>,
+    #[serde(default, deserialize_with = "present")]
     pub root_id: Option<String>,
+    #[serde(default, deserialize_with = "present")]
     pub source_fingerprint: Option<String>,
-    pub state: Option<OperationState>,
-    pub runtime_state: Option<RuntimeState>,
-    pub status: Option<ReplyStatus>,
+    #[serde(default, deserialize_with = "present")]
     pub code: Option<String>,
 }
 
 pub enum ControlReply {
     Maintenance(MaintenanceReply),
     Reports(ReportsReply),
+    Identity(ReportsReply),
 }
 
-fn required_kind<'de, D: serde::Deserializer<'de>>(
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
-) -> Result<Option<MaintenanceKind>, D::Error> {
-    Option::deserialize(deserializer)
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(deserializer).map(Some)
 }
 
 // No token/path retained in the correlation slot.
@@ -191,7 +204,14 @@ struct Expected {
     operation_id: Option<String>,
     command: ControlCommand,
     kind: Option<MaintenanceKind>,
-    origin_generation: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct PendingRequest {
+    pub request_id: String,
+    pub generation: String,
+    pub operation_id: Option<String>,
+    pub command: ControlCommand,
 }
 
 enum ReaderEvent {
@@ -211,6 +231,18 @@ pub struct ControlPipe<W: Write> {
 }
 
 impl<W: Write> ControlPipe<W> {
+    pub fn pending_request(&self) -> Option<PendingRequest> {
+        self.pending.as_ref().map(|pending| PendingRequest {
+            request_id: pending.request_id.clone(),
+            generation: pending.generation.clone(),
+            operation_id: pending.operation_id.clone(),
+            command: pending.command,
+        })
+    }
+
+    pub fn is_broken(&self) -> bool {
+        self.broken
+    }
     pub fn new<R: Read + Send + 'static>(writer: W, stdout: R) -> Self {
         let (sender, receiver) = mpsc::sync_channel(1);
         let reader = thread::spawn(move || {
@@ -279,7 +311,6 @@ impl<W: Write> ControlPipe<W> {
             operation_id: request.operation_id.map(str::to_owned),
             command: request.command,
             kind: request.kind,
-            origin_generation: request.origin_generation.map(str::to_owned),
         });
         if self
             .writer
@@ -385,26 +416,38 @@ impl<W: Write> ControlPipe<W> {
 }
 
 fn decode_reply(frame: &[u8], expected: &Expected) -> Result<ControlReply, &'static str> {
-    if expected.command == ControlCommand::ReportsAuthorizeOpen {
+    if matches!(
+        expected.command,
+        ControlCommand::ReportsAuthorizeOpen | ControlCommand::SourceIdentity
+    ) {
         let reply: ReportsReply =
             serde_json::from_slice(frame).map_err(|_| "CONTROL_RESPONSE_INVALID")?;
         if reply.maintenance_protocol != 1
             || reply.generation != expected.generation
             || reply.request_id != expected.request_id
             || reply.root_id.as_ref().is_some_and(|id| !valid_uuid(id))
-            || reply.source_fingerprint.as_ref().is_some_and(|value| {
-                value.is_empty() || value.len() > 256 || value.chars().any(char::is_control)
-            })
+            || reply
+                .source_fingerprint
+                .as_ref()
+                .is_some_and(|value| !valid_digest(value))
             || !valid_code(reply.code.as_deref())
-            || (reply.allowed
+            || (reply.status == ReplyStatus::Ok
                 && (reply.root_id.is_none()
-                    || reply.status == Some(ReplyStatus::Error)
-                    || reply.code.is_some()))
-            || (!reply.allowed && reply.code.is_none())
+                    || reply.code.is_some()
+                    || (expected.command == ControlCommand::ReportsAuthorizeOpen
+                        && reply.allowed != Some(true))
+                    || (expected.command == ControlCommand::SourceIdentity
+                        && (reply.allowed.is_some() || reply.source_fingerprint.is_none()))))
+            || (reply.status == ReplyStatus::Error
+                && (reply.code.is_none() || reply.allowed.is_some()))
         {
             return Err("CONTROL_RESPONSE_MISMATCH");
         }
-        return Ok(ControlReply::Reports(reply));
+        return Ok(if expected.command == ControlCommand::SourceIdentity {
+            ControlReply::Identity(reply)
+        } else {
+            ControlReply::Reports(reply)
+        });
     }
     let reply: MaintenanceReply =
         serde_json::from_slice(frame).map_err(|_| "CONTROL_RESPONSE_INVALID")?;
@@ -413,6 +456,7 @@ fn decode_reply(frame: &[u8], expected: &Expected) -> Result<ControlReply, &'sta
         || reply.generation != expected.generation
         || Some(reply.operation_id.as_str()) != expected.operation_id.as_deref()
         || !valid_code(reply.code.as_deref())
+        || reply.root_id.as_ref().is_some_and(|id| !valid_uuid(id))
         || reply
             .source_root_id
             .as_ref()
@@ -425,31 +469,12 @@ fn decode_reply(frame: &[u8], expected: &Expected) -> Result<ControlReply, &'sta
             .manifest_sha256
             .as_ref()
             .is_some_and(|hash| !valid_digest(hash))
-        || reply.origin_generation.as_ref().is_some_and(|generation| {
-            Some(generation.as_str()) != expected.origin_generation.as_deref()
-        })
-        || reply
-            .activation_id
-            .as_ref()
-            .is_some_and(|activation| !valid_uuid(activation) || activation != &reply.operation_id)
-        || reply.format.is_some_and(|format| format != 1)
-        || (reply.activation_completed == Some(true)
-            && reply.state == OperationState::ReplayRequired)
         || [&reply.source_fingerprint, &reply.candidate_fingerprint]
             .into_iter()
             .flatten()
-            .any(|fingerprint| {
-                fingerprint.is_empty()
-                    || fingerprint.len() > 256
-                    || fingerprint.chars().any(char::is_control)
-            })
-        || (reply.status == ReplyStatus::Error && reply.code.is_none())
-        || (reply.status == ReplyStatus::Ok
-            && reply.code.is_some()
-            && !matches!(
-                reply.state,
-                OperationState::FailedHeld | OperationState::ReplayRequired
-            ))
+            .any(|fingerprint| !valid_digest(fingerprint))
+        || ((reply.status == ReplyStatus::Error) != reply.code.is_some())
+        || (reply.status == ReplyStatus::Error && reply.state == OperationState::Closed)
     {
         return Err("CONTROL_RESPONSE_MISMATCH");
     }

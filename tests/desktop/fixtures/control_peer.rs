@@ -36,8 +36,14 @@ fn main() {
     if command == "reports.authorize_open" {
         response = serde_json::json!({"maintenance_protocol":1, "request_id":request["request_id"],
             "generation":request["generation"], "allowed":true,
+            "status":"ok", "state":"ACTIVE", "runtime_state":"ACTIVE",
             "root_id":"00000000-0000-4000-8000-000000000003"});
-        response["source_fingerprint"] = "opaque:reports-source".into();
+        response["source_fingerprint"] = "11".repeat(32).into();
+    }
+    if command == "maintenance.source_identity" {
+        response = serde_json::json!({"maintenance_protocol":1, "request_id":request["request_id"],
+            "generation":request["generation"], "status":"ok", "state":"ACTIVE", "runtime_state":"ACTIVE",
+            "root_id":"00000000-0000-4000-8000-000000000003", "source_fingerprint":"11".repeat(32)});
     }
     match mode.as_str() {
         "wrong-generation" => {
@@ -65,6 +71,7 @@ fn main() {
         }
         "close-not-drained" => response["runtime_state"] = "QUIESCED".into(),
         "failed-held" => {
+            response["status"] = "error".into();
             response["state"] = "FAILED_HELD".into();
             response["runtime_state"] = "QUIESCED".into();
             response["code"] = "MAINTENANCE_ARTIFACT_CONFLICT".into();
@@ -79,7 +86,17 @@ fn main() {
             response["activation_id"] = "00000000-0000-4000-8000-000000000099".into()
         }
         "wrong-format" => response["format"] = 2.into(),
+        "reports-denied" => {
+            response["status"] = "error".into();
+            response["code"] = "PERMISSION_DENIED".into();
+            for field in ["allowed", "root_id", "source_fingerprint"] {
+                response.as_object_mut().unwrap().remove(field);
+            }
+        }
         _ => {}
+    }
+    if response.get("kind").is_some_and(serde_json::Value::is_null) {
+        response.as_object_mut().unwrap().remove("kind");
     }
     writeln!(stdout, "{response}").unwrap();
     stdout.flush().unwrap();
