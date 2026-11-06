@@ -1,14 +1,17 @@
 import { test, expect } from '../../../frontend/node_modules/@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { HARNESS_ORIGIN } from './harness-origin';
 
 test('real accounting API: schema, exact CRUD, staged patch, partial publication, resume errors and derived export', async ({ page }) => {
   const repository = path.resolve(__dirname, '../../..');
   const root = await mkdtemp(path.join(tmpdir(), 'cafe-fin-accounting-ui-'));
   const token = randomBytes(32).toString('hex'); let child: ChildProcessWithoutNullStreams | undefined;
+  const exportResponses: { state?: string; file_id?: string | null }[] = [];
+  page.on('response', async response => { if (response.request().method() === 'GET' && /\/accounting\/exports\/[^/?]+$/.test(new URL(response.url()).pathname)) { try { const result = await response.json(); exportResponses.push({ state: result.state, file_id: result.file_id }); } catch { /* failed responses are reported by the UI */ } } });
   try {
     child = spawn(path.join(repository, '.venv/Scripts/python.exe'), [path.join(repository, 'tests/accounting/ui/serve.py')], { cwd: repository, windowsHide: true, env: { ...process.env, PYTHONUTF8: '1', PYTHONPATH: path.join(repository, 'backend') }, stdio: 'pipe' });
     let stderr = ''; child.stderr.on('data', chunk => { stderr += String(chunk); });
@@ -17,7 +20,7 @@ test('real accounting API: schema, exact CRUD, staged patch, partial publication
       child!.once('error', reject); child!.once('exit', () => { clearTimeout(timeout); reject(new Error(`Startup exited: ${stderr.slice(-1500)}`)); });
       child!.stdout.on('data', chunk => { output += String(chunk); if (output.includes('\n')) { clearTimeout(timeout); resolve(JSON.parse(output.slice(0, output.indexOf('\n')))); } });
     });
-    child.stdin.write(JSON.stringify({ protocol_version: 1, data_root: root, initialize: true, session_token: token, allowed_origin: 'http://127.0.0.1:1420' }) + '\n');
+    child.stdin.write(JSON.stringify({ protocol_version: 1, data_root: root, initialize: true, session_token: token, allowed_origin: HARNESS_ORIGIN }) + '\n');
     const ready = await hello; expect(ready.status).toBe('ready');
     const headers = { 'X-App-Session': token, 'Content-Type': 'application/json' };
     const authResponse = await fetch(`${ready.api_base}/auth/setup`, { method: 'POST', headers, body: JSON.stringify({ username: 'accounting_ui', password: 'synthetic-accounting-password-2026' }) });
@@ -167,7 +170,12 @@ test('real accounting API: schema, exact CRUD, staged patch, partial publication
     console.log('Real UI: raw1000row clipboard preserved as CSV/tab source; paged staging200, validation and no automatic publication confirmed.');
     await page.screenshot({ path: test.info().outputPath('accounting-real.png'), fullPage: true });
     expect(errors).toEqual([]);
+  } catch (error) {
+    await page.screenshot({ path: test.info().outputPath('accounting-real-failure.png'), fullPage: true }).catch(() => {}); throw error;
   } finally {
+    const exportEvidence = test.info().outputPath('accounting-export-status.json');
+    await writeFile(exportEvidence, JSON.stringify(exportResponses, null, 2));
+    await test.info().attach('accounting-export-status', { path: exportEvidence, contentType: 'application/json' });
     if (child && child.exitCode === null) {
       child.stdin.write('{"command":"shutdown"}\n'); child.stdin.end();
       await new Promise<void>(resolve => { const timer = setTimeout(() => { child?.kill(); resolve(); }, 10000); child!.once('exit', () => { clearTimeout(timer); resolve(); }); });

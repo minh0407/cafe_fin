@@ -77,6 +77,13 @@ Negative/refund or invalid deposit-subset classification keeps the signed exact
 amount but clears known meaning and flags it for review. Multiple same-meaning
 columns must first use one explicit derived total column, avoiding double counts.
 
+Approved read-bridge v3 `206a7e30` is copied as `6052d13`; accounting adoption
+`8312023` adds optional book_name from the same read snapshot as totals. Invalid
+legacy names remain None; IDs remain identity and saved snapshots/exports are
+not rewritten. See [read-bridge-v3.md](read-bridge-v3.md). Root owns originals of
+every shared cherry-pick; [integration-order.md](integration-order.md) separates
+them from accounting-owned commits.
+
 ## Formula and operational limits shown to users
 
 The supported engine/grammar/blank/criteria/round/copy semantics are documented in
@@ -104,8 +111,22 @@ are not inferred. No XLS support, macro execution or full Excel fidelity claim.
 Unit suites, real SQLite WAL workers/API, true subprocess crash probes, and
 Chromium UI with real local sidecar are checked separately. See tests under
 `tests/accounting`; UI harness and UAT are documented in `ui.md` when finalized.
-Browser bootstrap replaces native invoke only; API/auth/files/jobs are real.
+Browser harnesses stub native invoke and mount the actual App/AccountingPage
+through test-owned providers; API/auth/files/jobs are real and not intercepted.
 Native WebView2/clean-Windows installer acceptance remains NOT RUN in this lane.
+Latest backend/core verification is **552 PASS**, no SKIP/XFAIL/FAIL, at
+`831202301cb96ffdb6537bf9eb760b4e69f81ba2`; see [verification.md](verification.md).
+The CSV volume archive remains3aa8c47; blank-filter/read-bridge-v3 deltas follow it.
+Shared DateInput 13/13 and accounting helper/mock browser 17/17 pass, along with
+the real 1,000-row API/clipboard flow and real persisted-million-row Chromium
+case. See [date-input-adoption.md](date-input-adoption.md) and [ui.md](ui.md).
+The failed bootstrap/locator attempts and earlier 9a text-filter timeout remain
+separate evidence; successful retries do not erase those versioned failures.
+SchemaEditor lost-ACK protection is a separate frontend fix `e0359c1`, with
+11 focused cases including real POST/PATCH replay, standard mock17 and normal
+real1000 passing. See [schema-command-retry.md](schema-command-retry.md).
+The final harness/evidence commit completes the test-only1424 helpers; apply the
+whole commit series before running the SchemaEditor test configuration.
 
 ## Independent review fixes after the 45bc416 benchmark freeze
 
@@ -140,6 +161,9 @@ refuse checksum edits and refuse an old app opening a newer module schema.
 
 Benchmark generator/method: [benchmark-method.md](benchmark-method.md). Initial
 development50k full partial-import run PASS96.70s, but source changed while it ran;
-that is exploratory evidence, not frozen performance acceptance. Frozen50k/500k/1m
-and near-limit XLSX results will be appended after running them. No giant fixture,
+that is exploratory evidence, not frozen performance acceptance. Versioned
+50k/500k/1m results are in [benchmark-results.md](benchmark-results.md); actual
+worksheet-limit XLSX parser results are in [xlsx-benchmark-method.md](xlsx-benchmark-method.md).
+All timings are observations on a shared host with other chats' backend/browser
+work and unpinned CPU/I/O. No giant fixture,
 DB, sensitive log or generated user data is committed.

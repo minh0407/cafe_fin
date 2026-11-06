@@ -14,6 +14,7 @@ import os
 import secrets
 import shutil
 import sqlite3
+import sys
 import tempfile
 from contextlib import closing, contextmanager
 from datetime import datetime, timezone
@@ -29,13 +30,17 @@ from cafe_fin.core.storage import FILES, LAYOUT, MARKER, DataRootService
 from sqlalchemy import select
 
 EXPECTED_ROWS = 1_000_000
-SOURCE_PREFIX = 'cafe-fin-frozen-20261106'
+SOURCE_PREFIX = ('cafe-fin-frozen-20261106', 'cafe-fin-final-033e900-683b8f62fae848e1a7aa50259e323a6f')
 CLONE_PREFIX = 'cafe-fin-bulk-ui-'
 
 
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def phase(message):
+    print('Bulk clone: ' + message, file=sys.stderr, flush=True)
 
 
 def sha256(path):
@@ -152,6 +157,7 @@ def prepare(args):
     }
     # No destination is created until source completion/path/lock checks pass.
     with closed_source_guard(source_root):
+        phase('completed source lock acquired; hashing original database')
         before = database_fingerprint(source_db)
         require(source_db.stat().st_nlink == 1, 'Source DB must not be a hard link.')
         with closing(readonly_database(source_db)) as connection:
@@ -204,6 +210,7 @@ def prepare(args):
                             'Cloned SQLite DB failed integrity_check.')
                     require(destination.execute('PRAGMA foreign_key_check').fetchone() is None,
                             'Cloned SQLite DB failed foreign_key_check.')
+                phase('SQLite backup and integrity checks complete; copying immutable files')
                 clone = DataRootService(clone_root)
                 shutil.copyfile(source.resolve_key(MARKER), clone.resolve_key(MARKER))
                 require(sha256(source.resolve_key(MARKER)) == sha256(clone.resolve_key(MARKER)),
@@ -225,7 +232,9 @@ def prepare(args):
                 clone.open_existing(writable=False)
                 require(clone_db.stat().st_nlink == 1 and not os.path.samefile(source_db, clone_db),
                         'Clone DB must have independent storage/file identity.')
+                phase('immutable files verified; streaming source accounting digest')
                 source_entries = accounting_digest(source_db)
+                phase('streaming clone accounting digest before authentication bootstrap')
                 clone_entries = accounting_digest(clone_db)
                 require(clone_entries == source_entries, 'Clone accounting rows/schema digest differs from source.')
                 report.update(copied_files=copied, app_marker_sha256=sha256(clone_root / MARKER),
@@ -233,6 +242,7 @@ def prepare(args):
                 # Construct and authorize a trusted principal ONLY from cloned DB.
                 # Runtime.start is deliberately never called: no job recovery/runner.
                 runtime = Runtime(clone_root, initialize=False, modules=ModuleRegistry((module_manifest(),)))
+                phase('clone-only Runtime initialized; creating audited synthetic Admin')
                 try:
                     users_before = user_snapshot(runtime)
                     admins = [row for row in users_before.values() if row['active'] and row['role'] == 'admin']
@@ -264,10 +274,12 @@ def prepare(args):
                                   new_admin_audited=True, runtime_job_runner_started=False)
                 finally:
                     runtime.close()
+                phase('clone Runtime closed; streaming post-auth accounting digest')
                 clone_after = accounting_digest(clone_db)
                 require(clone_after == source_entries, 'Clone accounting data changed during Auth bootstrap.')
                 report['clone_accounting_digest_after_auth'] = clone_after
                 require(sha256(result_file) == report['source_result_sha256'], 'Source result changed during preparation.')
+                phase('verifying original database hash/size/mtime conservation')
                 after = database_fingerprint(source_db)
                 require(after == before, 'Original frozen source DB hash/size/mtime changed during preparation.')
                 report.update(source_database_after=after, source_database_unchanged=True,

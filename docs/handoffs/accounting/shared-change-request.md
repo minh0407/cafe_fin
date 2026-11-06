@@ -30,7 +30,7 @@ Coordinator-owned wiring:
 ```
 
 Accounting exports its ModuleManifest via `accounting.module.module_manifest()`:
-namespace migration `accounting:1`, four resumable jobs `accounting.parse`,
+namespace migrations `accounting:1..2`, four resumable jobs `accounting.parse`,
 `accounting.validate`, `accounting.commit`, `accounting.export`, on_startup outbox
 dispatch, and router under `/api/v1/accounting`.
 

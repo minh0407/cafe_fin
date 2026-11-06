@@ -1,8 +1,10 @@
 # Maximum worksheet XLSX parser benchmark method
 
-Prepared script: `tests/accounting/benchmark_xlsx.py`. **NOT RUN** while the separate
-CSV 50k/500k/1m benchmark is active. Compilation and linting do not constitute
-performance evidence. Coordinate with the parent before any smoke or full run.
+Script: `tests/accounting/benchmark_xlsx.py`. Versioned run **XLSX-MAX-001 passed**
+on 2026-11-07 local time after the parent released this chat's heavy-work slot.
+The 2,000-row smoke and actual worksheet-limit run executed sequentially. Other
+chats shared the host; CPU/I/O were not pinned. Results below are observed for
+these exact hashes/workloads, with no quiet-machine or native-UI claim.
 
 ## Scope and fixture
 
@@ -102,3 +104,74 @@ matching, pending/publication, API/worker/UI RSS or responsiveness, shared-strin
 heavy sources, disk-full failure or actual application restart. The separate CSV
 and crash-probe evidence must cover those paths. A parser-only maximum worksheet
 result cannot establish full XLSX application import performance.
+
+## XLSX-MAX-001 results — 2026-11-07
+
+Actual run: 2026-11-06 17:34:40–17:44:52 UTC (2026-11-07 00:34:40–00:44:52
+Asia/Bangkok). Process exited **0**, status **PASS**, total measured 610.913 s.
+Data worksheet `1` had **1,048,576 stored rows = 1 header + 1,048,575 data**,
+8 columns and **8,388,600 data cells**. The separate notice worksheet had 1 row.
+All rows/cells, full projection hash, native numeric/date metadata, leading-zero
+and high-precision endpoints reconciled. Page counters were 2,098 pages at 500
+rows, with 75 final-page data rows; no API/UI pagination was measured.
+
+| Phase | Observed seconds | Sampled process RSS peak (MiB) |
+|---|---:|---:|
+| Streaming generate + expected projection/tail hashes | 28.157 | 40.930 |
+| Source SHA-256 before | 0.126 | 41.934 |
+| Actual-dimension manifest, both sheets | 110.705 | 41.348 |
+| Full parse + preflight + exact verification | 249.945 | 42.609 |
+| Near-tail recovery: full re-read/skip | 221.849 | 43.523 |
+| Source SHA-256 after | 0.116 | 44.039 |
+
+Windows cumulative process-lifetime RSS peak was 47,230,976 bytes (45.043 MiB),
+including hashing buffers. Peak sampled private bytes were 29,810,688. Sampling
+was requested every 100 ms and had no recorded errors; samples remain lower
+bounds. Empty parser-index/journal disk peak was 8,704 bytes and cleanup returned
+it to zero. The compressed source was 52,778,902 bytes; 7 ZIP entries unpacked to
+568,549,923 bytes, maximum entry ratio 10.773. This fixture contains no shared
+strings, executable formulas, known invalid rows or duplicate extras; text was
+at most 41 characters. It does not stress long cells or a populated string spool.
+
+The recovery pass visited 1,048,575 rows, skipped 1,047,575 and emitted exactly
+1,000. Its checkpoint was source row 1,047,576; the first emitted tail row arrived
+after **221.727 s**. The emitted tail hash matched independently generated expected
+data. This measured cost includes another structural prescan and full prefix
+replay; it is not a seek or an application process restart measurement.
+
+The preceding smoke passed 2,000 rows / 16,000 cells: generation 0.054 s,
+manifest 0.209 s, parse/verify 0.461 s and re-read/skip 0.460 s. It established
+harness correctness before the full run, not maximum-size performance by itself.
+
+Environment: Windows 11 build 26200 AMD64; Intel64 Family 6 Model 183 Stepping 1,
+16 logical processors; physical RAM visible to Windows 34,138,931,200 bytes
+(31.794 GiB). Disk inventory reported KINGSTON SNV3S1000G, SSD/NVMe,
+1,000,204,886,016 bytes; selected volume was C:. Python 3.12.16, SQLite 3.53.1,
+openpyxl 3.1.5, defusedxml 0.7.1. This inventory does not establish an isolated
+disk/device mapping or eliminate contention. OS cache was uncontrolled; other
+chats/root could run backend/browser tests, and that interference was not
+quantified. Keep these limitations with any quoted timing or RSS number.
+
+Backend freeze was `8b70f1ffbee4a30ceaa5a3c8458fd78f84c8d08a`; actual recorded Git
+HEAD was `ef29e460f5406c587c4bfb8e2ba238e796e7075c`, the approved frontend-only
+date-input change. Worktree was dirty. Measured runner/parser/exporter hashes
+were identical before/after, with `files_changed_during_run=[]`; this is local
+development evidence, not a clean release attestation.
+
+SHA-256 evidence:
+
+- Original source before/after: `0bf13e98caeed7241a1d831b6519dd732a9bcabc52c9f4d49bf050147994d607`.
+- Full projection actual/expected: `9b7d44bd8d12adcb875fd36183826f6bdabfa7d06984f5919f2286b1356aaa45`.
+- Tail actual/expected: `5f915edc3dcba9e1a47d17529fcde3481fbcfe4948dc3679c06a7861b25a2e4f`.
+- Full result JSON: `4de6269233ba64f2249768b6020cde125ce43433ec81e1ed0a43d00dc0298c07`.
+- Smoke result JSON: `0dce4eb138c8e3adde433b440281d814d96ecf278e8771b100c9b3661fffdd3a`.
+
+Retained local artifacts, outside Git:
+
+- Full JSON: `C:/Users/NC/AppData/Local/Temp/cafe-fin-xlsx-8b70f1f-max-20261107a-result.json`.
+- Host/provenance context sidecar: `C:/Users/NC/AppData/Local/Temp/cafe-fin-xlsx-8b70f1f-max-20261107a-context.json`.
+- Source: `C:/Users/NC/AppData/Local/Temp/cafe-fin-xlsx-8b70f1f-max-20261107a/synthetic-max-worksheet.xlsx`.
+- Smoke JSON: `C:/Users/NC/AppData/Local/Temp/cafe-fin-xlsx-8b70f1f-smoke-20261107a-result.json`.
+
+The raw JSON files were not modified after exit. The separate context sidecar
+records the coordinator's shared-host clarification and exact JSON hashes.

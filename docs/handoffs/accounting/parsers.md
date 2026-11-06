@@ -5,22 +5,30 @@ No shared-file, migration, dependency, commit or push changes in this subtask.
 
 ## Public API and projection
 
-`manifest(path, filename)` takes a **trusted internal FileStore path**, never a client
+`manifest(path, filename, *, check_cancelled=None)` takes a **trusted internal FileStore path**, never a client
 path. Supported extensions: CSV, XLSX, XLSM. Workbook sheets return stable OOXML
 sheetId strings, name, epoch (`1900` or `1904`), sheet visibility, actual maximum
 stored row/column coordinates, stored-row count and merged-range count. The scan
 does not trust cached worksheet `<dimension>` metadata. CSV dimensions remain
 unknown until a job parses it; defaults are included in the manifest.
 
-`iter_rows(path, filename, profile)` yields `SourceRow` dataclasses:
+`iter_rows(path, filename, profile, *, temp_dir=None, check_cancelled=None)` yields `SourceRow` dataclasses:
 
 The optional keyword-only `temp_dir` is a trusted internal directory supplied by
 the worker (`app-data/imports`), never a client profile path. TemporaryDirectory
-owns spool cleanup. Combined values plus formula text are limited to256KiB UTF-8
-per row in addition to the32,767-character cell cap; oversized rows return
+owns spool cleanup. Combined values plus formula text are limited to 256 KiB UTF-8
+per row in addition to the 32,767-character cell cap; oversized rows return
 `ROW_LIMIT`, without truncating or staging that row. `metadata.numeric_cells`
 retains raw OOXML numeric tokens for exact Decimal conversion without coercing
 numeric-looking text.
+
+The trusted `check_cancelled` callback runs at entry/completion and at intervals
+of at most 1,024 XML events or CSV records/physical lines, including structural
+manifest/preflight scans, shared-string spooling and skipped/hidden rows.
+`JobInterrupted` propagates unchanged and context managers close streams, the
+temporary index and its directory. Neither callback nor spool path is accepted
+from profile keys. This is cooperative cancellation, not a promise about a
+blocked filesystem call or a whole application's shutdown latency.
 
 - `sheet_id`, `sheet_name`, `source_row`: original record coordinates. CSV source row
   is the logical CSV record number, including a header, rather than physical line
@@ -118,6 +126,22 @@ hidden/blank/range/merged policies, malicious XML/ZIP, and limits. A 20,000-row
 tracemalloc regression consumes rows without retention and checks peak traced
 allocation under 8 MiB; this is a regression guard, not a process-RSS benchmark.
 
-PASS: Ruff lint/format on the two owned Python files. Large 50k/500k/1m performance,
-process RSS, disk pressure and application job restart measurements are NOT RUN
-in this parser subtask and remain lane integration/benchmark work.
+PASS: parser plus parser-specific row/temp/cancellation hardening checks:
+41 passed, 10 application cases deselected in 9.68 s at the cancellation increment;
+Ruff/format/diff checks passed. Application-wide test and CSV import evidence
+belongs to the lane's separate integration/benchmark handoffs.
+
+PASS: **XLSX-MAX-001**, actual maximum worksheet parser run on 2026-11-07 local
+time: 1,048,575 data rows + header, 8 columns / 8,388,600 cells. Actual manifest
+110.705 s; full parse plus preflight/hash/metadata checks 249.945 s; near-tail
+re-read/skip 221.849 s, first remaining row after 221.727 s. Full and 1,000-row tail
+hashes matched, original SHA remained unchanged and relevant source hashes stayed
+fixed. Sampled parse RSS was 42.609 MiB and recovery RSS 43.523 MiB; cumulative OS
+lifetime peak across the workload was 45.043 MiB. Results were observed on a
+shared, unpinned host with uncontrolled OS cache; they are not timing guarantees.
+
+See [versioned XLSX method/results](xlsx-benchmark-method.md) for exact commands,
+hardware/package/source hashes, retained artifacts and limitations. This was
+parser-only with inline strings and an empty temporary string index. Full XLSX
+application staging/validation/publication, populated shared-string spool,
+API/worker/UI responsiveness and actual process restart were not measured by it.

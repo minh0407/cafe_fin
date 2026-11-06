@@ -1,5 +1,11 @@
 # Bàn giao giao diện kế toán
 
+Trạng thái mới nhất: UI trên sổ đã lưu 1 triệu dòng **PASS** với backend
+`3aa8c47`; shared DateInput13, accounting mock17 và real1000 cũng PASS trên cổng
+test1424. Xem **Actual UI1m PASS — attempt004** bên dưới để lấy số đo/phạm vi.
+Các phần PREPARED/NOT RUN và lỗi trước đó được giữ như lịch sử, không thay cho
+kết quả mới nhất và không bị đổi nhãn thành PASS.
+
 - Worktree: `C:\Users\NC\.codex\worktrees\cafe-fin-accounting\cafe_fin`.
 - Branch: `codex/cafe-fin-accounting-20261106`.
 - UI subtask không commit/push theo yêu cầu điều phối. Không sửa registry, dependency, shared API hoặc file của lane khác. Không có migration UI.
@@ -154,3 +160,121 @@ Khi PASS, stdout trả `clone_root`, `book_id`, username, đường dẫn `clone
 - PASS `playwright test --config=tests/accounting/ui/bulk-real.config.ts --list`: đúng một test bulk được nhận diện; list-only không chạy test, server, clone hoặc auth.
 - PASS frontend `npm run build` (bao gồm typecheck). Shared registry vẫn thuộc điều phối; bundle hiện tại chưa chứng minh feature accounting được đăng ký trong sản phẩm, như caveat build ở trên. Warning chunk >500 kB của baseline vẫn có.
 - **NOT RUN** helper trên dữ liệu thật/clone, SQLite backup/hash trên baseline, migration2 của clone, bootstrap Admin, browser hoặc phép đo 1m UI. Chờ điều phối release heavy slot sau full backend regression; Frozen033 source evidence chưa bị mở/sửa bởi lane UI.
+
+## Clone033 thực tế và hold trước DateInput adoption
+
+- Khi được điều phối release slot, chạy helper trên `C:\Users\NC\AppData\Local\Temp\cafe-fin-final-033e900-683b8f62fae848e1a7aa50259e323a6f\1m\result.json` (PASS, 1m published). Chỉ mở rộng guard helper/harness cho **đúng prefix đã được chỉ định này**, không mở rộng sang operational roots.
+- **PASS clone preparation**: `C:\Users\NC\AppData\Local\Temp\cafe-fin-bulk-ui-pjc6fjl4\clone-preparation.json`; clone root `...\data`, sổ `80ed30ef-f2f4-478a-90bb-d0a4d37adae2`. Original DB **6.017.572.864 byte**, SHA-256/size/mtime conserved; independent SQLite backup/integrity/foreign keys, immutable files và streamed accounting digests đều được đối chiếu. Admin mới chỉ trên clone được audit/login xác minh; user/credential cũ không đổi; helper không start job runner. Backend tại lúc clone là frozen `8b70f1ffbee4a30ceaa5a3c8458fd78f84c8d08a` với migration2 áp dụng chỉ trên clone.
+- Auto-chain đã bắt đầu Playwright ngay trước khi steering HOLD mới đến. Đã dừng cây process Playwright/Vite/Chromium thuộc đúng lượt đó; kiểm tra không còn `serve.py` Python hoặc listener1420. **Lượt bulk bị ngắt, không có kết quả PASS/measurement đầy đủ để sử dụng.** Conservation PASS của helper vẫn được giữ. Password được tạo trong environment và đã clear khi orchestration thoát; muốn reuse clone cần tạo thêm một Admin tổng hợp mới qua public AuthService trên clone, không reset account cũ hoặc nguồn.
+- Host được chia sẻ với chat/backend/browser khác. Slot heavy chỉ điều phối trong chat này; không chứng minh máy yên tĩnh hoặc CPU/I/O độc quyền. Kết quả UI sau này phải ghi là latency/memory quan sát trong môi trường shared host, chưa phải native/release benchmark.
+
+## DateInput adoption ngoài grid — CODE/TESTS PREPARED, chưa chạy khi XLSX đo
+
+- Đọc và dùng contract `docs/handoffs/foundation/date-input.md` từ shared pick được duyệt. Summary from/through, conditional date filter và DATE trong modal thêm dòng dùng shared DateInput DD/MM/YYYY; grid date projection và parser/mapping/backend giữ nguyên.
+- Parent state giữ đúng chuỗi raw invalid/incomplete (ví dụ `31/02/2026`), không khôi phục old ISO hoặc chuyển optional invalid thành null/empty. Summary cần nonempty + `isDateInputValueValid` hai đầu rồi mới so thứ tự; manual `refresh()` và queryFn cũng guard, không chỉ `enabled`. Preview import guard query và render, không để tổng cũ hiện khi kỳ raw invalid.
+- Date filter builder guard trước Add; JSON Apply và direct hash URL được validate trước row network, kể cả manual refresh. New-row optional null/clear hợp lệ nhưng nonempty invalid chặn; required date còn yêu cầu nonempty. Có lỗi theo tên cột và disabled submit + handler guard. Whole-book export không có period payload và vẫn dùng được khi summary period sai.
+- Chuẩn bị regressions DD/MM: raw draft giữ qua blur; summary tự động/manual/preview không query hoặc dùng cached totals khi invalid; correction gửi ISO mới; whole-book export độc lập; optional valid→invalid và clear→invalid không gửi oldISO/empty; required blank/invalid không gửi; date filter builder/JSON/directURL không gửi raw date. Chưa chạy các test mới trong lúc XLSX benchmark giữ slot; không ghi PASS trước khi được release.
+
+### Gate frontend DateInput sau XLSX exit
+
+- PASS frontend build + strict typecheck (registry bundle caveat giữ nguyên).
+- PASS shared DateInput **11/11**, 11,4 giây, gồm locale/timezone và strict Form required/optional.
+- PASS toàn bộ lane helper/mock browser **17/17**, 23,4 giây, gồm ba regression adoption mới. Một helper test Node được bỏ vì import AntD ES locale qua Node gây lỗi collection; validation thực tế được kiểm trong browser/Vite, không sửa shared component hoặc đổi logic để né lỗi.
+- Có guard bổ sung: raw invalid trong date-filter builder không cho Apply dùng lại tag ISO cũ; JSON Apply/direct URL vẫn được guard riêng. Parent đã commit frontend adoption riêng tại `a82476e`; shared pick `ef29e46` giữ riêng.
+- Chưa chạy realAPI/1m UI trong lúc parent chốt numeric-filter rewrite. Giá trị latency/memory sắp đo chỉ là quan sát shared-host, không phải CPU/I/O độc quyền.
+
+### Reuse clone với Admin mới sau HOLD
+
+Helper test-only `tests/accounting/ui/add_bulk_clone_admin.py` được chuẩn bị để reuse clone đã PASS, không copy lại 6GB và không reset password. PASS py_compile/Ruff; **chưa thực thi bootstrap bổ sung**. Khi được parent release real/bulk slot, giữ password mới chỉ trong environment rồi chạy:
+
+```powershell
+$env:PYTHONPATH = Join-Path (Get-Location) 'backend'
+# Generate a new synthetic password into env without printing it.
+$env:CAFE_FIN_BULK_PASSWORD = 'Bulk-' + [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+$reused = & .\.venv\Scripts\python.exe tests/accounting/ui/add_bulk_clone_admin.py `
+  --preparation "$env:TEMP\cafe-fin-bulk-ui-pjc6fjl4\clone-preparation.json" `
+  --runtime-closed --username '<tên Admin tổng hợp MỚI chưa có trên clone>' | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $reused.status -ne 'PASS') { throw 'Retained clone bootstrap failed.' }
+. $reused.activate
+```
+
+Helper yêu cầu original preparation PASS, original DB vẫn đúng SHA/size/mtime đã ghi, clone accounting digest vẫn đúng snapshot, clone/WAL đã đóng và DB độc lập file identity. Chỉ thêm một user mới qua public AuthService + audit/login verification trên clone, không start runner, kiểm user/credential cũ và accounting data không đổi. Xuất report/activation riêng; original `clone-preparation.json` giữ nguyên. Chưa khởi động browser tự động; chỉ chạy lệnh bulk riêng sau backend freeze/test-green của parent.
+
+## Lượt thực tế trên freeze9a và blocker text filter
+
+- Real API flow (gồm clipboard 1.000 dòng) **PASS 20,9 giây**, tổng 22,6 giây, trên backend freeze `9a52f023e96cf6d7a06e4f0fdda6efabf60fc4d7` và DateInput adoption `a82476e`. Không mock API.
+- Reuse clone/Admin bootstrap PASS, source DB SHA/size/mtime và streamed accounting data được bảo toàn; user/credential cũ không đổi. Report bổ sung giữ riêng trong private Temp clone, không chứa password.
+- Lượt bulk đầu không mount được do **harness** dùng hai URL module React Query (`?import&v=...` và `?v=...`). Đã giữ console/pageerror, blank screenshot và trace trước fix trong private Temp; lỗi thực tế là `No QueryClient set`. `vite-ignore` một mình không giải quyết được. Sửa test-owned entry thành **một static Vite module**, eager import App/AccountingPage/providers/session rồi dùng lexical mount/token factory. Narrow real-clone login smoke **PASS 2,1 giây**. Cũng sửa locator Card title (text, không phải heading). Không đổi feature/shared/backend để sửa harness.
+- Static entry preload AccountingPage/dependencies trước lúc mount feature: **không** đo cold module load hoặc lazy bundle. Post-login trace không được bật; secret/password/token không đưa vào metrics/docs/console. Artifact trước login được giữ riêng, fixture-only.
+- Lượt actual CODE case sau bootstrap fix **FAIL**, không hạ chuẩn thành numeric-only: exact CODE text filter trên toàn dataset vượt deadline **60.000 ms** trước khi mount grid. Direct first page: **6.126,7 ms**, **200/1.000.000 dòng**, **167.125 byte**. Direct trang **5000**: **6.915,8 ms**, **200/1.000.000 dòng**, **167.887 byte**. Failed-probe elapsed riêng chưa được capture ở lượt này; chỉ deadline cấu hình được biết. Label là whole-dataset text filter, không tuyên bố dùng numeric index.
+- Raw failure metrics/screenshot/context và annotation deadline được giữ ở private Temp `cafe-fin-bulk-ui-pjc6fjl4/ui-attempt-002-code-filter-timeout`. Source DB conservation cuối lượt **PASS**; không có pageerror. Chưa có cache/heap/grid measurement đầy đủ vì CODE probe dừng trước feature mount. Các lượt bị ngắt/blank/timeout đều **NOT PASS**, không được dùng làm nghiệm thu UI1m.
+- Parent HOLD để sửa text/date cell filter query bằng semijoin và chạy targeted/full tests. Backend9a không còn là freeze cuối cho CSV/UI tiếp theo. Orchestrator giữ credential trong environment tại retry gate; sidecar đã thoát, không còn listener1420, không gọi API/browser khác trong lúc chờ.
+- Windows memory measurement được sửa để ghi cả venv launcher và actual Python descendants qua parent graph, không gọi RSS launcher là RSS backend runtime. Chỉ số từng process có shared pages, không được cộng thành unique RAM. Host không được chứng minh CPU/I/O độc quyền; mọi latency/memory về sau là quan sát shared-host Chromium/Vite, chưa phải native WebView2/release.
+
+## Cổng test độc lập sau shared DateInput busy-context patch
+
+- Toàn bộ accounting mock/real/bulk/bootstrap config dùng cố định `http://127.0.0.1:1424` qua `tests/accounting/ui/harness-origin.ts`; Vite CLI, bulk Vite config, readiness URL, browser base URL và sidecar/request Origin cùng cổng. `strictPort` và `reuseExistingServer:false` từ chối collision; không chiếm/reuse listener của lane khác. Production desktop/dev1420, CSP và core ALLOWED_ORIGINS không sửa.
+- `serve.py` là **test-only Origin adapter**: thêm đúng loopback origin1424 vào hai alias allowlist trong process test (`core.api` và `__main__`), không wildcard/ENV origin tùy ý. Production ScopeGuard, exact Origin/CORS, auth, FileStore, jobs và real HTTP vẫn chạy. Đây là adapter browser harness, không chứng minh production/native origin1424 được phép.
+- Config lane `tests/accounting/ui/shared-date.config.ts` chạy nguyên shared consumer13 cases trên1424, không sửa shared manifest/config. Lệnh sau khi parent RELEASE: `frontend/node_modules/.bin/playwright.cmd test --config tests/accounting/ui/shared-date.config.ts`; mock/real/bulk dùng config riêng cùng thư mục, chạy tuần tự.
+- Chuẩn bị tĩnh: Python compile/Ruff **PASS**, strict TypeScript harness **PASS**, Playwright `--list` shared13 và bulk1 **PASS**. **Chưa chạy browser/API** vì parent đang HOLD cho backend text/date filter targeted/full tests; credential retry gate giữ nguyên. Shared consumer13 và lane runtime checks cần chạy sau RELEASE trên shared patch `545d75e`.
+
+## RELEASE trên backend text filter freeze3aa8
+
+- Backend/runner freeze `3aa8c47e4a0301abc64dae1d4fc90a2258b9eed4`, shared DateInput `545d75e`, accounting date adoption `a82476e`: shared consumer **13/13 PASS 12,3 giây**, accounting mock **17/17 PASS 24,2 giây**, frontend strict typecheck và production build **PASS** (còn baseline chunk warning >500k; registry do coordinator sở hữu).
+- Real API flow hiện tại trên1424 **PASS 21,1 giây**, tổng22,9 giây, gồm schema/exact CRUD, repair/partial publish/resume/export và raw clipboard1000rows với paged staging200/no auto-publish. Test-only exact1424 Origin adapter được dùng; production allowlist/CSP/manifests không đổi.
+- Bulk attempt003 **FAIL do test locator**, dù backend CODE exact filter và search đã trả1row. Playwright nhắm hidden accessibility `role=option` của AntD virtual Select thay vì menu item nhìn thấy; screenshot đã inspect có grid trang5000, total1m và dropdown Mã đang mở, pageerrors rỗng. Giữ nguyên metrics/context/screenshot riêng ở private Temp `ui-attempt-003-ant-select-locator`. Sửa chỉ locator trong test để chọn text chính xác bên trong visible dropdown, không sửa product/backend. Không dùng lượt FAIL làm nghiệm thu; full CODE case được chạy lại nguyên scope.
+
+## Actual UI1m PASS — attempt004, backend freeze3aa8
+
+Full case `bulk-real.spec.ts` **PASS, exit0, 1,8 phút** trên freeze `3aa8c47e4a0301abc64dae1d4fc90a2258b9eed4`, DateInput accounting `a82476e` và shared busy-context `545d75e`. Case giữ CODE text filter trên toàn bộ1m, không thay bằng numeric-only. Browser/auth/API/FileStore/job machinery thật; không API mock/interception. Native bootstrap được thay bằng test-only invoke adapter, AccountingPage mount bằng static test-owned Vite entry, exact loopback1424 Origin adapter như mô tả trên.
+
+Nguồn là **baseline033 đã hoàn tất và Runtime CLOSED**, không phải CSV measurement mới trên3aa8: result `C:\Users\NC\AppData\Local\Temp\cafe-fin-final-033e900-683b8f62fae848e1a7aa50259e323a6f\1m\result.json`, original data cùng thư mục `data` (DB6.017.572.864 byte). Chỉ phục vụ clone độc lập `C:\Users\NC\AppData\Local\Temp\cafe-fin-bulk-ui-pjc6fjl4\data`, book `80ed30ef-f2f4-478a-90bb-d0a4d37adae2`. Helper đã kiểm streamed accounting digest trước/sau tạo synthetic Admin trên **clone**, snapshot user/credential cũ không đổi; không mở Runtime/auth trên nguồn. Lượt UI kiểm source SHA256/size/mtime trước/sau **khớp** (SHA256 `a363e109f8d5ec05cbb11aa6a100852ed1f886742a657988ba433e88363b4247`), schema/data revision và final last-page rows không đổi, **0 domain mutation requests**, pageerrors rỗng. Không tuyên bố đã stream lại toàn bộ clone digest sau lượt UI; bằng chứng UI read-only là những invariant vừa nêu.
+
+| Probe HTTP thật trên clone | Thời gian đọc response | Dòng trả về / tổng | Response byte |
+| --- | ---: | ---: | ---: |
+| First page, page_size200 | 6.150,3 ms | 200 / 1.000.000 | 167.125 |
+| Trang5000, page_size200 | 6.787,1 ms | 200 / 1.000.000 | 167.887 |
+| Exact CODE filter toàn sổ | 6.388,8 ms | 1 / 1 | 925 |
+| Search toàn sổ theo CODE | 6.974,2 ms | 1 / 1 | 925 |
+| Final trang5000, sau UI read-only | 6.770,2 ms | 200 / 1.000.000 | 167.887 |
+
+- Browser jump trang2/2500/5000 lần lượt **6.997,0 / 6.997,1 / 6.980,8 ms**. Sáu browser row responses đều200, page_size yêu cầu200, tối đa200items và167.887byte; không tải toàn bộ1m rows về UI.
+- Snapshot tại first/page2/page2500/page5000/filter/filter-removed: **1 row query có data**, **12 tổng queries**, cache/UI tối đa**200rows**; DOM grid tối đa**19rows** kể cả header. Filter từ target trang cuối có cache/UI1row và DOM2rows. Bỏ filter quay về1m total/200loaded, vẫn1 cached row page. Paste nhỏ vượt trang bị chặn nguyên vùng; clipboard501cells hiện explicit new-import choice rồi discard, không upload/mutation. Fill bounded có gate mock17; không tuyên bố thao tác fill thực tế trong case1m.
+- **201 JS heap samples**, interval250ms và checkpoints quanh feature navigation, sampled maximum **38.937.228 byte**. Đây là sampled JS heap sau module preload, không phải exact allocation lifetime peak/full RAM; không đo toàn lifetime app hoặc native process. Eager static module đã tải App/AccountingPage/deps trước feature mount, không phải cold/lazy bundle timing.
+- Windows process snapshots tại **first page** và **after navigation/filter**: actual Python **child PID30408**, RSS97.288.192 →97.267.712byte, OS `PeakWorkingSet64`159.899.648byte tại hai checkpoints. Venv **launcher PID15220** riêng, RSS4.923.392byte; không gọi launcher là runtime. Renderer PID49572 RSS201.416.704 →215.048.192byte, OS process peak tại checkpoints201.416.704 →215.863.296byte. Browser/GPU/network/conhost counters riêng có trong raw metrics; không cộng RSS các process thành unique RAM. OS peak là process counter đến checkpoint, không chứng minh peak cả lifetime từ start đến shutdown; checkpoint cuối trước final metadata/page probes và source hash.
+- Host quan sát: Windows10.0.26200 x64, Intel i5-14400F,16logical CPU,34.138.931.200byte physical RAM, Node24.21.0, Chromium158.0.8127.18, viewport1600×1100. Host chia sẻ workload với chats khác; CPU/I/O không pinned/exclusive. Không cold-disk-cache claim, speed promise, native Tauri/WebView2/release claim hoặc numeric-index proof từ CODE text probe.
+- Screenshot cuối **đã mở và inspect**: grid thật, total1.000.000/loaded200, page1 sau bỏ filter; không blank/error overlay. Orchestrator session66480 kết thúc0 và clear generated password; owned sidecars**0**, listener1424**0** sau cleanup. Heavy slot đã trả parent; không chạy thêm browser/API/build/heavy checks trong các CSV measurement tiếp theo.
+
+Artifact synthetic/private giữ ngoài repo tại `C:\Users\NC\AppData\Local\Temp\cafe-fin-bulk-ui-pjc6fjl4`:
+
+- PASS hiện tại: `ui-attempt-004-pass\bulk-real-metrics.json`, `ui-attempt-004-pass\bulk-real-ui.png` (bản output đồng thời ở `frontend/test-results/accounting-bulk-real/bulk-real-persisted-millio-6be6d-age-and-full-data-filtering/`, không stage/commit artifacts).
+- FAIL backend9a exact CODE >deadline60.000ms: `ui-attempt-002-code-filter-timeout\bulk-real-metrics.json`, `bulk-failure.png`, `observed-failure.json`; **không** đổi nhãn FAIL hoặc bịa failed elapsed riêng chưa được capture ở lượt đó. First/high-page6.126,7/6.915,8ms của lượt9a chỉ thuộc context FAIL đó.
+- FAIL locator AntD trên3aa8: `ui-attempt-003-ant-select-locator\bulk-real-metrics.json`, `bulk-failure.png`, `error-context.md`. Metrics lượt đó tách khỏi PASS hiện tại.
+- Bootstrap histories: `ui-attempt-001-failure.json`, `bootstrap-before-fix\`, `bootstrap-vite-ignore-failure\`, `bootstrap-static-module-wrong-role-assertion\`, `bootstrap-static-module-pass\`. Actual pre-fix React Query exception/console/trace giữ riêng; post-login trace không bật. Credentials/token không in console/metrics/docs; source values fixture-only.
+- Clone preparation/auth audit evidence: `clone-preparation.json`, `clone-admin-760ac5a2835b40bb.json`; credential-free activation/report riêng, không reset account nguồn hoặc credential cũ.
+
+Gates cuối: shared13 PASS12,3s; accounting mock17 PASS24,2s; strict frontend TC/build PASS; real1000 PASS21,1s (22,9s total); full actualUI1m PASS1,8min. Các FAIL trước vẫn giữ nguyên, frontend feature/backend/runner không đổi để sửa harness. Những thay đổi harness/helper/docs đang bàn giao vẫn **unstaged/uncommitted** để parent review/chốt riêng (frontend DateInput adoption đã được parent commit riêng như ghi trên).
+
+## SchemaEditor P2 — command cố định khi mất ACK
+
+Root xác nhận P2 từ browser/backend thật tại `C:\Users\NC\AppData\Local\Temp\cafe-fin-schema-review-c90be6801b8c4941bef15cb9b34ca153\evidence.json`: POST tạo sổA đã commit nhưng ACK mất; controls vẫn cho đổiA→B, lần Save tiếp theo tạo request_key/body mới và thành2books. Bản sửa chỉ thuộc `frontend/src/features/accounting/SchemaEditor.tsx`, không đổi backend/schema/import math hoặc UI component khác.
+
+- Trước await đầu tiên, freeze một command gồm method/path/**serialized body** (columns/semantics lồng nhau, expected_version nếu PATCH và request_key). Synchronous in-flight ref chặn resubmit đồng thời. Retry không build lại từ mutable form/props và không đổi key; same-book refetch/version update không reset command đang uncertain.
+- Khi đang gửi hoặc chưa xác nhận kết quả, khóa toàn bộ AntD inputs/selects/checkboxes/numbers, thêm/xóa/đổi thứ tự cột, JSON và modal cancel/X/mask/Escape. Hiện **Thử lại cùng yêu cầu** với lời giải thích giữ nguyên command. Chỉ allowlist rejection validation/conflict rõ ràng giải phóng chỉnh sửa; local JSON/input validation trước tạo command không khóa; transport/invalid response/unknown server failure tiếp tục uncertain.
+- Generation/open/book epoch guard chặn old onSaved/onClose và mọi chỉnh sửa/cancel của scope cũ. Actor reset clear command/draft rồi **unmount/retire editor cũ**, không gọi callback cũ; chỉ fresh open epoch mới mở editor của actor mới. Unmount có chủ đích vì AntD giữ hidden modal child DOM khi chỉ open=false. Late response/finally không thay busy/error/callback của editor mới. Response onSaved làm đổi generation cũng không gọi old onClose tiếp theo.
+- Hai Input **Giá trị chiều thu / Giá trị chiều chi** ghi income_value/expense_value theo chuỗi người dùng nhập; không suy diễn/default. Advanced semantics JSON được thu gọn mặc định bằng details; ordinary direction mapping không cần nhập JSON.
+
+Focused command: `frontend/node_modules/.bin/playwright.cmd test --config tests/accounting/ui/schema.config.ts` trên dedicated1424, reuseExistingServer:false. Static test-owned module/session bootstrap; production SchemaEditor/api/auth/HTTP thực. **11/11 PASS21,9 giây** lượt cuối, gồm9mock +2real synthetic isolated DB. Real case chỉ forward actual API response, rồi drop **ACK sau HTTP200 đã commit** ở lần đầu; retry dùng response thật, không substitute response/body hoặc mock database.
+
+| Real lost-ACK case | Sau commit trước retry | Sau exact retry | Request observations |
+| --- | --- | --- | --- |
+| POST create | 1book, version1, schema_revision1 | vẫn1book/version1/revision1 | 2HTTP attempts, cùng method/path/raw body/key; 1Saved +1Closed callback |
+| PATCH schema | seed1→version2/schema_revision2 | vẫn1book/version2/revision2 | 2HTTP attempts, expected_version1 không đổi; cùng method/path/raw body/key; 1Saved +1Closed callback |
+
+Mock regressions còn kiểm same-book version props đổi99 không làm đổi frozen expected_version3; attempted synthetic edit/double-submit không tạo command mới; definitive422/409 cho sửa và key mới; local JSON invalid không gọi API; unknown500 giữ lock; late generation/open response không callback/không leak payload; uncertain PATCH actor reset không mang target/body cũ vào new POST. Test harness dùng stable footer và actual loading class vì AntD có thể giữ exiting loading-icon trong accessible name; không sửa product để sửa locator.
+
+Gates sau thay đổi: standard accounting mock **17/17 PASS24,5 giây**, strict frontend TC/build và strict harness TypeScript **PASS** (baseline bundle warning/registry caveat vẫn như trước), existing real1000 normalflow rerun **PASS21,7 giây** (23,7 giây total), gồm normal create/schema update, CRUD/version/delete/restore, partial import/repair/resume, export/download, clipboard1000 source/paging200/no auto-publish. Không rerun UI1m/CSV/XLSX cho component-only delta này.
+
+**Giữ lại một normalflow FAIL riêng, không xóa bằng rerun PASS:** lượt đầu sau Schema P2 dừng ở export, alert hiển thị COMPLETED nhưng chưa có download action (25,6giây, failed5s visibility gate). Snapshot/context giữ tại `C:\Users\NC\AppData\Local\Temp\cafe-fin-schema-normal-export-failure-72bde80f984840408c7ee947bfc0d4e8`. Failed attempt chưa capture raw export response. Read-only review gợi ý race export_status đọc exports.file_id trước, rồi jobs.status qua reader khác có thể mới hơn; **đây là inference**, không tuyên bố đã capture raw COMPLETED/null. Rerun chỉ thêm response observation/failure screenshot vào test (không API interception/substitution); lần PASS capture2 COMPLETED responses đều có file_id hợp lệ. Parent được báo riêng; chưa sửa backend hoặc AccountingPage ngoài authorized component.
+
+Schema-specific new files cho commit riêng của parent: `tests/accounting/ui/schema.config.ts`, `schema-vite.config.mts`, `schema-fixture.ts`, `schema.spec.ts`, `schema-real.spec.ts`; thêm observation-only delta ở existing `real.spec.ts`. Artifacts synthetic ngoài tracked source: `frontend/test-results/accounting-schema/schema-real-real-create-co-171d8-nother-book-schema-revision/schema-real-evidence.json` và `schema-real-real-patch-com-a24f1-nother-book-schema-revision/schema-real-evidence.json`; raw strings cho phép đối chiếu exact replay. `schema-real-confirmed.png` đã inspect: modal đóng đúng, chỉ còn callback counters1/1 của harness; không phải UI design/native proof. Initial test locator failures được giữ riêng tại private Temp `cafe-fin-schema-retry-attempt1-9ff1b28d6bf84d4ea4ebb1ada5e55014`, không tính PASS. Worktree backend HEAD khi các gates chạy là `831202301cb96ffdb6537bf9eb760b4e69f81ba2`; frontend SchemaEditor delta chưa commit. Không stage/commit code/doc/artifacts từ lane.

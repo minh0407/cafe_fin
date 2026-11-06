@@ -1,10 +1,11 @@
 import { test, expect } from '../../../frontend/node_modules/@playwright/test';
-import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, execFile, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { tmpdir, platform, release, arch, cpus, totalmem } from 'node:os';
 import path from 'node:path';
+import { HARNESS_ORIGIN } from './harness-origin';
 import { performance } from 'node:perf_hooks';
 
 const EXPECTED_ROWS = 1_000_000;
@@ -28,10 +29,10 @@ async function windowsProcessMemory(ids: number[]) {
   if (!valid.length) return { available: false, reason: 'No Chromium process IDs available' };
   // IDs come from CDP and are validated integers; no user text or credentials
   // enter this command. These counters are read-only and report processes only.
-  const command = `Get-Process -Id @(${valid.join(',')}) -ErrorAction SilentlyContinue | ForEach-Object { [PSCustomObject]@{ pid=$_.Id; rss_bytes=$_.WorkingSet64; os_peak_rss_bytes=$_.PeakWorkingSet64; private_bytes=$_.PrivateMemorySize64 } } | ConvertTo-Json -Compress`;
+  const command = `$owned = [System.Collections.Generic.HashSet[int]]::new(); @(${valid.join(',')}) | ForEach-Object { [void]$owned.Add([int]$_) }; $identities = @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId); do { $previousCount=$owned.Count; foreach ($identity in $identities) { if ($owned.Contains([int]$identity.ParentProcessId)) { [void]$owned.Add([int]$identity.ProcessId) } } } while ($owned.Count -ne $previousCount); $parents=@{}; foreach ($identity in $identities) { $parents[[int]$identity.ProcessId]=[int]$identity.ParentProcessId }; Get-Process -Id @($owned) -ErrorAction SilentlyContinue | ForEach-Object { [PSCustomObject]@{ pid=$_.Id; parent_pid=$parents[[int]$_.Id]; name=$_.ProcessName; rss_bytes=$_.WorkingSet64; os_peak_rss_bytes=$_.PeakWorkingSet64; private_bytes=$_.PrivateMemorySize64 } } | ConvertTo-Json -Compress`;
   return new Promise<unknown>(resolve => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, timeout: 15000 }, (error, stdout) => {
     if (error) return resolve({ available: false, reason: 'OS process counters could not be read' });
-    try { const parsed = JSON.parse(stdout); resolve({ available: true, source: 'Windows Get-Process WorkingSet64/PeakWorkingSet64/PrivateMemorySize64', processes: Array.isArray(parsed) ? parsed : [parsed] }); }
+    try { const parsed = JSON.parse(stdout); resolve({ available: true, source: 'Windows Get-Process counters; owned descendants discovered via Win32_Process parent graph (no command lines)', includes_owned_descendants: true, processes: Array.isArray(parsed) ? parsed : [parsed] }); }
     catch { resolve({ available: false, reason: 'OS process counter response unavailable' }); }
   }));
 }
@@ -66,12 +67,13 @@ test('persisted million-row book keeps a bounded UI/cache with real high-page an
   const metrics: Record<string, any> = {
     status: 'RUNNING', expected_total_rows: EXPECTED_ROWS, requested_page_size: PAGE_SIZE,
     environment: { platform: platform(), release: release(), arch: arch(), cpu_model: cpus()[0]?.model, cpu_logical: cpus().length, physical_ram_bytes: totalmem(), node: process.version, browser: browser.version(), viewport: { width: 1600, height: 1100 } },
+    provenance: { git_head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8', windowsHide: true }).trim(), backend_freeze: '3aa8c47e4a0301abc64dae1d4fc90a2258b9eed4', frontend_date_adoption: 'a82476e', shared_date_busy_context: '545d75e' },
     data: { clone_root: root, source_result: resultFile, book_id: bookId, source_database_sha256_before: sourceHashBefore },
     direct_api: [], browser_row_responses: [], ui_snapshots: [], memory_samples: [], os_process_snapshots: [],
     method: {
       domain_mutations: false, http_api_mocking: false, native_bootstrap_only: true,
       sampling: 'CDP Runtime.getHeapUsage and Memory.getDOMCounters sampled every 250 ms while navigation runs; OS process counters at checkpoints',
-      limits: ['JS heap is not renderer/browser/backend RSS.', 'Sampled JS-heap maximum is not an exact allocation high-water mark.', 'OS process RSS may include shared pages and must not be summed as unique memory.', 'CDP SystemInfo.getProcessInfo reports process identity/CPU time, not memory.', 'The login shell is publicly unmounted and its cache cleared before lane measurements.', 'This is a Vite development Chromium harness, not native Tauri/WebView2 or a release build.', 'API timings include actual loopback HTTP/body reading; no cold-disk-cache claim or speed threshold.'],
+      limits: ['JS heap is not renderer/browser/backend RSS.', 'Sampled JS-heap maximum is not an exact allocation high-water mark.', 'OS process RSS may include shared pages and must not be summed as unique memory.', 'CDP SystemInfo.getProcessInfo reports process identity/CPU time, not memory.', 'The venv launcher PID and actual Python descendants are recorded separately; launcher RSS is not labeled as backend runtime RSS.', 'The login shell is publicly unmounted and its cache cleared before lane measurements.', 'AccountingPage and its dependencies are eagerly preloaded in one static Vite graph; this is not a cold-module/lazy-bundle load benchmark.', 'This is a Vite development Chromium harness, not native Tauri/WebView2 or a release build.', 'Host is shared with other chats/backend/browser workloads; CPU/I/O are not pinned or proven exclusive.', 'API timings include actual loopback HTTP/body reading; no cold-disk-cache claim or speed threshold.', 'Whole-dataset exact CODE filter is a text-filter observation; it does not prove numeric-index usage.'],
     },
   };
   let child: ChildProcessWithoutNullStreams | undefined;
@@ -88,7 +90,7 @@ test('persisted million-row book keeps a bounded UI/cache with real high-page an
       child!.once('exit', () => { clearTimeout(timer); reject(new Error('Synthetic clone sidecar exited during startup; ensure the clone is closed.')); });
       child!.stdout.on('data', chunk => { pending += String(chunk); if (pending.includes('\n')) { clearTimeout(timer); try { resolve(JSON.parse(pending.slice(0, pending.indexOf('\n')))); } catch { reject(new Error('Invalid sidecar handshake.')); } } });
     });
-    child.stdin.write(JSON.stringify({ protocol_version: 1, data_root: root, initialize: false, session_token: token, allowed_origin: 'http://127.0.0.1:1420' }) + '\n');
+    child.stdin.write(JSON.stringify({ protocol_version: 1, data_root: root, initialize: false, session_token: token, allowed_origin: HARNESS_ORIGIN }) + '\n');
     const ready = await hello; expect(ready.status).toBe('ready');
     const boot = { protocol_version: 1, api_base: ready.api_base, session_token: token, data_root: root };
     await page.addInitScript(boot => { Object.assign(window, { __TAURI_INTERNALS__: { invoke: async (command: string) => { if (command === 'desktop_status') return { data_root: boot.data_root, running: true }; if (command === 'start_backend') return boot; throw new Error('Unexpected native operation in read-only bulk harness.'); } } }); }, boot);
@@ -105,15 +107,17 @@ test('persisted million-row book keeps a bounded UI/cache with real high-page an
       observations.add(observation); void observation.finally(() => observations.delete(observation));
     });
     await page.goto('/__accounting_bulk_harness#/foundation');
-    await expect(page.getByRole('heading', { name: 'Đăng nhập local', exact: true })).toBeVisible();
+    await expect(page.getByText('Đăng nhập local', { exact: true })).toBeVisible();
     await page.getByLabel('Tên đăng nhập').fill(username); await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
     await expect(page.getByRole('menuitem', { name: 'Sổ kế toán', exact: true })).toBeVisible();
-    const accessToken = await page.evaluate(async () => { const name = '/src/shared/session.ts'; const { useSession } = await import(name); return useSession.getState().token as string; });
-    const headers = { 'X-App-Session': token, Authorization: `Bearer ${accessToken}`, Origin: 'http://127.0.0.1:1420' };
+    const accessToken = await page.evaluate(() => (window as any).__bulkGetAccessToken() as string);
+    const headers = { 'X-App-Session': token, Authorization: `Bearer ${accessToken}`, Origin: HARNESS_ORIGIN };
     const direct = async <T,>(endpoint: string, label: string): Promise<T> => {
-      const start = performance.now(); const response = await fetch(`${ready.api_base}/accounting${endpoint}`, { headers, signal: AbortSignal.timeout(60000) });
-      const body = await response.text(); const readMs = performance.now() - start;
+      const start = performance.now(); let response: Response; let body: string;
+      try { response = await fetch(`${ready.api_base}/accounting${endpoint}`, { headers, signal: AbortSignal.timeout(60000) }); body = await response.text(); }
+      catch (error) { metrics.direct_api.push({ label, outcome: 'TIMEOUT_OR_NETWORK_ERROR', elapsed_ms: performance.now() - start, configured_timeout_ms: 60000, error_type: error instanceof Error ? error.name : 'UnknownError' }); throw error; }
+      const readMs = performance.now() - start;
       expect(response.status, label).toBe(200); const result = JSON.parse(body);
       metrics.direct_api.push({ label, elapsed_ms: readMs, response_bytes: Buffer.byteLength(body), total: result.total, returned_rows: result.items?.length, page: result.page });
       if (Array.isArray(result.items)) expect(result.items.length).toBeLessThanOrEqual(PAGE_SIZE);
@@ -130,7 +134,7 @@ test('persisted million-row book keeps a bounded UI/cache with real high-page an
     expect(last.total).toBe(EXPECTED_ROWS); expect(last.items.length).toBe(PAGE_SIZE);
     const targetCode = last.items.at(-1)!.values[codeId]; expect(typeof targetCode).toBe('string');
     const filter = JSON.stringify([{ column_id: codeId, op: 'eq', value: targetCode }]);
-    const filtered = await direct<RowPage>(`/books/${bookId}/rows?${new URLSearchParams({ page: '1', page_size: String(PAGE_SIZE), filters: filter })}`, 'indexed_exact_filter_against_entire_million_rows');
+    const filtered = await direct<RowPage>(`/books/${bookId}/rows?${new URLSearchParams({ page: '1', page_size: String(PAGE_SIZE), filters: filter })}`, 'whole_dataset_exact_filter_against_entire_million_rows');
     expect(filtered.total).toBeGreaterThan(0); expect(filtered.total).toBeLessThanOrEqual(PAGE_SIZE);
     await direct<RowPage>(`/books/${bookId}/rows?${new URLSearchParams({ page: '1', page_size: String(PAGE_SIZE), search: targetCode! })}`, 'server_search_against_entire_million_rows');
 
@@ -140,29 +144,13 @@ test('persisted million-row book keeps a bounded UI/cache with real high-page an
       try { const [heap, dom] = await Promise.all([cdp.send('Runtime.getHeapUsage'), cdp.send('Memory.getDOMCounters')]); sampledMax = Math.max(sampledMax, heap.usedSize); metrics.memory_samples.push({ at_ms: performance.now(), label, ...heap, dom }); }
       catch { metrics.memory_sample_unavailable = true; } finally { sampling = false; }
     };
-    const osSample = async (label: string) => { try { const processes = await browserCdp.send('SystemInfo.getProcessInfo'); metrics.os_process_snapshots.push({ label, identity_and_cpu: processes.processInfo, backend_pid: child?.pid, memory: await windowsProcessMemory([...processes.processInfo.map(item => item.id), ...(child?.pid ? [child.pid] : [])]) }); } catch { metrics.os_process_snapshots.push({ label, available: false }); } };
+    const osSample = async (label: string) => { try { const processes = await browserCdp.send('SystemInfo.getProcessInfo'); metrics.os_process_snapshots.push({ label, identity_and_cpu: processes.processInfo, backend_launcher_pid: child?.pid, memory: await windowsProcessMemory([...processes.processInfo.map(item => item.id), ...(child?.pid ? [child.pid] : [])]) }); } catch { metrics.os_process_snapshots.push({ label, available: false }); } };
     sampler = setInterval(() => { void sample('interval'); }, 250);
     await sample('before_feature_mount');
 
-    // No response interception: load the actual feature and exactly the dependency
-    // URLs Vite compiled for it. Keeping provider/module identity equal avoids a
-    // second React Query context while mounting without a product registry edit.
-    await page.evaluate(async ({ bookId }) => {
-      const featurePath = '/src/features/accounting/AccountingPage.tsx';
-      const featureSource = await (await fetch(featurePath)).text(); const mainSource = await (await fetch('/src/app/main.tsx')).text();
-      const dependency = (source: string, token: string) => { const urls = [...source.matchAll(/["']([^"']*\/node_modules\/\.vite\/deps\/[^"']+)["']/g)].map(match => match[1]); const found = urls.find(url => url.includes(token)); if (!found) throw new Error(`Vite dependency URL unavailable: ${token}`); return found; };
-      const React = (await import(dependency(mainSource, '/react.js'))).default;
-      const ReactDOM = await import(dependency(mainSource, '/react-dom_client.js'));
-      const { QueryClient, QueryClientProvider } = await import(dependency(featureSource, '/@tanstack_react-query.js'));
-      (window as any).__bulkShellRoot.unmount(); (window as any).__bulkShellCache.clear();
-      history.replaceState(null, '', `${location.pathname}#/accounting?book=${encodeURIComponent(bookId)}`);
-      const { AccountingPage } = await import(featurePath);
-      const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } });
-      const host = document.getElementById('root')!; host.id = 'bulk-lane-root';
-      const root = (ReactDOM.createRoot ?? ReactDOM.default.createRoot)(host);
-      root.render(React.createElement(QueryClientProvider, { client: cache }, React.createElement(AccountingPage)));
-      Object.assign(window, { __bulkLaneCache: cache });
-    }, { bookId });
+    // The single static Vite module owns both public roots and all provider
+    // identities. Eager module preload is intentional, not a cold-load metric.
+    await page.evaluate(({ bookId }) => (window as any).__bulkMountAccounting(bookId), { bookId });
     const lane = page.locator('#bulk-lane-root'); const grid = lane.getByRole('grid', { name: 'Sổ kế toán theo ô' });
     await expect(grid).toBeVisible(); await expect(lane.getByText(`${EXPECTED_ROWS} dòng theo bộ lọc · ${PAGE_SIZE} dòng đang tải`, { exact: true })).toBeVisible();
     const snapshot = async (label: string) => {
@@ -198,7 +186,10 @@ test('persisted million-row book keeps a bounded UI/cache with real high-page an
     await lane.getByRole('button', { name: 'Bỏ clipboard', exact: true }).click();
     metrics.large_clipboard_choice_discarded_without_upload = true;
     await lane.getByText('Lọc toàn bộ sổ / xem dòng đã xóa', { exact: true }).click();
-    await lane.getByRole('combobox', { name: 'Cột lọc', exact: true }).click(); await page.getByRole('option', { name: codeColumn!.name, exact: true }).click();
+    await lane.getByRole('combobox', { name: 'Cột lọc', exact: true }).click();
+    // AntD's virtual Select exposes a hidden accessibility role=option mirror.
+    // Choose the visible menu item rather than that non-clickable mirror.
+    await page.locator('.ant-select-dropdown:visible').getByText(codeColumn!.name, { exact: true }).click();
     await lane.getByLabel('Giá trị lọc', { exact: true }).fill(targetCode!); await lane.getByRole('button', { name: 'Thêm điều kiện', exact: true }).click(); await lane.getByRole('button', { name: 'Áp dụng bộ lọc', exact: true }).click();
     await expect(lane.getByText(`${filtered.total} dòng theo bộ lọc · ${filtered.items.length} dòng đang tải`, { exact: true })).toBeVisible();
     await expect(grid.getByRole('gridcell', { name: targetCode!, exact: true }).first()).toBeVisible(); await snapshot('server_filtered_target_from_last_page');
@@ -214,11 +205,12 @@ test('persisted million-row book keeps a bounded UI/cache with real high-page an
     metrics.status = 'PASS'; metrics.domain_mutation_requests = domainWrites.length;
     await page.screenshot({ path: test.info().outputPath('bulk-real-ui.png'), fullPage: true });
   } catch (error) {
-    metrics.status = 'FAIL'; metrics.failure = error instanceof Error ? error.message : 'Unknown test failure'; throw error;
+    metrics.status = 'FAIL'; metrics.failure = error instanceof Error ? error.message : 'Unknown test failure'; await page.screenshot({ path: test.info().outputPath('bulk-failure.png'), fullPage: true }).catch(() => {}); throw error;
   } finally {
     if (sampler) clearInterval(sampler);
     while (sampling) await new Promise(resolve => setTimeout(resolve, 10));
     metrics.sampled_peak_js_heap_used_bytes = sampledMax;
+    metrics.page_errors = pageErrors;
     metrics.sample_count = metrics.memory_samples.length;
     if (child && child.exitCode === null) { child.stdin.write('{"command":"shutdown"}\n'); child.stdin.end(); await new Promise<void>(resolve => { const timer = setTimeout(() => { child?.kill(); resolve(); }, 15000); child!.once('exit', () => { clearTimeout(timer); resolve(); }); }); }
     const sourceStatAfter = await stat(sourceDatabase); const sourceHashAfter = await fileHash(sourceDatabase);
