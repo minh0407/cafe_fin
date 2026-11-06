@@ -48,10 +48,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           uv sync --frozen --python 3.12.16
       - name: Backend regression tests
-        run: uv run --frozen python -m pytest tests/core -q
+        run: uv run --frozen python -m pytest tests -q
       - name: Lint and compile backend
         run: |
-          uv run --frozen python -m ruff check backend/cafe_fin tests/core scripts
+          uv run --frozen python -m ruff check backend/cafe_fin tests scripts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           uv run --frozen python -m compileall -q backend/cafe_fin scripts
       - name: Set up Node
@@ -72,6 +72,13 @@ jobs:
         env:
           CAFE_FIN_REAL_API: '1'
         run: npm test
+      - name: Feature browser integration tests
+        run: |
+          $featureConfigs = @(Get-ChildItem -LiteralPath 'tests' -Filter 'playwright.config.*' -File -Recurse | Sort-Object FullName)
+          foreach ($featureConfig in $featureConfigs) {
+            node frontend/node_modules/@playwright/test/cli.js test --config $featureConfig.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Pin Rust build toolchain
         run: |
           rustup toolchain install 1.99.1 --profile minimal --component rustfmt
