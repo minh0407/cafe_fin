@@ -1,27 +1,29 @@
 import type { GridRecord, ColumnDefinition } from './types';
 export const CELL_LIMIT = 500;
+export class ClipboardLimitError extends Error {}
 export interface Position { row: number; col: number }
 export interface Range { startRow: number; endRow: number; startCol: number; endCol: number }
 export function selectedRange(anchor: Position, active: Position): Range {
   return { startRow: Math.min(anchor.row, active.row), endRow: Math.max(anchor.row, active.row), startCol: Math.min(anchor.col, active.col), endCol: Math.max(anchor.col, active.col) };
 }
 export function parseTSV(text: string): string[][] {
-  if (text.length > 100000) throw new Error('Nội dung vượt 100.000 ký tự. Hãy nhập tệp qua staging.');
+  if (text.length > 100000) throw new ClipboardLimitError('Nội dung vượt 100.000 ký tự. Hãy nhập tệp qua staging.');
   // Excel quotes cells containing tabs/newlines; accept escaped double quotes.
-  const rows: string[][] = [[]]; let cell = ''; let quoted = false;
+  const rows: string[][] = [[]]; let cell = ''; let quoted = false; let cells = 0;
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
     if (char === '"' && (quoted || cell === '')) {
       if (quoted && text[i + 1] === '"') { cell += '"'; i++; } else quoted = !quoted;
     } else if (!quoted && (char === '\t' || char === '\n' || char === '\r')) {
       rows[rows.length - 1].push(cell); cell = '';
+      if (++cells > CELL_LIMIT) throw new ClipboardLimitError('Chỉ dán tối đa 500 ô mỗi lần; dữ liệu lớn dùng nhập tệp.');
       if (char !== '\t') { if (char === '\r' && text[i + 1] === '\n') i++; rows.push([]); }
     } else cell += char;
   }
   if (quoted) throw new Error('Dữ liệu TSV có dấu ngoặc kép chưa đóng.');
   rows[rows.length - 1].push(cell);
   if (rows.length > 1 && rows.at(-1)?.length === 1 && rows.at(-1)?.[0] === '') rows.pop();
-  if (rows.reduce((sum, row) => sum + row.length, 0) > CELL_LIMIT) throw new Error('Chỉ dán tối đa 500 ô mỗi lần; dữ liệu lớn dùng nhập tệp.');
+  if (rows.reduce((sum, row) => sum + row.length, 0) > CELL_LIMIT) throw new ClipboardLimitError('Chỉ dán tối đa 500 ô mỗi lần; dữ liệu lớn dùng nhập tệp.');
   return rows;
 }
 export function encodeTSV(rows: string[][]) {

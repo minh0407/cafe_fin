@@ -1,11 +1,12 @@
 import { test, expect, type Page } from '../../../frontend/node_modules/@playwright/test';
+import type { Batch } from '../../../frontend/src/features/accounting/types';
 const initial = { id: 'row1', version: 3, logical_row: 1, values: { code: '001', amount: '92233720368547758.07' }, issues: [] };
 const book = { id: 'book1', name: 'Sổ tổng hợp', version: 1, schema_revision: 1, data_revision: 1, columns: [{ id: 'code', name: 'Mã', kind: 'text', editable: true }, { id: 'amount', name: 'Số tiền', kind: 'money', editable: true }], semantics: {} };
 const batch = { id: 'batch1', book_id: 'book1', file_id: 'file1', state: 'READY_FOR_CONFIRM', version: 7, revision: 4, mapping_revision: 2, decision_revision: 3, validation_token: 'validated-exact-revisions', mapping: { code: 'A', amount: 'B' }, profile: {}, counts: { source_rows: 5, valid: 3, invalid: 1, potential_duplicates: 1, excluded: 0, published_rows: 0, staged_committed_rows: 0, pending: 5 } };
 async function setup(page: Page, conflict = false, secondRow = false) {
   page.on('pageerror', error => console.error('Browser error:', error.message));
   page.on('console', message => { if (message.type() === 'error') console.error('Browser console:', message.text()); });
-  const writes: { path: string; body: any }[] = []; let row = structuredClone(initial);
+  const writes: { path: string; body: any }[] = []; let row = structuredClone(initial); let currentBatch: Batch = structuredClone(batch);
   await page.route('**/src/app/main.tsx', async route => {
     const response = await route.fetch();
     const source = (await response.text())
@@ -17,22 +18,25 @@ async function setup(page: Page, conflict = false, secondRow = false) {
     const request = route.request(); const url = new URL(request.url()); const path = url.pathname.replace('/api/v1/accounting', '');
     const respond = (json: unknown, status = 200) => route.fulfill({ json, status });
     if (request.method() !== 'GET') {
+      if (url.pathname.endsWith('/api/v1/files')) { const raw = request.postDataBuffer()!; writes.push({ path: '/files', body: { raw: raw.toString('utf8'), category: url.searchParams.get('category') } }); return respond({ id: 'clipboard-file', original_name: 'clipboard-synthetic.csv', sha256: '0'.repeat(64), size: raw.length, category: 'workbooks', media_type: 'text/csv' }); }
       const body = request.postDataJSON(); writes.push({ path, body });
       if (path === '/rows/row1') {
         if (conflict) return respond({ error: { code: 'VERSION_CONFLICT', message: 'Phiên bản mới đã được ghi.', field_errors: [] } }, 409);
         row = { ...row, version: 4, values: body.values }; return respond(row);
       }
       if (path === '/import-jobs/batch1/confirm') return respond({ ...batch, state: 'COMMITTING' });
+      if (path === '/import-jobs') { currentBatch = { ...batch, id: 'clipboard-batch', file_id: body.file_id, profile: body.profile, mapping: {}, state: 'READY_FOR_MAPPING', validation_token: null, counts: { source_rows: 501, valid: 0, invalid: 0, potential_duplicates: 0, excluded: 0, published_rows: 0, pending: 501 } }; return respond(currentBatch); }
       return respond(batch);
     }
     if (path === '/books') return respond({ items: [book], total: 1, page: 1, page_size: 200 });
     if (path === '/books/book1/rows') return respond({ items: [row, ...(secondRow ? [{ ...initial, id: 'row2', version: 1, logical_row: 2, values: { code: '002', amount: '1.00' } }] : [])], total: secondRow ? 2 : 1, page: 1, page_size: 200 });
     if (path === '/rows/row1') return respond({ ...initial, version: 4, values: { code: 'OTHER', amount: '11.00' } });
     if (path === '/books/book1/summary') return respond({ totals: {}, has_valid_money_mapping: false, validation_flags: ['MAPPING_REQUIRED'] });
-    if (path === '/import-jobs') return respond({ items: [batch], total: 1, page: 1, page_size: 50 });
-    if (path === '/import-jobs/batch1') return respond(batch);
+    if (path === '/import-jobs') return respond({ items: [currentBatch], total: 1, page: 1, page_size: 50 });
+    if (path === `/import-jobs/${currentBatch.id}`) return respond(currentBatch);
     if (path === '/import-jobs/batch1/summary') return respond({ before: { totals: {}, has_valid_money_mapping: false }, new_batch: {}, after: {}, provisional: true });
-    if (path === '/import-jobs/batch1/staging') return respond({ items: [{ row_id: 'stage1', revision: 1, source_sheet: 'Sheet1', source_row: 2, raw_values: { A: '001', B: '12.00' }, typed_values: { code: '001', amount: '12.00' }, edited_values: {}, issues: [], duplicate_count: 0, decision: null, imported: false }], total: 1, page: 1, page_size: 200 });
+    if (path === '/import-jobs/batch1/duplicates') return respond({ items: [{ row_id: 'stage1', source_row: 2, duplicate_count: 1, file_matches: [{ source_sheet: 'Sheet1', source_row: 4, raw_values: { A: 'MATCH_IN_FILE' } }], matches: [] }], total: 1, page: 1, page_size: 100 });
+    if (path === `/import-jobs/${currentBatch.id}/staging`) return respond({ items: [{ row_id: 'stage1', revision: 1, source_sheet: 'Sheet1', source_row: 2, raw_values: { A: '001', B: '12.00' }, typed_values: { code: '001', amount: '12.00' }, edited_values: {}, issues: [], duplicate_count: 0, decision: null, imported: false }], total: currentBatch.id === 'clipboard-batch' ? 501 : 1, page: 1, page_size: 200 });
     return respond({ items: [], total: 0, page: 1, page_size: 100 });
   });
   await page.goto('/#/accounting');
@@ -104,5 +108,68 @@ test('native drag fill and explicit range fill preview only the loaded page', as
   await page.getByRole('button', { name: 'Điền vùng từ dòng đầu · xem trước' }).click();
   await preview.getByRole('button', { name: 'Áp dụng vào nháp' }).click();
   await expect(page.getByRole('gridcell', { name: '001', exact: true })).toHaveCount(2);
+  expect(writes).toHaveLength(0);
+});
+test('inclusive business-date summary accepts one day and labels both endpoints', async ({ page }) => {
+  await setup(page);
+  await page.getByText('Tổng thu / chi theo đơn vị tiền', { exact: true }).click();
+  await expect(page.getByText('Ngày nghiệp vụ theo Asia/Ho_Chi_Minh. Tính cả ngày đầu và ngày cuối; có thể chọn cùng một ngày.', { exact: true })).toBeVisible();
+  const singleDay = page.waitForRequest(request => { const url = new URL(request.url()); return url.pathname.endsWith('/books/book1/summary') && url.searchParams.get('from_on') === '2026-01-15' && url.searchParams.get('through_on') === '2026-01-15'; });
+  await page.getByLabel('Từ ngày (bao gồm)', { exact: true }).fill('2026-01-15');
+  await page.getByLabel('Đến hết ngày (bao gồm)', { exact: true }).fill('2026-01-15');
+  await singleDay;
+  await expect(page.getByText('Chọn đủ hai ngày; ngày bắt đầu không được sau ngày kết thúc.', { exact: true })).toHaveCount(0);
+});
+test('in-file duplicate pairs are displayed separately from published-book matches', async ({ page }) => {
+  const writes = await setup(page);
+  await page.getByRole('button', { name: 'Nhập Excel / CSV · mở job đã lưu' }).click();
+  await page.getByRole('combobox', { name: 'Job import đã lưu' }).click(); await page.getByText('batch1 · READY_FOR_CONFIRM', { exact: false }).click();
+  await page.getByRole('button', { name: 'Xem ứng viên trùng', exact: true }).click();
+  const review = page.getByRole('dialog', { name: 'Ứng viên trùng · lựa chọn rõ ràng' });
+  await expect(review.getByText('Ứng viên trong cùng tệp', { exact: true })).toBeVisible();
+  await expect(review.getByText(/MATCH_IN_FILE/)).toBeVisible();
+  await expect(review.getByText('Ứng viên trong sổ đã công bố', { exact: true })).toBeVisible();
+  expect(writes).toHaveLength(0);
+});
+test('501-cell clipboard requires an explicit new CSV import and raw-byte upload, never a row JSON payload', async ({ page }) => {
+  const writes = await setup(page); const text = Array.from({ length: 501 }, (_, index) => `CLIP-${index}`).join('\r\n');
+  await paste(page, text);
+  const choice = page.getByRole('button', { name: 'Đưa clipboard lớn vào lượt nhập mới', exact: true }); await expect(choice).toBeVisible();
+  expect(writes).toHaveLength(0); await expect(page.getByRole('gridcell', { name: '001', exact: true })).toBeVisible();
+  await choice.click(); const workspace = page.getByRole('dialog', { name: 'Nhập dữ liệu · Sổ tổng hợp' });
+  await expect(workspace.getByText(/Tệp clipboard đã chuẩn bị:/)).toBeVisible(); expect(writes).toHaveLength(0);
+  const profile = JSON.parse(await workspace.getByLabel('Profile import JSON').inputValue()); expect(profile).toMatchObject({ delimiter: '\t', header_row: 0, encoding: 'utf-8' });
+  await workspace.getByRole('button', { name: 'Lưu gốc và tạo job', exact: true }).click();
+  await expect(workspace.getByRole('grid', { name: 'Sổ kế toán theo ô' })).toBeVisible();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[0]).toEqual({ path: '/files', body: { raw: text, category: 'workbooks' } });
+  expect(writes[1].path).toBe('/import-jobs'); expect(writes[1].body.profile).toMatchObject({ delimiter: '\t', header_row: 0, encoding: 'utf-8' });
+  expect(Object.keys(writes[1].body).sort()).toEqual(['allow_duplicate_file', 'book_id', 'file_id', 'profile', 'request_key']);
+  await expect(workspace.getByText('501 dòng theo bộ lọc · 1 dòng đã tải', { exact: true })).toBeVisible();
+  await expect(workspace.getByText('Đã công bố vào sổ: 0', { exact: true })).toBeVisible();
+  // A large paste in staging offers another NEW job; accepting does not patch
+  // the existing stage or trigger an upload until its explicit create button.
+  await workspace.getByRole('gridcell', { name: '001', exact: true }).click();
+  await workspace.getByRole('grid').evaluate((node, value) => { const data = new DataTransfer(); data.setData('text/plain', value); node.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data })); }, text);
+  await workspace.getByRole('button', { name: 'Đưa clipboard lớn vào lượt nhập mới', exact: true }).click();
+  expect(writes).toHaveLength(2); await workspace.getByRole('button', { name: 'Bỏ tệp clipboard', exact: true }).click();
+  await expect(workspace.getByRole('button', { name: 'Lưu gốc và tạo job', exact: true })).toBeDisabled();
+});
+test('large clipboard cannot discard an existing dirty draft and prepared source clears on actor change', async ({ page }) => {
+  const writes = await setup(page);
+  await paste(page, 'bounded-first\nbounded-off-page'); await expect(page.getByText(/Vùng vượt trang đang tải/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Đưa clipboard lớn vào lượt nhập mới', exact: true })).toHaveCount(0);
+  await paste(page, 'my-draft'); await page.getByRole('button', { name: 'Áp dụng vào nháp' }).click();
+  await expect(page.getByRole('gridcell', { name: 'my-draft', exact: true })).toBeVisible();
+  const text = 'x'.repeat(100001);
+  await page.getByRole('grid').evaluate((node, value) => { const data = new DataTransfer(); data.setData('text/plain', value); node.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data })); }, text);
+  await expect(page.getByText('Lưu hoặc bỏ bản nháp hiện tại trước khi đưa clipboard lớn vào lượt nhập mới.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Đưa clipboard lớn vào lượt nhập mới', exact: true })).toHaveCount(0);
+  page.once('dialog', dialog => dialog.accept()); await page.getByRole('button', { name: 'Bỏ nháp', exact: true }).click();
+  await paste(page, text); await page.getByRole('button', { name: 'Đưa clipboard lớn vào lượt nhập mới', exact: true }).click();
+  await expect(page.getByText(/Tệp clipboard đã chuẩn bị:/)).toBeVisible(); expect(writes).toHaveLength(0);
+  await page.evaluate(() => { (window as any).__testSession.getState().login('reader', { id: 'actor2', username: 'reader', role: 'operator', permissions: ['accounting.read'], version: 1 }); });
+  await expect(page.getByRole('dialog', { name: 'Nhập dữ liệu · Sổ tổng hợp' })).toHaveCount(0);
+  await expect(page.getByText(/Tệp clipboard đã chuẩn bị:/)).toHaveCount(0);
   expect(writes).toHaveLength(0);
 });

@@ -3,7 +3,7 @@ import { Alert, Button, Modal, Space, Tag, Typography } from 'antd';
 import { DataGrid, renderTextEditor, type Column, type DataGridHandle, type RenderCellContentProps, type RenderEditCellContentProps } from 'react-data-grid';
 import 'react-data-grid/lib/styles.css';
 import { messageOf } from '../../shared/api';
-import { applyCells, changedRows, draftProblem, encodeTSV, parseTSV, selectedRange, type Position } from './drafts';
+import { applyCells, changedRows, ClipboardLimitError, draftProblem, encodeTSV, parseTSV, selectedRange, type Position } from './drafts';
 import type { ColumnDefinition, GridRecord, Issue } from './types';
 import { registerDraftGuard } from './navigation';
 
@@ -18,8 +18,9 @@ interface Props {
   onSelect?: (id: string) => void;
   validationIssues?: Record<string, Issue[]>;
   focusCell?: { rowId: string; columnId?: string; request: number };
+  onLargeClipboard?: (text: string, hasDraft: boolean) => void;
 }
-export function WorkbookGrid({ scope, columns, source, canWrite, busy, onSave, onDirty, onSelect, validationIssues, focusCell }: Props) {
+export function WorkbookGrid({ scope, columns, source, canWrite, busy, onSave, onDirty, onSelect, validationIssues, focusCell, onLargeClipboard }: Props) {
   const [rows, setRows] = useState(source);
   const [baseline, setBaseline] = useState(source);
   const [past, setPast] = useState<GridRecord[][]>([]); const [future, setFuture] = useState<GridRecord[][]>([]);
@@ -78,7 +79,9 @@ export function WorkbookGrid({ scope, columns, source, canWrite, busy, onSave, o
   function paste(event: ClipboardEvent) {
     event.preventDefault(); event.stopPropagation();
     if (!canWrite || busy) return;
-    try { setPreview(applyCells(rows, columns, active, parseTSV(event.clipboardData.getData('text/plain')))); setNotice(''); } catch (error) { setNotice(messageOf(error)); }
+    const text = event.clipboardData.getData('text/plain');
+    try { setPreview(applyCells(rows, columns, active, parseTSV(text))); setNotice(''); }
+    catch (error) { setNotice(messageOf(error)); if (error instanceof ClipboardLimitError) onLargeClipboard?.(text, dirty); }
   }
   function fill() {
     const range = selectedRange(anchor, active);

@@ -61,3 +61,58 @@ frontend/node_modules/.bin/playwright test --config=tests/accounting/ui/real.con
 - Cảnh báo phần chưa phân loại giải thích ảnh hưởng chỉ tiêu dòng tiền báo cáo ngày; không chặn lưu cấu hình hoặc CRUD sổ.
 - Help công thức phân biệt mẫu cột sổ cùng dòng dùng `A{row}` / `B{row}` với phạm vi nguồn tệp. Mẫu tham chiếu cố định/chéo dòng bị backend từ chối `FORMULA_BOOK_SCOPE`.
 - Delta chỉ sửa SchemaEditor và handoff. PASS `npm --prefix frontend run typecheck`; kiểm tra code các nhánh mặc định/clear không thêm ý nghĩa hoặc chiều khác. Không lặp toàn bộ E2E dữ liệu cho thay đổi cấu hình nhỏ này; kết quả browser trước đó giữ nguyên phạm vi chứng minh.
+
+## Harness UI trên sổ đã công bố 1.000.000 dòng — PREPARED, NOT RUN
+
+Đã chuẩn bị `tests/accounting/ui/bulk-real.spec.ts`, `bulk-real.config.ts` và cấu hình Vite cô lập `bulk-vite.config.mts`. **Không chạy, không typecheck/build/khởi động server cho bộ bulk trong khi benchmark CSV đang frozen/chạy.** Chỉ test files và tài liệu thay đổi ở lượt chuẩn bị này; frontend/backend giữ nguyên. Config mock hiện chọn rõ `drafts.spec.ts` và `workspace.spec.ts` để không vô tình thu thập bulk test.
+
+Điều phối chuẩn bị clone tổng hợp riêng **sau khi benchmark nguồn đã đóng Runtime**. Ưu tiên core backup/restore; nếu dùng SQLite backup thì nguồn phải đóng, sao chép marker/data files đầy đủ sang thư mục mới, dùng DB độc lập (không hard link), kiểm digest DB/entry nguồn trước và sau clone. Tuyệt đối không reset mật khẩu benchmark gốc. Runner hiện tại dùng `secrets.token_urlsafe(24)` cho `benchmark-admin`, không có mật khẩu cố định được công bố. Có thể tạo tài khoản admin tổng hợp mới, có audit, chỉ trên clone qua public AuthService, rồi cung cấp credential clone cho harness. Bước tạo clone/tài khoản do điều phối thực hiện riêng; harness không tự clone hoặc sửa credential.
+
+Yêu cầu đầu vào:
+
+- Clone dưới `%TEMP%\cafe-fin-bulk-ui-<unique>\...`, không phải original/operational root. `realpath`, containment, file identity và hard-link count được kiểm trước khi khởi động.
+- Result JSON của CSV nguồn có `status='PASS'`, `fixture.rows=1000000`, `final_reconciliation.published_rows=1000000`, và `method.data_root` trỏ vào `%TEMP%\cafe-fin-frozen-20261106...`. Lượt skip phần sửa lỗi chưa đủ 1m published sẽ bị từ chối.
+- UUID sổ đã được đối chiếu; username/password tài khoản **clone** có quyền xem và sửa để kiểm preview (không bấm Save).
+- Port 1420 trống. Config luôn `reuseExistingServer:false`, không giết hoặc dùng lại listener khác.
+
+Lệnh **chỉ chạy sau khi điều phối xác nhận benchmark đã kết thúc và clone sẵn sàng**:
+
+```powershell
+$env:CAFE_FIN_BULK_READY = '1'
+$env:CAFE_FIN_BULK_ROOT = "$env:TEMP\cafe-fin-bulk-ui-<unique>\data"
+$env:CAFE_FIN_BULK_RESULT = "$env:TEMP\cafe-fin-frozen-20261106-<run>\<csv-1m-result.json>"
+$env:CAFE_FIN_BULK_BOOK = '<UUID sổ 1m trên clone>'
+$env:CAFE_FIN_BULK_USERNAME = '<tài khoản tổng hợp chỉ trên clone>'
+$env:CAFE_FIN_BULK_PASSWORD = '<mật khẩu tổng hợp của clone>'
+$env:CAFE_FIN_BULK_CODE_COLUMN = 'code' # tùy chọn; mặc định code
+frontend/node_modules/.bin/playwright test --config=tests/accounting/ui/bulk-real.config.ts
+```
+
+Harness mở **clone** bằng `serve.py`, `initialize:false`; login bằng giao diện auth/API production. Chỉ native invoke bootstrap được thay. Không intercept/mock API hoặc thay response/module sản phẩm. HTML test qua Vite giữ React Root handle công khai để unmount/clear shell trước khi mount AccountingPage thật với QueryClient đo được; không có grid/cache thứ hai ẩn trong phép đo.
+
+Các assertion chuẩn bị:
+
+- API/GUI thấy đúng total 1.000.000; mỗi response, page/cache hiện tại và counter dòng UI tối đa 200. Qua Pagination tới trang 2, giữa và cuối; filter bằng mã lấy từ trang cuối trên toàn tập, rồi bỏ filter; `gcTime:0` chỉ giữ tối đa một page rows sau chuyển trang.
+- Paste hai dòng từ dòng cuối trang đã tải bị từ chối toàn bộ; paste 501 ô bị từ chối. Không lưu nháp hoặc gọi mutation accounting. Cuối lượt kiểm data/schema revision, total và nội dung trang cuối không đổi.
+- Đo latency loopback HTTP/body đọc thật cho trang đầu, offset cao, exact indexed filter và search trên toàn tập; lưu bytes và returned row count. Không gửi yêu cầu triệu dòng.
+- CDP `Runtime.getHeapUsage` + `Memory.getDOMCounters` lấy mẫu 250ms bắt đầu trước mount feature; ghi sampled peak JS heap, DOM counters, cache/page/UI loaded counters. `SystemInfo.getProcessInfo` lấy ID/CPU, **không phải memory**; Windows `Get-Process` đọc WorkingSet64/PeakWorkingSet64/PrivateMemorySize64 tại checkpoint cho Chromium và sidecar.
+- Hash/size/mtime DB nguồn frozen trước/sau **lượt UI** phải giữ nguyên. Harness không mở Runtime/auth nguồn và không xóa clone hoặc nguồn. Bằng chứng bất biến trong bước clone trước đó vẫn thuộc điều phối.
+
+Output khi được chạy: `frontend/test-results/accounting-bulk-real/.../bulk-real-metrics.json` và `bulk-real-ui.png`; không chứa credential. JS heap không phải RSS toàn renderer/browser/backend; sampled maximum không phải peak allocation tuyệt đối; RSS process có thể đếm lặp shared pages. Không ép GC để làm số đo nhỏ. Đây là Chromium/Vite development harness, chưa chứng minh native WebView2/release bundle. Latency không mang nghĩa cold-disk-cache hoặc cam kết tốc độ. **Chưa có kết quả PASS/FAIL hoặc số memory/latency thực tế cho bộ bulk ở lượt chuẩn bị này.**
+
+## Delta ngày nghiệp vụ bao gồm hai mốc / cặp trùng trong tệp
+
+- Khoảng ngày date-only của summary và preview import là `from_on <= ngày <= through_on`, gồm cả hai mốc. UI ghi “Đến hết ngày (bao gồm)” và cho chọn `from_on == through_on` để xem một ngày. Khoảng đảo/ngày trống không gọi summary; CRUD không bị chặn.
+- Ngày/năm mặc định được lấy bằng `Intl.DateTimeFormat` với `timeZone: 'Asia/Ho_Chi_Minh'`, cùng một lần xác định ngày mặc định cho đầu năm và hết hôm nay; không phụ thuộc ngày/năm máy ở gần nửa đêm Việt Nam. ImportWorkspace nhận cùng range này, không tự dùng ngày 01/01 năm sau làm mốc cuối. Quy tắc UTC timestamp half-open không thay đổi.
+- Review nghi trùng hiển thị riêng JSON `file_matches` (“Ứng viên trong cùng tệp”) và `matches` (“Ứng viên trong sổ đã công bố”), giữ lựa chọn keep/skip rõ ràng.
+- PASS typecheck và 3 test mục tiêu: mốc nửa đêm/năm Việt Nam, request summary cùng ngày và hiển thị cặp trùng trong tệp. Không chạy bulk/real 1m cho delta này.
+
+## Delta clipboard lớn qua staging backend
+
+- Paste bình thường vẫn giới hạn 500 ô/100.000 ký tự trên trang đang tải. Paste nhỏ vượt trang và fill vượt trang vẫn bị từ chối; không tự chuyển thành ghi đè hay coi ô chưa tải là trống.
+- Khi vượt ngưỡng clipboard bình thường, grid chỉ parse đến giới hạn để phát hiện và chuyển nguyên chuỗi sang một `File` CSV UTF-8 (giới hạn **100 MiB theo byte**), không tạo mảng toàn bộ nguồn/dòng trong React hoặc gửi JSON row/ID list. Nội dung raw và CRLF/quote giữ nguyên; đây là CSV dùng **delimiter tab, header_row=0**, không phải đổi tên một định dạng chưa hỗ trợ thành TSV.
+- Người dùng thấy lựa chọn rõ **“Đưa clipboard lớn vào lượt nhập mới”** hoặc **“Bỏ clipboard”**. Chọn tạo lượt mới mở ImportWorkspace với File/profile đã điền, mapping trống để review. Chưa upload, chưa patch job cũ, chưa publish; người dùng tiếp tục bấm “Lưu gốc và tạo job”, mapping → validate → confirm qua API hiện có. Cùng lựa chọn hoạt động khi đang xem staging, luôn tạo batch mới thay vì sửa các dòng chưa tải.
+- Draft hiện tại phải save/discard trước khi chuyển. File/candidate là tối đa một nguồn raw có giới hạn, không phải một triệu row trong state/cache. Đổi actor/sổ hoặc discard/đóng có xác nhận xóa nguồn clipboard chưa gửi khỏi bộ nhớ; patch/job đã lưu vẫn bền và original FileStore không bị xóa.
+- PASS strict typecheck. PASS mock/helper mục tiêu: 501 ô đòi lựa chọn rõ, upload body bytes đúng, create-job chỉ chứa file ID/profile/key; không JSON rows/IDs; staging page có giới hạn, không tự publish; staging paste tạo lựa chọn batch mới; discard làm nút upload disabled; draft và actor isolation; paste nhỏ off-page tiếp tục bị chặn; đúng 500 ô có newline cuối vẫn được parse.
+- PASS real HTTP/auth/FileStore/jobs flow mở rộng **23,6 giây** (tổng suite 25,5 giây), chạy trước timed 1m: paste **1.000 dòng** từ grid → lựa chọn → CSV/tab/header0/UTF8 → lưu gốc; download bằng bytes khớp nguyên clipboard; mapping ban đầu `{}`; mapping/validate 1.000 dòng, mỗi staging response/UI page 200, published vẫn 0, sổ vẫn đúng 4 dòng ban đầu. Đây là bằng chứng luồng clipboard nhỏ có staging thật, không phải benchmark 1m.
+- Không sửa backend/runner hoặc thêm dependency. Không chạy bulk UI 1m trong lượt này; vẫn chờ CSV1m/XLSX và clone riêng như gate ở trên.
