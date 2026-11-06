@@ -36,3 +36,7 @@ Reviewer độc lập đã kiểm rollback/stock của records, xuất hợp đ�
 Đây là increment phát triển; accounting/reporting chưa có trong increment này. Native NSIS của source records trước đã build thành công ở CI; chưa dùng kết quả đó để tuyên bố native contracts PASS. CI của increment này phải kết thúc riêng. Không upload/phát hành bộ cài hoặc gửi Zalo thật.
 
 Clean-Windows install/GUI/offline/update/uninstall, DOCX mở/in trực quan và nghĩa vụ phân phối native iconv còn là release gate. Host AppControl vẫn chặn một số Rust build outputs; không thay policy để né. Thư viện/grid miễn phí dùng theo license đã khóa, không có evaluation key. CRM cũ giữ nguyên.
+
+## Windows CI đã kết thúc
+
+Run [42276199624](https://github.com/minh0407/cafe_fin/actions/runs/42276199624), source `2732d24fe3cb4015466353f1bec582e3c788ea88`: **SUCCESS**. 445 backend tests / 298,73 giây, 32 UI tests / 43,1 giây, contracts 3 flows / 43,9 giây, records 1 flow / 26,5 giây, frozen sidecar / 16,47 giây; lint/build/native NSIS PASS. Installer tạm có 252.595.348 bytes, SHA256 `0537D2DE2D27A58B1A6EB8CDD6CA738B7484E3D8D0F1C5DF3D3B4014D58A123D`. Chỉ ghi hash từ log runner, không upload hoặc phát hành binary; các gate client ở trên vẫn chưa chạy.
