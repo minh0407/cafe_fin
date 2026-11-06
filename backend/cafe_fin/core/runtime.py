@@ -18,6 +18,7 @@ from .db import Database, WriteCoordinator
 from .errors import CoreError
 from .jobs import JobHandler, JobRunner, JobService
 from .modules import ModuleRegistry
+from .periodic import PeriodicRunner
 from .storage import DataRootService, FileStore
 from .workbook_spike import WorkbookSpike
 
@@ -43,8 +44,10 @@ class Runtime:
         self, path: Path | str, *, initialize: bool = False, modules: ModuleRegistry | None = None
     ):
         self.root = DataRootService(path)
-        self.database = self.writer = self.runner = None
+        self.database = self.writer = self.runner = self.periodic = None
+        self._lifecycle_lock = threading.RLock()
         self._closed = False
+        self._closing = False
         self._started = False
         if initialize:
             self.root.initialize()
@@ -84,6 +87,14 @@ class Runtime:
                 handlers,
             )
             self.runner = JobRunner(self.jobs)
+            self.periodic = PeriodicRunner(
+                self,
+                {
+                    name: task
+                    for module in self.modules.ordered()
+                    for name, task in module.periodic_tasks.items()
+                },
+            )
             self.logger = logging.getLogger(f"cafe_fin.{id(self)}")
             self.logger.propagate = False
             self.logger.setLevel(logging.INFO)
@@ -98,35 +109,44 @@ class Runtime:
             )
             self.logger.addHandler(self.log_handler)
         except BaseException:
+            self.close()
+            raise
+
+    def start(self):
+        with self._lifecycle_lock:
+            if self._closed or self._closing:
+                raise CoreError("RUNTIME_CLOSED", "Dịch vụ dữ liệu đang đóng hoặc đã dừng.", 503)
+            if not self._started:
+                try:
+                    # Recovery/hooks finish before jobs, then the independent timer starts.
+                    self.jobs.recover_interrupted()
+                    for module in self.modules.ordered():
+                        if module.on_startup is not None:
+                            module.on_startup(self)
+                    self.runner.start()
+                    self.periodic.start()
+                    self._started = True
+                except BaseException:
+                    self.close()
+                    raise
+
+    def close(self):
+        with self._lifecycle_lock:
+            if self._closed:
+                return
+            self._closing = True
+            # Either join may fail closed. Do not tear down writer/DB/root while
+            # a live callback or job still depends on them; close can be retried.
+            if self.periodic:
+                self.periodic.close()
+            if self.runner and self.runner.thread.ident is not None:
+                self.runner.close()
             if self.writer:
                 self.writer.close()
             if self.database:
                 self.database.close()
+            if hasattr(self, "log_handler"):
+                self.logger.removeHandler(self.log_handler)
+                self.log_handler.close()
             self.root.release_lock()
-            raise
-
-    def start(self):
-        if not self._started:
-            # Hooks can reconcile module-owned attempts after core marks abandoned jobs,
-            # before any worker can observe partially restored module state.
-            self.jobs.recover_interrupted()
-            for module in self.modules.ordered():
-                if module.on_startup is not None:
-                    module.on_startup(self)
-            self.runner.start()
-            self._started = True
-
-    def close(self):
-        if self._closed:
-            return
-        if self.runner and self._started:
-            self.runner.close()
-        if self.writer:
-            self.writer.close()
-        if self.database:
-            self.database.close()
-        if hasattr(self, "log_handler"):
-            self.logger.removeHandler(self.log_handler)
-            self.log_handler.close()
-        self.root.release_lock()
-        self._closed = True
+            self._closed = True

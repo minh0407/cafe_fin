@@ -18,6 +18,7 @@ from .errors import CoreError
 
 if TYPE_CHECKING:
     from .jobs import JobHandler
+    from .periodic import PeriodicTask
     from .runtime import Runtime
 
 
@@ -67,10 +68,14 @@ class ModuleManifest:
     router: object | None = field(default=None, compare=False)
     job_handlers: Mapping[str, JobHandler] = field(default_factory=dict, compare=False)
     on_startup: Callable[[Runtime], None] | None = field(default=None, compare=False)
+    periodic_tasks: Mapping[str, PeriodicTask] = field(default_factory=dict, compare=False)
 
     def __post_init__(self):
         # Registration is a frozen handoff, not a live plugin dictionary.
         object.__setattr__(self, "job_handlers", MappingProxyType(dict(self.job_handlers)))
+        if not isinstance(self.periodic_tasks, Mapping):
+            raise CoreError("INVALID_PERIODIC_TASK", "Timer module phải là mapping.")
+        object.__setattr__(self, "periodic_tasks", MappingProxyType(dict(self.periodic_tasks)))
 
 
 class ModuleRegistry:
@@ -81,6 +86,7 @@ class ModuleRegistry:
 
     def register(self, module: ModuleManifest) -> None:
         from .jobs import JobHandler
+        from .periodic import MAX_MODULE_TASKS, MAX_RUNTIME_TASKS, PeriodicTask
 
         if not re.fullmatch(r"[a-z][a-z0-9_]*", module.id) or module.id in self._modules:
             raise CoreError("INVALID_MODULE", "Module trùng hoặc tên không hợp lệ.")
@@ -95,6 +101,23 @@ class ModuleRegistry:
             )
         if module.on_startup is not None and not callable(module.on_startup):
             raise CoreError("INVALID_MODULE_HOOK", "Startup hook của module phải là callable.")
+        if (
+            len(module.periodic_tasks) > MAX_MODULE_TASKS
+            or len(module.periodic_tasks)
+            + sum(len(registered.periodic_tasks) for registered in self._modules.values())
+            > MAX_RUNTIME_TASKS
+        ):
+            raise CoreError("PERIODIC_TASK_LIMIT", "Vượt giới hạn timer module hoặc ứng dụng.")
+        for name, task in module.periodic_tasks.items():
+            if (
+                not isinstance(name, str)
+                or len(name) > 128
+                or not name.startswith(module.id + ".")
+                or not re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+", name)
+            ):
+                raise CoreError("INVALID_PERIODIC_NAMESPACE", "Tên timer phải thuộc module.")
+            if not isinstance(task, PeriodicTask):
+                raise CoreError("INVALID_PERIODIC_TASK", "Timer module không hợp lệ.")
         existing_jobs = {
             kind for registered in self._modules.values() for kind in registered.job_handlers
         }
