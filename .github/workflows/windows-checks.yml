@@ -45,6 +45,20 @@ jobs:
         run: cargo fmt --manifest-path tests/desktop/Cargo.toml -- --check
       - name: Test native journal and control pipe
         run: cargo test --manifest-path tests/desktop/Cargo.toml --locked
+      - name: Set up interoperability Python
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - name: Install locked interoperability environment
+        run: |
+          uv python install 3.12.16
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv sync --frozen --python 3.12.16
+      - name: Test real Rust and Python control interoperability
+        run: |
+          $env:CAFE_FIN_TEST_PYTHON = (Resolve-Path '.venv/Scripts/python.exe').Path
+          cargo test --manifest-path tests/desktop/Cargo.toml --locked --test wire_interop -- --ignored
 
   windows:
     runs-on: windows-2025-vs2026
@@ -123,6 +137,8 @@ jobs:
         run: |
           $env:CAFE_FIN_TEST_SIDECAR = (Resolve-Path 'desktop/binaries/cafe-fin-sidecar-x86_64-pc-windows-msvc.exe').Path
           uv run --frozen python -m pytest tests/core/test_api_sidecar.py::test_sidecar_real_loopback_unicode_second_instance_and_restart -q
+      - name: Test production native controller with matching frozen sidecar
+        run: cargo test --manifest-path desktop/Cargo.toml --bin cafe-fin-desktop --locked -- --ignored --test-threads=1
       - name: Build native installer candidate
         working-directory: desktop
         run: ../frontend/node_modules/.bin/tauri.cmd build --bundles nsis --ci -- --locked
