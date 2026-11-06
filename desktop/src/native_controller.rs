@@ -581,10 +581,20 @@ impl NativeController {
             .or(store.configured_root()?)
             .ok_or("DATA_ROOT_REQUIRED")?;
         let mut backend = spawn(&root, initialize, false, None)?;
-        if let Err(error) = store.save_initial_root(&root, &backend.generation) {
+        let saved = store
+            .save_initial_root(&root, &backend.generation)
+            .and_then(|()| {
+                let configured = store.configured_root()?.ok_or("CONFIG_WRITE_FAILED")?;
+                if !same_path(&configured, &root) {
+                    return Err("CONFIG_WRITE_FAILED");
+                }
+                Ok(())
+            });
+        if let Err(error) = saved {
             backend.ordinary_shutdown();
             return Err(error.into());
         }
+        self.selected_root = None;
         let session = backend.session.clone();
         self.backend = Some(backend);
         self.reset_draft();
@@ -600,6 +610,10 @@ impl NativeController {
         {
             return Err("MAINTENANCE_RECOVERY_HELD".into());
         }
+        // Restart always follows durable config, never a first-install picker
+        // choice retained from an earlier root/generation.
+        store.configured_root()?.ok_or("CONFIG_UNAVAILABLE")?;
+        self.selected_root = None;
         if let Some(mut backend) = self.backend.take() {
             backend.ordinary_shutdown();
         }
@@ -818,16 +832,13 @@ impl NativeController {
         if journal.operation_id != operation {
             return Err("MAINTENANCE_CONFLICT".into());
         }
-        if journal.phase == MaintenancePhase::OldClosed
-            && self
-                .backend
-                .as_mut()
-                .is_none_or(|backend| matches!(backend.child.try_wait(), Ok(Some(_))))
-        {
-            return Ok(MaintenanceResult {
-                operation: self.view(&journal, false, false)?,
-                boot_session: None,
-            });
+        if journal.phase == MaintenancePhase::OldClosed {
+            let backend = self
+                .current(store)
+                .map_err(|_| "MAINTENANCE_RECOVERY_HELD")?;
+            backend
+                .check_health()
+                .map_err(|_| "MAINTENANCE_RECOVERY_HELD")?;
         }
         let candidate = self.backend.as_ref().is_some_and(|backend| {
             same_path(Path::new(&backend.session.data_root), &journal.destination)
@@ -986,6 +997,10 @@ impl NativeController {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/desktop/production_controller.rs"]
+mod production_tests;
 
 struct Host<'a> {
     controller: &'a mut NativeController,
