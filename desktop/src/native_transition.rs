@@ -349,8 +349,17 @@ pub fn activate<H: TransitionHost>(
             store.advance(&journal)?;
         }
         let active = host.call(ControlCommand::Activate, &journal, token)?;
-        candidate_binding(&journal, &active)?;
+        core_ok(&active)?;
         if active.state != OperationState::Active || active.runtime_state != RuntimeState::Active {
+            return Err("ACTIVATION_REPLAY_REQUIRED".into());
+        }
+        // Core's activate ACK carries admission state, not artifact fields. A
+        // fresh authenticated status supplies the complete marker binding.
+        let verified = host.call(ControlCommand::Status, &journal, token)?;
+        candidate_binding(&journal, &verified)?;
+        if verified.state != OperationState::Active
+            || verified.runtime_state != RuntimeState::Active
+        {
             return Err("ACTIVATION_REPLAY_REQUIRED".into());
         }
     }

@@ -98,6 +98,7 @@ struct Host {
     source_dormant: bool,
     changed_hash: bool,
     changed_activation_hash: bool,
+    active_status_failure: Option<&'static str>,
 }
 impl Host {
     fn new(fixture: &Fixture) -> Self {
@@ -114,6 +115,7 @@ impl Host {
             source_dormant: false,
             changed_hash: false,
             changed_activation_hash: false,
+            active_status_failure: None,
         }
     }
     fn status_reply(
@@ -165,10 +167,25 @@ impl TransitionHost for Host {
                 assert_eq!(saved.phase, MaintenancePhase::Quiesced);
                 self.events.push("prepare-after-quiesce");
                 fs::create_dir(&journal.destination).unwrap();
+                fs::write(journal.destination.join(".cafe-fin-activation.json"),serde_json::to_vec(&serde_json::json!({
+                    "format":1,"activation_id":OP,"kind":"move","origin_generation":GEN,"source_root_id":ROOT,"candidate_root_id":ROOT,
+                    "source_fingerprint":"11".repeat(32),"candidate_fingerprint":"22".repeat(32),"manifest_sha256":"ab".repeat(32)
+                })).unwrap()).unwrap();
                 Ok(self.status_reply(journal, "PREPARED", "QUIESCED"))
             }
             ControlCommand::Status => {
                 self.events.push("status");
+                if self.activated {
+                    if let Some(failure) = self.active_status_failure {
+                        let mut value = serde_json::json!({"maintenance_protocol":1,"request_id":REQ,"generation":TARGET_GEN,
+                            "operation_id":OP,"status":"ok","state":"ACTIVE","runtime_state":"ACTIVE"});
+                        if failure == "revoked" {
+                            value["status"] = "error".into();
+                            value["code"] = "SESSION_EXPIRED".into();
+                        }
+                        return Ok(serde_json::from_value(value).unwrap());
+                    }
+                }
                 if self.candidate.is_some() {
                     Ok(self.status_reply(
                         journal,
@@ -205,7 +222,13 @@ impl TransitionHost for Host {
                 }
                 self.activated = true;
                 self.changed_hash = self.changed_activation_hash;
-                Ok(self.status_reply(journal, "ACTIVE", "ACTIVE"))
+                // Match real Python Runtime.activate's minimal state ACK.
+                Ok(
+                    serde_json::from_value(serde_json::json!({"maintenance_protocol":1,
+                    "request_id":REQ,"generation":TARGET_GEN,"operation_id":OP,
+                    "status":"ok","state":"ACTIVE","runtime_state":"ACTIVE"}))
+                    .unwrap(),
+                )
             }
             _ => Err("UNEXPECTED_FIXTURE_COMMAND".into()),
         }
@@ -409,7 +432,7 @@ fn dormant_source_prepared_recovery_closes_with_fresh_auth_before_cutover() {
 }
 
 #[test]
-fn changed_activation_receipt_never_archives_or_clears_pending() {
+fn changed_post_activation_status_never_archives_or_clears_pending() {
     let fixture = Fixture::new();
     let (store, journal) = fixture.journal();
     let mut host = Host::new(&fixture);
@@ -452,4 +475,57 @@ fn fresh_active_status_completes_lost_ack_without_new_boot_or_activation() {
     assert!(!host.events.contains(&"activate-after-durable-dispatch"));
     assert!(native_transition::finish_from_status(&store, &mut saved, &reply, true).unwrap());
     assert!(saved.source_root.is_dir());
+}
+
+#[test]
+fn changed_core_marker_cannot_change_config_during_cold_cutover() {
+    let fixture = Fixture::new();
+    let (store, journal) = fixture.journal();
+    let source = journal.source_root.clone();
+    let mut host = Host::new(&fixture);
+    host.close_failure = Some("missing-ack");
+    let _ = native_transition::run(&mut host, &store, journal, "synthetic-source-admin");
+    let mut saved = store.load().unwrap().unwrap();
+    let mut proof = CloseProof::new(GEN.into(), OP.into(), REQ.into());
+    proof.acknowledge(GEN, OP, REQ, "CLOSED", true).unwrap();
+    proof.observe_exit(Some(0));
+    saved.phase = MaintenancePhase::OldClosed;
+    store.record_closed(&saved, &proof).unwrap();
+    fs::write(saved.destination.join(".cafe-fin-activation.json"), b"{}").unwrap();
+    assert_eq!(
+        store.switch_candidate(&saved).err(),
+        Some("ACTIVATION_BINDING_INVALID")
+    );
+    assert_eq!(store.configured_root().unwrap().unwrap(), source);
+    assert_eq!(
+        store.load().unwrap().unwrap().phase,
+        MaintenancePhase::OldClosed
+    );
+}
+
+#[test]
+fn missing_status_receipt_or_revoked_target_after_minimal_activation_ack_stays_held() {
+    for failure in ["missing", "revoked"] {
+        let fixture = Fixture::new();
+        let (store, journal) = fixture.journal();
+        let mut host = Host::new(&fixture);
+        let moved =
+            native_transition::run(&mut host, &store, journal, "synthetic-source-admin").unwrap();
+        host.active_status_failure = Some(failure);
+        assert_eq!(
+            native_transition::activate(&mut host, &store, moved.journal, "synthetic-target-admin")
+                .err()
+                .as_deref(),
+            Some(if failure == "revoked" {
+                "SESSION_EXPIRED"
+            } else {
+                "ACTIVATION_BINDING_INVALID"
+            })
+        );
+        assert_eq!(
+            store.load().unwrap().unwrap().phase,
+            MaintenancePhase::ActivationDispatched
+        );
+        assert!(store.completed(OP).unwrap().is_none());
+    }
 }

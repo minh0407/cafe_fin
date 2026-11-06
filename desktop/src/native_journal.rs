@@ -46,6 +46,50 @@ pub enum StartupDisposition {
 }
 
 impl NativeJournal {
+    /// Read-only comparison with the core-owned v1 marker before native config
+    /// cutover or candidate construction. Core still validates physical identity,
+    /// provenance and manifest bytes. Native never computes a location fingerprint.
+    pub fn verify_candidate_marker(&self) -> Result<(), &'static str> {
+        self.validate()?;
+        if self.kind == MaintenanceKind::Backup {
+            return Err("ACTIVATION_BINDING_INVALID");
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Marker {
+            format: u32,
+            activation_id: String,
+            kind: MaintenanceKind,
+            origin_generation: String,
+            source_root_id: String,
+            candidate_root_id: String,
+            source_fingerprint: String,
+            candidate_fingerprint: String,
+            manifest_sha256: String,
+        }
+        let path = self.destination.join(".cafe-fin-activation.json");
+        check_local_path(&path)?;
+        let bytes = read_bounded(&path)?;
+        if bytes.len() > 16384 {
+            return Err("ACTIVATION_BINDING_INVALID");
+        }
+        let marker: Marker =
+            serde_json::from_slice(&bytes).map_err(|_| "ACTIVATION_BINDING_INVALID")?;
+        if marker.format != 1
+            || marker.activation_id != self.operation_id
+            || marker.kind != self.kind
+            || marker.origin_generation != self.origin_generation
+            || marker.source_root_id != self.source_root_id
+            || self.candidate_root_id.as_ref() != Some(&marker.candidate_root_id)
+            || marker.source_fingerprint != self.source_fingerprint
+            || self.candidate_fingerprint.as_ref() != Some(&marker.candidate_fingerprint)
+            || self.manifest_sha256.as_ref() != Some(&marker.manifest_sha256)
+        {
+            return Err("ACTIVATION_BINDING_INVALID");
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.format != 1
             || !valid_uuid(&self.operation_id)
@@ -274,6 +318,7 @@ impl JournalStore {
         if journal.phase != MaintenancePhase::OldClosed || self.load()?.as_ref() != Some(journal) {
             return Err("CLOSE_PROOF_REQUIRED");
         }
+        journal.verify_candidate_marker()?;
         let current = self.configured_root()?.ok_or("CONFIG_UNAVAILABLE")?;
         journal.reconcile_config(&current)?;
         let target = journal
