@@ -5,6 +5,12 @@ fn main() {
             "choose_data_root",
             "start_backend",
             "restart_backend",
+            "maintenance_begin",
+            "maintenance_select",
+            "maintenance_run",
+            "maintenance_status",
+            "maintenance_activate",
+            "open_reports",
         ]));
     tauri_build::try_build(attributes).expect("Tauri build configuration failed");
 }

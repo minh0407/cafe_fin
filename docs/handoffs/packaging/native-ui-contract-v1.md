@@ -3,9 +3,10 @@
 Confirmed with coordination on 2026-11-07. Source baseline remains integration
 `c93ecfd26c0f232fdef9608924fc80615ab0835b`; core runtime phase 1 has been imported
 from approved `6294e41706e8d878adddfa76e0c72ff4c74f52d4` as lane commit
-`4afa1b76f0d4382b3e205214ca8ff8e1f0147cd3`. Filesystem/controller/stdio phase 2
-has not yet been delivered to packaging. These commands are the agreed target
-interface, not a claim that the current main.rs exposes working maintenance.
+`4afa1b76f0d4382b3e205214ca8ff8e1f0147cd3`. Approved phase 2, private stdio and
+source identity owner commits have since been imported. Increment 07 exposes
+these commands through the production Tauri adapter. Compilation is verified;
+actual native dispatch/GUI and clean Windows acceptance remain NOT RUN here.
 
 ## Exact command names and invocation arguments
 

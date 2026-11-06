@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-maintenance-begin"
+description = "Enables the maintenance_begin command without any pre-configured scope."
+commands.allow = ["maintenance_begin"]
+
+[[permission]]
+identifier = "deny-maintenance-begin"
+description = "Denies the maintenance_begin command without any pre-configured scope."
+commands.deny = ["maintenance_begin"]

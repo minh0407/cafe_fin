@@ -268,6 +268,12 @@ impl DraftSlot {
         self.selection.is_some()
     }
 
+    pub fn has_uncertain_effects(&self) -> bool {
+        self.current
+            .as_ref()
+            .is_some_and(|draft| draft.uncertain || draft.intent_attempted || draft.dispatched)
+    }
+
     /// Native-only paths, resolved from capabilities; output display strings are
     /// never parsed back into authority by the controller.
     pub fn selected_paths(

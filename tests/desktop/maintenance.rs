@@ -1002,6 +1002,7 @@ fn persistent_corrupt_uncertain_intent_attempt_or_dispatch_cannot_be_discarded_a
             assert!(slot.view(&store, &handles, None).is_err());
         } else {
             assert!(slot.view(&store, &handles, None).unwrap().recovery_required);
+            assert!(slot.has_uncertain_effects());
         }
     }
 }

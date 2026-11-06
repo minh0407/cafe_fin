@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-maintenance-select"
+description = "Enables the maintenance_select command without any pre-configured scope."
+commands.allow = ["maintenance_select"]
+
+[[permission]]
+identifier = "deny-maintenance-select"
+description = "Denies the maintenance_select command without any pre-configured scope."
+commands.deny = ["maintenance_select"]

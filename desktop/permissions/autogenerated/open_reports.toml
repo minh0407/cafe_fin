@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-reports"
+description = "Enables the open_reports command without any pre-configured scope."
+commands.allow = ["open_reports"]
+
+[[permission]]
+identifier = "deny-open-reports"
+description = "Denies the open_reports command without any pre-configured scope."
+commands.deny = ["open_reports"]

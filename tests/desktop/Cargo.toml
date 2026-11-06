@@ -25,6 +25,10 @@ path = "maintenance.rs"
 name = "transition"
 path = "transition.rs"
 
+[[test]]
+name = "wire_interop"
+path = "wire_interop.rs"
+
 [[bin]]
 name = "control-peer"
 path = "fixtures/control_peer.rs"
