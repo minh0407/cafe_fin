@@ -85,3 +85,19 @@ def test_duplicate_known_meanings_rejected_until_one_derived_total_configured(ac
     _, actor, service = account
     with pytest.raises(CoreError, match="METRIC_MEANING_DUPLICATE"):
         create(service, actor, {"income": "cash_receipts", "expense": "cash_receipts"})
+
+
+def test_public_total_not_blocked_by_interactive_group_count_limit(account):
+    runtime, actor, service = account
+    book = create(service, actor, {"income": "cash_receipts"})
+    for index in range(1001):
+        service.create_row(
+            actor,
+            book["id"],
+            {"day": "2026-02-01", "amount": "0.01", "currency": "VND", "group": str(index)},
+            key(),
+        )
+    with pytest.raises(CoreError, match="REPORT_GROUP_LIMIT"):
+        service.summary(actor, book["id"], "2026-02-01", "2026-02-01")
+    result = capture(runtime, actor, book)
+    assert result.metrics[0].amount_vnd == "10.01" and result.metrics[0].meaning == "cash_receipts"

@@ -10,6 +10,18 @@ from cafe_fin.core.db import canonical_json
 from cafe_fin.core.errors import CoreError
 
 KINDS = {"text", "date", "integer", "decimal", "money", "choice", "formula"}
+MAX_ROW_BYTES = 256 * 1024
+
+
+def check_row_budget(values):
+    try:
+        total = sum(len(str(v).encode("utf-8")) for v in values.values() if v is not None)
+    except (UnicodeError, ValueError):
+        raise CoreError(
+            "ROW_LIMIT", "Giá trị dòng không có biểu diễn UTF-8 hợp lệ trong giới hạn."
+        ) from None
+    if total > MAX_ROW_BYTES:
+        raise CoreError("ROW_LIMIT", "Tổng nội dung một dòng vượt giới hạn 256 KiB UTF-8.")
 
 
 def normalize_schema(columns, semantics, previous=()):

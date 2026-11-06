@@ -40,7 +40,7 @@ would need an explicit core role-policy change, not a module bypass.
 Read bridge: `AccountingReadProvider(runtime, principal).book_summary` implements
 the frozen core DTO/Protocol; reporting must freeze the returned DTO/file and
 retain revisions for historical output. It must not import accounting SQL tables.
-`through_on` is exclusive, business dates are Asia/Ho_Chi_Minh. The provider
+`through_on` includes the final day (same-day periods are valid); business dates are Asia/Ho_Chi_Minh. UTC timestamp windows stay half-open. The provider
 rejects old cutoffs rather than label a live query historical.
 
 For consistent cross-module capture import the provider from
@@ -75,3 +75,12 @@ regressions for actor changes, revoked roles, missing owner/audit (deny), origin
 download, and exact hash; rerun the accounting scope regressions after wiring.
 
 No module monkeypatch or replacement shared route is included.
+
+The baseline pytest `testpaths` includes only `tests/core`. Coordinator should
+expand it to `tests` (or explicitly list every integrated lane in CI); otherwise
+an unqualified pytest run omits the accounting crash/import/API regressions.
+This is a shared root tool-config change, not an added dependency.
+
+Before accepting the lane, apply/review the patch and rerun the three conditional
+scope regressions until they PASS (not XFAIL). A lane code/benchmark commit is not
+permission to leave shared actor scope unresolved in the integrated application.

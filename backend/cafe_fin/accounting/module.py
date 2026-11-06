@@ -281,7 +281,7 @@ def module_manifest():
         # Detail is bounded; exact matching stays a warning unless explicit business key.
         with service.rt.reader() as conn:
             batch = _batch(conn, batch_id, actor)
-            from .service import visible
+            from .service import effective_decision, published_target, stage_dto, visible
 
             for row in result["items"]:
                 keys = conn.execute(
@@ -303,6 +303,22 @@ def module_manifest():
                     .limit(10)
                 ).mappings()
                 row["matches"] = [row_dto(r) for r in matches]
+                file_pred = s.stage.c.fingerprint == keys.fingerprint
+                if keys.candidate_key:
+                    file_pred |= s.stage.c.candidate_key == keys.candidate_key
+                peers = conn.execute(
+                    select(
+                        *[c for c in s.stage.c if c.name not in ("target_id", "decision")],
+                        published_target().label("target_id"),
+                        effective_decision().label("decision"),
+                    )
+                    .where(
+                        s.stage.c.batch_id == batch_id, s.stage.c.row_id != row["row_id"], file_pred
+                    )
+                    .order_by(s.stage.c.source_row, s.stage.c.row_id)
+                    .limit(10)
+                ).mappings()
+                row["file_matches"] = [stage_dto(peer) for peer in peers]
         return result
 
     @router.get("/books/{book_id}/summary")

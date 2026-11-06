@@ -60,7 +60,7 @@ Public reporting import: `from cafe_fin.accounting.public import AccountingReadP
 Pass `connection=conn` from a caller-owned `runtime.reader()` after `BEGIN` and the
 first snapshot read. Records and accounting must share that exact connection.
 Provider neither opens another reader nor commits/rolls back/closes the supplied
-connection. Core DTO v1 remains unchanged; `through_on` is exclusive VN business
+connection. Per coordinator's common date-only contract, both endpoints including `through_on` are included, using VN business
 date, cutoff belongs to the capture. Reporting freezes DTOs/files before sending.
 
 Approved root bridge-v2 commit `57a2ed26bf70b8d6b3c4d2c7a30620d3d6b3033a`
@@ -101,6 +101,37 @@ Chromium UI with real local sidecar are checked separately. See tests under
 `tests/accounting`; UI harness and UAT are documented in `ui.md` when finalized.
 Browser bootstrap replaces native invoke only; API/auth/files/jobs are real.
 Native WebView2/clean-Windows installer acceptance remains NOT RUN in this lane.
+
+## Independent review fixes after the 45bc416 benchmark freeze
+
+- FileStore source references check creation actor/Admin inside the mutation,
+  before creating any new batch. Fixing generic file GET alone is insufficient;
+  Operator cannot reuse an Admin file ID to read new accounting staging.
+- Retained unpublished confirmations lock schema changes, including cosmetic
+  renames. Cancellation keeps the lock until resume/publication, so no revision
+  change can strand pending rows. Published attempts permit compatible changes.
+- Recalculated date formulas discard cached date interpretation metadata.
+  Formula `=2` with stale ISO cache yields1900-01-02. Raw cache remains provenance.
+- Date-only periods include both endpoints and accept a single day, per the
+  common contract. UTC timestamp windows remain half-open.
+- Exact rows sharing an explicit business key are reviewable warnings; differing
+  normalized payloads remain conflicts, including a final publish recheck.
+  Duplicate review includes bounded in-file counterpart details.
+- Source/manual/merged rows are capped at256KiB UTF-8. Parse, normalization,
+  snapshot reads and pending selection are bounded by4MiB payload and500 rows.
+  Formula evaluation has a shared100k cost budget per row and cancellation checks.
+  Originals are never truncated. Source ordinal checkpoints survive chunk-budget
+  changes across resume.
+- XLSX shared-string spool uses trusted app-data imports, ignoring profile paths,
+  and closes/removes temporary cache on normal/error exit.
+
+Before the final million-row freeze: full `pytest tests/accounting tests/core -q`
+PASS411/XFAIL3(shared core actor scope), one existing Starlette warning. Subsequent
+focused review/meaning/formula checks PASS13. `test_review_regressions.py` covers
+the three independent repros, inclusive/Vietnam/single-day date boundaries and
+invalid periods; `test_hardening_edges.py` covers byte budgets, exact-vs-differing
+key matches and trusted spool. Migration tests preserve existing foundation rows,
+refuse checksum edits and refuse an old app opening a newer module schema.
 
 Benchmark generator/method: [benchmark-method.md](benchmark-method.md). Initial
 development50k full partial-import run PASS96.70s, but source changed while it ran;

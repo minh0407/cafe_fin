@@ -26,6 +26,7 @@ MAX_UNPACKED_BYTES = 4 * 1024**3
 MAX_ZIP_ENTRIES = 20_000
 MAX_COMPRESSION_RATIO = 1000
 MAX_CELL_CHARS = 32_767
+MAX_ROW_BYTES = 256 * 1024
 MAX_COLUMNS = 256
 MAX_XLSX_ROWS = 1_048_576
 MAX_METADATA_BYTES = 8 * 1024**2
@@ -70,6 +71,26 @@ def _checked_text(value: str | None) -> str:
     if len(value) > MAX_CELL_CHARS:
         _fail("CELL_LIMIT", "Nội dung ô vượt giới hạn 32767 ký tự.")
     return value
+
+
+def _check_row_size(values, formulas=None):
+    """Bound combined UTF-8 cell values and source expressions before yielding.
+
+    Cached numeric tokens already occur in values; their provenance metadata is
+    not counted a second time. Chunk/storage overhead has its own job budget.
+    """
+    size = 0
+    for value in values.values():
+        if value is not None:
+            size += len(str(value).encode("utf-8"))
+            if size > MAX_ROW_BYTES:
+                _fail("ROW_LIMIT", "Tổng nội dung dòng vượt giới hạn 256 KiB UTF-8.")
+    for formula in (formulas or {}).values():
+        text = formula.get("formula_text")
+        if text:
+            size += len(text.encode("utf-8"))
+            if size > MAX_ROW_BYTES:
+                _fail("ROW_LIMIT", "Tổng nội dung dòng vượt giới hạn 256 KiB UTF-8.")
 
 
 def _letter(index: int) -> str:
@@ -411,6 +432,7 @@ def _csv_rows(path, profile, settings):
                 if len(row) > MAX_COLUMNS:
                     _fail("WORKSHEET_LIMIT", "CSV vượt giới hạn 256 cột.")
                 values = {_letter(i): _checked_text(value) for i, value in enumerate(row, 1)}
+                _check_row_size(values)
                 if end is not None and row_number > end:
                     break
                 if row_number < start or (skip_blank and not any(v != "" for v in values.values())):
@@ -433,9 +455,9 @@ def _csv_rows(path, profile, settings):
 
 
 @contextmanager
-def _shared_strings(archive):
+def _shared_strings(archive, *, temp_dir=None):
     # A disk-backed index keeps millions of unique shared strings out of process memory.
-    with tempfile.TemporaryDirectory(prefix="cafe-fin-parser-") as directory:
+    with tempfile.TemporaryDirectory(dir=temp_dir, prefix="accounting-xlsx-strings-") as directory:
         connection = sqlite3.connect(str(Path(directory) / "strings.sqlite"))
         try:
             connection.execute("PRAGMA cache_size=-2048")
@@ -526,7 +548,7 @@ def _cell_value(cell, strings):
     return raw
 
 
-def _xlsx_rows(archive, sheet, profile, settings):
+def _xlsx_rows(archive, sheet, profile, settings, *, temp_dir=None):
     start, end, hidden, merged, skip_blank = settings
     info = _scan_sheet(archive, sheet, include_merges=merged == "top_left")
     if merged == "reject" and info["merged_cell_ranges"]:
@@ -535,7 +557,10 @@ def _xlsx_rows(archive, sheet, profile, settings):
     merges = iter(info.get("_merges", []))
     next_merge = next(merges, None)
     active_merges = []
-    with _shared_strings(archive) as strings, archive.open(sheet["path"]) as stream:
+    with (
+        _shared_strings(archive, temp_dir=temp_dir) as strings,
+        archive.open(sheet["path"]) as stream,
+    ):
         sheet_data = None
         for event, element in _xml_events(stream):
             if event == "start" and element.tag == f"{{{_MAIN}}}sheetData":
@@ -596,6 +621,7 @@ def _xlsx_rows(archive, sheet, profile, settings):
                         "formula_type": formula.get("t", "normal"),
                         "shared_index": formula.get("si"),
                     }
+            _check_row_size(values, formulas)
             should_yield = (
                 bool(formulas)
                 or not skip_blank
@@ -621,11 +647,13 @@ def _xlsx_rows(archive, sheet, profile, settings):
                 )
 
 
-def iter_rows(path, filename, profile: dict) -> Iterator[SourceRow]:
+def iter_rows(path, filename, profile: dict, *, temp_dir=None) -> Iterator[SourceRow]:
     """Yield selected stored rows. Header is excluded by default; text dates stay raw.
 
     Profile date_format is carried by the caller to schema validation: parsing never
     guesses day/month order. OOXML sparse absent rows are not synthesized.
+    temp_dir is a trusted internal temporary-storage location, never taken from
+    the user-supplied profile. The application passes its imports directory.
     """
     settings = _profile(profile)
     if _file_type(filename) == "csv":
@@ -637,4 +665,4 @@ def iter_rows(path, filename, profile: dict) -> Iterator[SourceRow]:
         selected = next((sheet for sheet in sheets if sheet["id"] == identifier), None)
         if selected is None:
             _fail("SHEET_NOT_FOUND", "Không tìm thấy worksheet đã chọn.")
-        yield from _xlsx_rows(archive, selected, profile, settings)
+        yield from _xlsx_rows(archive, selected, profile, settings, temp_dir=temp_dir)

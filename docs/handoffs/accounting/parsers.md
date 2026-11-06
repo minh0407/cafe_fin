@@ -14,6 +14,14 @@ unknown until a job parses it; defaults are included in the manifest.
 
 `iter_rows(path, filename, profile)` yields `SourceRow` dataclasses:
 
+The optional keyword-only `temp_dir` is a trusted internal directory supplied by
+the worker (`app-data/imports`), never a client profile path. TemporaryDirectory
+owns spool cleanup. Combined values plus formula text are limited to256KiB UTF-8
+per row in addition to the32,767-character cell cap; oversized rows return
+`ROW_LIMIT`, without truncating or staging that row. `metadata.numeric_cells`
+retains raw OOXML numeric tokens for exact Decimal conversion without coercing
+numeric-looking text.
+
 - `sheet_id`, `sheet_name`, `source_row`: original record coordinates. CSV source row
   is the logical CSV record number, including a header, rather than physical line
   number when a quoted cell contains a newline.

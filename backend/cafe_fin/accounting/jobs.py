@@ -5,8 +5,8 @@ from __future__ import annotations
 import csv
 import json
 import os
+import time
 from decimal import Decimal
-from itertools import islice
 
 from sqlalchemy import bindparam, func, insert, select, update
 
@@ -42,11 +42,37 @@ from .service import (
 from .validation import fingerprint, normalize_value, safe_export_text
 
 CHUNK = 500
+MAX_CHUNK_BYTES = 4 * 1024**2
 
 
 def _chunked(iterator, size=CHUNK):
-    while rows := list(islice(iterator, size)):
+    rows, used = [], 2
+    for row in iterator:
+        cost = len(canonical_json(dict(row)).encode("utf-8")) + 1
+        if cost + 2 > MAX_CHUNK_BYTES:
+            raise CoreError("ROW_LIMIT", "Dòng staging vượt ngân sách một chunk 4 MiB.")
+        if rows and (len(rows) >= size or used + cost > MAX_CHUNK_BYTES):
+            yield rows
+            rows, used = [], 2
+        rows.append(row)
+        used += cost
+    if rows:
         yield rows
+
+
+def _bounded_rows(result):
+    rows, used = [], 2
+    for row in result:
+        cost = len(canonical_json(dict(row)).encode("utf-8")) + 1
+        if cost + 2 > MAX_CHUNK_BYTES:
+            raise CoreError("ROW_LIMIT", "Dòng staging vượt ngân sách xử lý 4 MiB.")
+        if rows and used + cost > MAX_CHUNK_BYTES:
+            break
+        rows.append(row)
+        used += cost
+        if len(rows) == CHUNK:
+            break
+    return rows
 
 
 class AccountingJobs:
@@ -116,19 +142,12 @@ class AccountingJobs:
             skip = checkpoint.get("parsed", 0)
             profile = json.loads(batch["profile_json"])
             ordinal = 0
-            for chunk in _chunked(parsers.iter_rows(path, file.original_name, profile)):
-                context.check_cancelled()
-                ordinal += len(chunk)
-                if ordinal <= skip:
-                    continue
-                if ordinal - len(chunk) < skip:
-                    raise CoreError(
-                        "PARSE_CHECKPOINT_INVALID",
-                        "Checkpoint parse không khớp nguồn bất biến.",
-                        409,
-                    )
-                records = [
-                    dict(
+
+            def records_iter():
+                for r in parsers.iter_rows(
+                    path, file.original_name, profile, temp_dir=self.rt.root.resolve_key("imports")
+                ):
+                    yield dict(
                         batch_id=batch_id,
                         row_id=f"{r.sheet_id}:{r.source_row}",
                         source_sheet=r.sheet_id,
@@ -144,8 +163,17 @@ class AccountingJobs:
                         valid=0,
                         duplicate_count=0,
                     )
-                    for r in chunk
-                ]
+
+            for records in _chunked(records_iter()):
+                context.check_cancelled()
+                chunk_start = ordinal
+                ordinal += len(records)
+                if ordinal <= skip:
+                    continue
+                if chunk_start < skip:
+                    # Checkpoints are source ordinals, not a promise that a future
+                    # build uses identical chunk byte/row budgets.
+                    records = records[skip - chunk_start :]
 
                 def effect(conn):
                     conn.execute(insert(s.stage), records)
@@ -185,7 +213,7 @@ class AccountingJobs:
 
             context.finalize(self._effect(actor, finish))
 
-    def _stage_values(self, conn, batch, book, row):
+    def _stage_values(self, conn, batch, book, row, cancelled=None):
         from .formulas import FormulaError, LiteralCell
 
         mapping = json.loads(batch["mapping_json"])
@@ -280,6 +308,7 @@ class AccountingJobs:
             formulas=mapped_formulas,
             resolver=resolver,
             current_row=row["source_row"],
+            cancelled=cancelled,
         )
         for column, info in mapped_formulas.items():
             if not info.get("formula_text"):
@@ -315,11 +344,21 @@ class AccountingJobs:
         checkpoint = context.checkpoint()
         last = checkpoint.get("last", "") if checkpoint.get("phase") == "normalize" else ""
         normalized = checkpoint.get("normalized", 0)
+        last_cancel_check = 0
+
+        def cancelled():
+            nonlocal last_cancel_check
+            now = time.monotonic()
+            if context.stop.is_set() or now - last_cancel_check >= 0.05:
+                context.check_cancelled()
+                last_cancel_check = now
+            return False
+
         if checkpoint.get("phase") not in ("deduplicate", "done"):
             while True:
                 context.check_cancelled()
                 with self.rt.reader() as conn:
-                    rows = (
+                    rows = _bounded_rows(
                         conn.execute(
                             select(s.stage)
                             .where(
@@ -329,16 +368,17 @@ class AccountingJobs:
                             )
                             .order_by(s.stage.c.row_id)
                             .limit(CHUNK)
-                        )
-                        .mappings()
-                        .all()
+                        ).mappings()
                     )
                     if not rows:
                         break
                     normalized_rows = []
                     issue_rows = []
+                    normalized_bytes = 2
                     for row in rows:
-                        typed, errors, calculation = self._stage_values(conn, batch, book, row)
+                        typed, errors, calculation = self._stage_values(
+                            conn, batch, book, row, cancelled
+                        )
                         # Preserve raw source-keyed formula metadata and calculated provenance separately.
                         metadata = json.loads(row.metadata_json)
                         metadata["calculations"] = calculation
@@ -359,6 +399,16 @@ class AccountingJobs:
                                 validation_revision=batch["revision"],
                             )
                         )
+                        cost = len(canonical_json(normalized_rows[-1]).encode("utf-8")) + 1
+                        if cost + 2 > MAX_CHUNK_BYTES:
+                            raise CoreError(
+                                "FORMULA_RESOURCE_LIMIT",
+                                "Kết quả công thức/dòng vượt ngân sách 4 MiB.",
+                            )
+                        if len(normalized_rows) > 1 and normalized_bytes + cost > MAX_CHUNK_BYTES:
+                            normalized_rows.pop()
+                            break
+                        normalized_bytes += cost
                         issue_rows.extend(
                             dict(
                                 id=identity(),
@@ -371,6 +421,7 @@ class AccountingJobs:
                             )
                             for e in errors
                         )
+                rows = rows[: len(normalized_rows)]
                 last = rows[-1].row_id
                 normalized += len(rows)
 
@@ -411,7 +462,7 @@ class AccountingJobs:
         while True:
             context.check_cancelled()
             with self.rt.reader() as conn:
-                rows = (
+                rows = _bounded_rows(
                     conn.execute(
                         select(s.stage)
                         .where(
@@ -421,13 +472,12 @@ class AccountingJobs:
                         )
                         .order_by(s.stage.c.row_id)
                         .limit(CHUNK)
-                    )
-                    .mappings()
-                    .all()
+                    ).mappings()
                 )
                 if not rows:
                     break
                 matches = {}
+                business_exact_file, business_exact_db = {}, {}
                 for field in ("fingerprint", "candidate_key", "business_key"):
                     keys = {r[field] for r in rows if r[field]}
                     extra = [published_target().is_(None)]
@@ -470,14 +520,51 @@ class AccountingJobs:
                         else {}
                     )
                     matches[field] = (stage_counts, db_counts)
+                    if field == "business_key" and keys:
+                        business_exact_file = {
+                            (key, fp): n
+                            for key, fp, n in conn.execute(
+                                select(s.stage.c.business_key, s.stage.c.fingerprint, func.count())
+                                .where(
+                                    s.stage.c.batch_id == batch_id,
+                                    s.stage.c.business_key.in_(keys),
+                                    *extra,
+                                )
+                                .group_by(s.stage.c.business_key, s.stage.c.fingerprint)
+                            )
+                        }
+                        business_exact_db = {
+                            (key, fp): n
+                            for key, fp, n in conn.execute(
+                                select(
+                                    s.entries.c.business_key, s.entries.c.fingerprint, func.count()
+                                )
+                                .where(
+                                    s.entries.c.book_id == book["id"],
+                                    s.entries.c.business_key.in_(keys),
+                                    s.entries.c.deleted_at.is_(None),
+                                    visible(),
+                                )
+                                .group_by(s.entries.c.business_key, s.entries.c.fingerprint)
+                            )
+                        }
                 revised = []
                 for row in rows:
                     duplicates, conflict = 0, False
                     for field, (in_file, in_db) in matches.items():
                         key = row[field]
                         count = max(0, in_file.get(key, 0) - 1) + in_db.get(key, 0) if key else 0
-                        if field == "business_key" and count and row.decision != "skip":
-                            conflict = True
+                        if field == "business_key" and key and row.decision != "skip":
+                            different = (
+                                in_file.get(key, 0)
+                                - business_exact_file.get((key, row.fingerprint), 0)
+                                + in_db.get(key, 0)
+                                - business_exact_db.get((key, row.fingerprint), 0)
+                            )
+                            if different > 0:
+                                conflict = True
+                            else:
+                                duplicates = max(duplicates, count)
                         else:
                             duplicates = max(duplicates, count)
                     errors = [
@@ -643,7 +730,7 @@ class AccountingJobs:
                         if offset
                         else ""
                     )
-                    selected = (
+                    selected = _bounded_rows(
                         conn.execute(
                             select(
                                 *[c for c in s.stage.c if c.name != "decision"],
@@ -652,9 +739,7 @@ class AccountingJobs:
                             .where(*eligible(batch_id), s.stage.c.row_id > (previous or ""))
                             .order_by(s.stage.c.row_id)
                             .limit(CHUNK)
-                        )
-                        .mappings()
-                        .all()
+                        ).mappings()
                     )
                     snapshots = []
                     for row in selected:
@@ -731,7 +816,23 @@ class AccountingJobs:
         columns = pins["book_snapshot"]["columns"]
         while start < progress["expected_count"]:
             context.check_cancelled()
-            count = min(CHUNK, progress["expected_count"] - start)
+            with self.rt.reader() as conn:
+                next_rows = _bounded_rows(
+                    conn.execute(
+                        select(manifest_rows)
+                        .where(
+                            manifest_rows.c.manifest_id == manifest_id,
+                            manifest_rows.c.ordinal >= start,
+                        )
+                        .order_by(manifest_rows.c.ordinal)
+                        .limit(CHUNK)
+                    ).mappings()
+                )
+            count = len(next_rows)
+            if not count:
+                raise CoreError(
+                    "IMPORT_MANIFEST_INCOMPLETE", "Snapshot thiếu dòng để ghi pending.", 409
+                )
             chunk_start = start
 
             def pending(conn, attempt, rows):
@@ -822,6 +923,7 @@ class AccountingJobs:
                     own.c.business_key.is_not(None),
                     prior.c.import_attempt_id.is_distinct_from(attempt_id),
                     prior.c.deleted_at.is_(None),
+                    own.c.fingerprint != prior.c.fingerprint,
                     visibility_predicate(prior.c.import_attempt_id),
                 )
                 .limit(1)

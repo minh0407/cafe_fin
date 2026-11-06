@@ -14,7 +14,7 @@ from sqlalchemy import case, delete, exists, func, insert, or_, select, update
 from cafe_fin.core.audit import AuditService, require_version
 from cafe_fin.core.auth import Principal
 from cafe_fin.core.contracts import BookSummaryDTO, MappedBookMetricDTO
-from cafe_fin.core.db import canonical_json
+from cafe_fin.core.db import AUDIT, canonical_json
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.imports import (
     ImportAttemptService,
@@ -27,7 +27,7 @@ from cafe_fin.core.jobs import JOBS
 from cafe_fin.core.time import utc_now
 
 from . import schema as s
-from .validation import fingerprint, normalize_schema, normalize_value
+from .validation import check_row_budget, fingerprint, normalize_schema, normalize_value
 
 BUSY = {"PARSING", "VALIDATING", "COMMITTING", "UPLOADED"}
 ATTEMPTS = ImportAttemptService()
@@ -362,6 +362,29 @@ class AccountingService:
         def op(conn):
             old = _book(conn, book_id)
             version = require_version(old["version"], expected_version)
+            retained = conn.execute(
+                select(s.batches.c.id)
+                .select_from(
+                    s.batches.join(manifests, manifests.c.id == s.batches.c.manifest_id).outerjoin(
+                        attempts, attempts.c.id == s.batches.c.attempt_id
+                    )
+                )
+                .where(
+                    s.batches.c.book_id == book_id,
+                    or_(
+                        manifests.c.state == "BUILDING",
+                        attempts.c.id.is_(None),
+                        attempts.c.state != "PUBLISHED",
+                    ),
+                )
+                .limit(1)
+            ).first()
+            if retained:
+                raise CoreError(
+                    "BOOK_IMPORT_LOCKED",
+                    "Sổ còn snapshot hoặc attempt chưa công bố; hoàn tất/tiếp tục lượt nhập trước khi đổi schema, kể cả đổi tên.",
+                    409,
+                )
             previous = json.loads(old["columns_json"])
             configured, meaning = normalize_schema(columns, semantics, previous)
             occupied = conn.execute(
@@ -456,13 +479,20 @@ class AccountingService:
         formulas=None,
         resolver=None,
         current_row=None,
+        cancelled=None,
     ):
         from .formulas import ENGINE_VERSION, FormulaEngine, FormulaError, LiteralCell
 
         columns = json.loads(book["columns_json"])
+        check_row_budget(values)
+        if not columns:
+            raise CoreError(
+                "BOOK_SCHEMA_REQUIRED", "Cấu hình cột sổ trước khi nhập hoặc thêm dòng.", 422
+            )
         if set(values) - {c["id"] for c in columns}:
             raise CoreError("COLUMN_UNKNOWN", "Dữ liệu chứa ID cột không thuộc schema.")
         typed, errors, formula_info = {}, [], {}
+        remaining_formula_cost = 100_000
         profile, metadata, formulas = profile or {}, metadata or {}, formulas or {}
 
         def resolve(reference, prefer_external=True):
@@ -512,10 +542,19 @@ class AccountingService:
                 if formula:
                     if current_row and "{row}" in formula:
                         formula = formula.replace("{row}", str(current_row))
+                    if remaining_formula_cost <= 0:
+                        raise FormulaError(
+                            "FORMULA_COST", "Tổng công thức của dòng vượt ngân sách tính toán."
+                        )
                     engine = FormulaEngine(
-                        resolve if provenance else lambda ref: resolve(ref, False)
+                        resolve if provenance else lambda ref: resolve(ref, False),
+                        max_cost=remaining_formula_cost,
+                        cancelled=cancelled,
                     )
-                    result = engine.evaluate(formula)
+                    try:
+                        result = engine.evaluate(formula)
+                    finally:
+                        remaining_formula_cost -= engine.cost
                     if isinstance(result, Decimal):
                         value = result
                     else:
@@ -537,22 +576,21 @@ class AccountingService:
                         "FORMULA_CACHE_NOT_AUTHORITATIVE",
                         "Cache công thức chưa được tính lại; cần nhập giá trị có provenance.",
                     )
-                typed[key], _ = normalize_value(
-                    value,
-                    col,
-                    profile,
-                    (
-                        dict(
-                            metadata.get("date_cells", {}).get(key) or {},
-                            epoch=metadata.get("date_cells", {})
-                            .get(key, {})
-                            .get("epoch", metadata.get("epoch", "1900")),
-                            excel_serial=format(value, "f"),
-                        )
-                        if formula and col["kind"] == "date" and isinstance(value, Decimal)
-                        else metadata.get("date_cells", {}).get(key)
-                    ),
-                )
+                date_meta = metadata.get("date_cells", {}).get(key)
+                if formula:
+                    # Cache metadata describes the original cached value, not this
+                    # engine result. In particular iso_date must not beat serial2.
+                    date_meta = (
+                        {
+                            "epoch": (date_meta or {}).get("epoch", metadata.get("epoch", "1900")),
+                            "excel_serial": format(value, "f"),
+                        }
+                        if col["kind"] == "date" and isinstance(value, Decimal)
+                        else None
+                    )
+                typed[key], _ = normalize_value(value, col, profile, date_meta)
+                if formula and col["kind"] == "date":
+                    formula_info[key]["calculated_value"] = typed[key]
             except (CoreError, FormulaError) as exc:
                 typed[key] = None
                 errors.append(
@@ -611,7 +649,7 @@ class AccountingService:
                 updated_at=now,
                 deleted_at=None,
             )
-            self._check_business_key(conn, book_id, data["business_key"], None)
+            self._check_business_key(conn, book_id, data["business_key"], None, data["fingerprint"])
             conn.execute(insert(s.entries).values(**data))
             if json.loads(book["columns_json"]):
                 conn.execute(
@@ -632,7 +670,7 @@ class AccountingService:
         )
 
     @staticmethod
-    def _check_business_key(conn, book_id, key, row_id):
+    def _check_business_key(conn, book_id, key, row_id, row_fingerprint):
         if (
             key
             and conn.execute(
@@ -642,6 +680,7 @@ class AccountingService:
                     s.entries.c.business_key == key,
                     s.entries.c.deleted_at.is_(None),
                     s.entries.c.id != (row_id or ""),
+                    s.entries.c.fingerprint != row_fingerprint,
                     visible(),
                 )
                 .limit(1)
@@ -692,7 +731,9 @@ class AccountingService:
                     candidate_key=fingerprint(typed, semantic.get("duplicate_columns", [])),
                     business_key=fingerprint(typed, semantic.get("business_key_columns", [])),
                 )
-                self._check_business_key(conn, book["id"], revised["business_key"], row_id)
+                self._check_business_key(
+                    conn, book["id"], revised["business_key"], row_id, revised["fingerprint"]
+                )
                 conn.execute(delete(s.cells).where(s.cells.c.row_id == row_id))
                 if json.loads(book["columns_json"]):
                     conn.execute(
@@ -702,7 +743,9 @@ class AccountingService:
             elif action in ("delete", "restore"):
                 revised["deleted_at"] = utc_now() if action == "delete" else None
                 if action == "restore":
-                    self._check_business_key(conn, book["id"], revised["business_key"], row_id)
+                    self._check_business_key(
+                        conn, book["id"], revised["business_key"], row_id, revised["fingerprint"]
+                    )
             else:
                 raise CoreError("ACTION_INVALID", "Thao tác không được hỗ trợ.")
             conn.execute(update(s.entries).where(s.entries.c.id == row_id).values(**revised))
@@ -855,6 +898,23 @@ class AccountingService:
 
         def op(conn):
             book = _book(conn, book_id)
+            if actor.role != "admin":
+                actor.require("files.read")
+                owner = conn.execute(
+                    select(AUDIT.c.actor)
+                    .where(
+                        AUDIT.c.entity == "core_file",
+                        AUDIT.c.entity_id == file_id,
+                        AUDIT.c.action == "CREATE",
+                    )
+                    .limit(1)
+                ).scalar_one_or_none()
+                if owner != actor.id:
+                    raise CoreError(
+                        "PERMISSION_DENIED",
+                        "Tệp nguồn thuộc tài khoản khác hoặc chưa có quyền chia sẻ rõ ràng.",
+                        403,
+                    )
             existing = conn.execute(
                 select(s.batches.c.id)
                 .where(
@@ -1108,6 +1168,9 @@ class AccountingService:
                 ):
                     raise CoreError("CELL_READ_ONLY", "Cột không cho phép chỉnh sửa.")
                 edited = json.loads(row.edited_json) | patch["values"]
+                raw = json.loads(row.raw_json)
+                mapping = json.loads(batch["mapping_json"])
+                check_row_budget({col: raw.get(source) for col, source in mapping.items()} | edited)
                 conn.execute(
                     update(s.stage)
                     .where(s.stage.c.batch_id == batch_id, s.stage.c.row_id == row.row_id)
@@ -1429,7 +1492,9 @@ class AccountingService:
                     "Schema đã đổi; lưu mapping và kiểm tra lại trước khi so sánh.",
                     409,
                 )
-            before = self.summary(actor, book["id"], from_on, through_on, connection=conn)
+            before = self.summary(
+                actor, book["id"], from_on, through_on, connection=conn, include_groups=False
+            )
             if not before["has_valid_money_mapping"]:
                 return {
                     "before": before,
@@ -1450,7 +1515,7 @@ class AccountingService:
                 for encoded in conn.execute(query).scalars():
                     v = json.loads(encoded)
                     day = v.get(meaning["date_column"])
-                    if not day or not from_on <= day < through_on:
+                    if not day or not from_on <= day <= through_on:
                         continue
                     currency = v.get(meaning.get("currency_column")) or meaning.get(
                         "currency", "VND"
@@ -1494,17 +1559,34 @@ class AccountingService:
                 "validation_flags": [],
             }
 
-    def summary(self, actor, book_id, from_on, through_on, *, connection=None, cutoff=None):
+    def summary(
+        self,
+        actor,
+        book_id,
+        from_on,
+        through_on,
+        *,
+        connection=None,
+        cutoff=None,
+        include_groups=True,
+    ):
         actor.require("accounting.read")
         try:
+            if (
+                not isinstance(from_on, str)
+                or not isinstance(through_on, str)
+                or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", from_on)
+                or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", through_on)
+            ):
+                raise ValueError()
             start, end = date.fromisoformat(from_on), date.fromisoformat(through_on)
         except (ValueError, TypeError):
             raise CoreError(
                 "DATE_RANGE_INVALID", "Ngày bắt đầu/kết thúc phải có định dạng YYYY-MM-DD."
             ) from None
-        if end <= start:
+        if end < start:
             raise CoreError(
-                "DATE_RANGE_INVALID", "Khoảng ngày có điểm cuối loại trừ và phải sau ngày đầu."
+                "DATE_RANGE_INVALID", "Ngày cuối được bao gồm và phải từ ngày đầu trở đi."
             )
         with self.rt.reader() if connection is None else nullcontext(connection) as conn:
             if connection is None:
@@ -1564,7 +1646,7 @@ class AccountingService:
                 for encoded in conn.execute(query).scalars():
                     v = json.loads(encoded)
                     day = v.get(semantics["date_column"])
-                    if not day or not from_on <= day < through_on:
+                    if not day or not from_on <= day <= through_on:
                         continue
                     currency = v.get(semantics.get("currency_column")) or semantics.get(
                         "currency", "VND"
@@ -1585,7 +1667,7 @@ class AccountingService:
                             semantics.get("direction_column")
                         ) == semantics.get(key + "_value", "thu" if key == "income" else "chi"):
                             item[key] += Decimal(v.get(semantics["amount_column"]) or "0")
-                    if semantics.get("group_columns"):
+                    if include_groups and semantics.get("group_columns"):
                         dimensions = {
                             column: v.get(column) for column in semantics["group_columns"]
                         }
@@ -1670,6 +1752,7 @@ class AccountingReadProvider:
             through_on.isoformat(),
             connection=self.connection,
             cutoff=cutoff,
+            include_groups=False,
         )
         # Live reads cannot represent a historical cutoff: force consumer to freeze now.
         if cutoff.tzinfo is None or (

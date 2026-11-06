@@ -20,7 +20,7 @@ from openpyxl import load_workbook
 from sqlalchemy import event, select
 
 PREFIX = "/api/v1/accounting"
-RANGE = {"from_on": "2026-02-01", "through_on": "2026-02-02"}
+RANGE = {"from_on": "2026-02-01", "through_on": "2026-02-01"}
 ISSUE_COLUMNS = [
     "source_sheet",
     "source_row",
