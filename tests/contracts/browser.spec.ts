@@ -39,6 +39,12 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     });
     child.stdin.write(JSON.stringify({ data_root: root, session_token: sessionToken }) + "\n");
     const { api_base } = await hello;
+    const deniedOrigin = await fetch(`${api_base}/health`, { headers: { "X-App-Session": sessionToken, Origin: "http://127.0.0.1:1423" } });
+    expect(deniedOrigin.status).toBe(403);
+    expect(deniedOrigin.headers.get("access-control-allow-origin")).toBeNull();
+    const allowedOrigin = await fetch(`${api_base}/health`, { headers: { "X-App-Session": sessionToken, Origin: "http://127.0.0.1:1422" } });
+    expect(allowedOrigin.status).toBe(200);
+    expect(allowedOrigin.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:1422");
     const setup = await fetch(`${api_base}/auth/setup`, { method: "POST", headers: { "X-App-Session": sessionToken, "Content-Type": "application/json" }, body: JSON.stringify({ username: "contractsadmin", password: "synthetic-contracts-password" }) });
     expect(setup.status).toBe(200);
     const auth = await setup.json();
@@ -343,7 +349,7 @@ async function mountDateWorkspace(page: Page) {
   await page.route(`${apiBase}/**`, async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace("/api/v1", "");
-    const headers = { "Access-Control-Allow-Origin": "http://127.0.0.1:1420", "Access-Control-Allow-Headers": "Authorization,Content-Type,X-App-Session", "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS" };
+    const headers = { "Access-Control-Allow-Origin": "http://127.0.0.1:1422", "Access-Control-Allow-Headers": "Authorization,Content-Type,X-App-Session", "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS" };
     const fulfill = (json: unknown) => route.fulfill({ json, headers });
     if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
     if (request.method() !== "GET") {

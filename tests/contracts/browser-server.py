@@ -6,12 +6,14 @@ import sys
 import threading
 import time
 from datetime import date
+from unittest.mock import patch
 from uuid import NAMESPACE_DNS, uuid5
 
 import uvicorn
 from cafe_fin.contracts import service as contracts_service
 from cafe_fin.contracts.module import module_manifest
-from cafe_fin.core.api import create_app, require
+from cafe_fin.core import api as core_api
+from cafe_fin.core.api import require
 from cafe_fin.core.contracts import PartyDTO, WeighingDTO, WeightLineInput
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.modules import ModuleRegistry
@@ -84,7 +86,12 @@ def main():
     listener.bind(("127.0.0.1", 0))
     listener.listen(128)
     port = listener.getsockname()[1]
-    app = create_app(runtime, boot["session_token"], port=port, origin="http://127.0.0.1:1420")
+    # Test-only bootstrap allowance for this lane's dedicated dev server. Restore
+    # the production allowlist immediately; actual ScopeGuard/auth/CORS remain real
+    # and bind strictly to this one origin for the lifetime of this fixture app.
+    test_origin = "http://127.0.0.1:1422"
+    with patch.object(core_api, "ALLOWED_ORIGINS", core_api.ALLOWED_ORIGINS | {test_origin}):
+        app = core_api.create_app(runtime, boot["session_token"], port=port, origin=test_origin)
 
     @app.post("/api/v1/harness/source-revision")
     def change_source():
