@@ -8,9 +8,10 @@ from cafe_fin.core.db import canonical_json
 from cafe_fin.reporting import exports, models
 from cafe_fin.reporting.service import ReportingService
 from cafe_fin.reporting.sources import SourceBundle
-from conftest import TypedSyntheticSource, preview_command
 from openpyxl import load_workbook
 from pypdf import PdfReader
+
+from tests.reporting.conftest import TypedSyntheticSource, preview_command
 
 
 class NamedSource(TypedSyntheticSource):

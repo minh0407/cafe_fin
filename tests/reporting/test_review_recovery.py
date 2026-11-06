@@ -4,8 +4,9 @@ from cafe_fin.core.storage import FILES
 from cafe_fin.reporting import models, sender
 from cafe_fin.reporting.migrations import OUTBOX
 from cafe_fin.reporting.zalo import DeliveryError
-from conftest import configure, saved
 from sqlalchemy import select
+
+from tests.reporting.conftest import configure, saved
 
 
 def second_user(env, role="operator"):

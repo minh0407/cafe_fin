@@ -4,7 +4,8 @@ import pytest
 from cafe_fin.core.errors import CoreError
 from sqlalchemy import event, text
 from sqlalchemy.exc import OperationalError
-from test_records_shared_snapshot import CUTOFF, DAY, prepare, reads
+
+from tests.records.test_records_shared_snapshot import CUTOFF, DAY, prepare, reads
 
 
 def execute_sql(conn, statement, execution, parameters=None):

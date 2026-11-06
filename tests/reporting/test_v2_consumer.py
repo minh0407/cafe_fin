@@ -2,9 +2,10 @@ import io
 
 from cafe_fin.reporting import models
 from cafe_fin.reporting.service import ReportingService
-from conftest import TypedSyntheticSource, preview_command
 from openpyxl import load_workbook
 from pypdf import PdfReader
+
+from tests.reporting.conftest import TypedSyntheticSource, preview_command
 
 
 def test_real_v2_dto_snapshot_stock_components_cash_subsets_no_double_count(env):

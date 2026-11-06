@@ -13,10 +13,11 @@ from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.schedule import list_runs
 from cafe_fin.reporting.schedule_migrations import DAILY_RUNS
 from cafe_fin.reporting.service import ReportingService
-from conftest import TypedSyntheticSource, saved
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+
+from tests.reporting.conftest import TypedSyntheticSource, saved
 
 
 def setup_auto(env, *, formats=None, credentials=False):

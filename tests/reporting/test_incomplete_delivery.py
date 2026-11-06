@@ -14,7 +14,8 @@ from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.service import ReportingService
 from cafe_fin.reporting.zalo import DeliveryError, OfficialGMF
 from sqlalchemy import func, select
-from test_daily_generation import setup_auto
+
+from tests.reporting.test_daily_generation import setup_auto
 
 
 def incomplete(env, monkeypatch, missing):

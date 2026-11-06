@@ -28,6 +28,7 @@ packages = ["backend/cafe_fin"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["backend"]
+addopts = "--import-mode=importlib"
 
 [tool.ruff]
 target-version = "py312"

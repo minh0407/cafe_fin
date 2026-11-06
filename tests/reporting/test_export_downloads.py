@@ -10,9 +10,10 @@ from cafe_fin.core.api import create_app
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.storage import FILES
 from cafe_fin.reporting import models
-from conftest import saved
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+
+from tests.reporting.conftest import saved
 
 SESSION = "synthetic-report-download-0123456789abcdef"
 

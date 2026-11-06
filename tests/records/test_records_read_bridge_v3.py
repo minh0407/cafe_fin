@@ -10,8 +10,9 @@ import pytest
 from cafe_fin.core.contracts import InventorySummaryDTO
 from cafe_fin.core.db import canonical_json
 from sqlalchemy import event, insert
-from test_records_read_bridge_v2 import components
-from test_records_shared_snapshot import CUTOFF, DAY, prepare
+
+from tests.records.test_records_read_bridge_v2 import components
+from tests.records.test_records_shared_snapshot import CUTOFF, DAY, prepare
 
 
 def reader(api):

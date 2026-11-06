@@ -10,10 +10,17 @@ from cafe_fin.core.audit import AuditService
 from cafe_fin.core.db import AUDIT
 from cafe_fin.core.errors import CoreError
 from sqlalchemy import delete
-from test_import_regressions import account as account
-from test_import_regressions import confirm, key, pause_after_chunk, ready, wait_job
-from test_public_api import api as api
-from test_public_api import create_book, request, upload
+
+from tests.accounting.test_import_regressions import account as account
+from tests.accounting.test_import_regressions import (
+    confirm,
+    key,
+    pause_after_chunk,
+    ready,
+    wait_job,
+)
+from tests.accounting.test_public_api import api as api
+from tests.accounting.test_public_api import create_book, request, upload
 
 
 def test_operator_cannot_reuse_admin_source_to_read_private_staging(api):

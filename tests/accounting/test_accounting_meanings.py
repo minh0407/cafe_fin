@@ -3,8 +3,9 @@ from datetime import date, datetime, timezone
 import pytest
 from cafe_fin.accounting.public import AccountingReadProvider
 from cafe_fin.core.errors import CoreError
-from test_import_regressions import account as account
-from test_import_regressions import key
+
+from tests.accounting.test_import_regressions import account as account
+from tests.accounting.test_import_regressions import key
 
 
 def create(service, actor, meanings=None):

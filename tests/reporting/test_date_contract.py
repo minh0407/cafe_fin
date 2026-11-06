@@ -22,9 +22,10 @@ from cafe_fin.reporting.models import DATE_RANGE_CONTRACT
 from cafe_fin.reporting.sender import dispatch_one
 from cafe_fin.reporting.service import ReportingService
 from cafe_fin.reporting.sources import AtomicSources, BridgeSources, SourceBundle, build_snapshot
-from conftest import configure, saved
 from pydantic import ValidationError
 from sqlalchemy import Column, MetaData, String, Table, select
+
+from tests.reporting.conftest import configure, saved
 
 
 def calendar_source(env):

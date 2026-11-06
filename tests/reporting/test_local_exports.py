@@ -23,10 +23,11 @@ from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.schedule import list_runs
 from cafe_fin.reporting.sender import dispatch_one
 from cafe_fin.reporting.service import ReportingService
-from conftest import SyntheticSource, configure, saved
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from test_daily_generation import setup_auto
+
+from tests.reporting.conftest import SyntheticSource, configure, saved
+from tests.reporting.test_daily_generation import setup_auto
 
 
 def count(runtime, table):
@@ -284,7 +285,7 @@ def test_local_relative_key_never_enters_group_payload_or_upload_metadata(env):
 def test_revoked_actor_after_copy_cannot_mark_ready_and_new_authorized_retry_reuses_file(
     env, monkeypatch
 ):
-    from test_review_recovery import second_user
+    from tests.reporting.test_review_recovery import second_user
 
     other_admin = second_user(env, "admin")
     report = saved(env)

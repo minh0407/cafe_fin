@@ -12,8 +12,9 @@ from cafe_fin.reporting.migrations import LOCKS, OUTBOX
 from cafe_fin.reporting.sender import check_connection, dispatch_one, reconcile
 from cafe_fin.reporting.service import ReportingService
 from cafe_fin.reporting.zalo import DeliveryError
-from conftest import configure, saved
 from sqlalchemy import select
+
+from tests.reporting.conftest import configure, saved
 
 
 def enqueue(env, row, attachment=None):

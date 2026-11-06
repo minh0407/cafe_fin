@@ -9,7 +9,8 @@ from cafe_fin.core.runtime import Runtime
 from cafe_fin.reporting.models import Enqueue
 from cafe_fin.reporting.sender import dispatch_one
 from cafe_fin.reporting.service import ReportingService
-from conftest import configure, saved
+
+from tests.reporting.conftest import configure, saved
 
 
 def test_process_dies_after_transport_send_restart_is_unknown_not_sent_or_retried(env, tmp_path):
@@ -26,7 +27,7 @@ from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.service import ReportingService
 from cafe_fin.reporting.sender import dispatch_one
-from conftest import SyntheticSource, MemorySecrets, FakeTransport
+from tests.reporting.conftest import SyntheticSource, MemorySecrets, FakeTransport
 class CrashTransport(FakeTransport):
     def send_text(self, token, group, text):
         with Path(sys.argv[2]).open("x", encoding="utf-8") as stream:
@@ -45,9 +46,7 @@ raise AssertionError("transport did not exit")
 """
     root = Path(__file__).resolve().parents[2]
     process_env = os.environ.copy()
-    process_env["PYTHONPATH"] = os.pathsep.join(
-        (str(root / "backend"), str(root / "tests/reporting"))
-    )
+    process_env["PYTHONPATH"] = os.pathsep.join((str(root / "backend"), str(root)))
     child = subprocess.run(
         [sys.executable, "-c", code, str(env.root), str(proof)],
         cwd=root,

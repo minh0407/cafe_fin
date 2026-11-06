@@ -6,8 +6,9 @@ from cafe_fin.core.contracts import BookSummaryDTO, MappedBookMetricDTO
 from cafe_fin.core.imports import ImportAttemptService, ManifestRow, visibility_predicate
 from cafe_fin.reporting.exports import decimal_text, scaled
 from cafe_fin.reporting.sources import BridgeSources, build_snapshot
-from conftest import preview_command
 from sqlalchemy import Column, MetaData, String, Table, select
+
+from tests.reporting.conftest import preview_command
 
 
 def test_reporting_provider_hides_pending_publishes_once_and_freezes_attempt_inputs(env):

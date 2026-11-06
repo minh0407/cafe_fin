@@ -28,7 +28,18 @@ from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.core.runtime import Runtime
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect, select
-from test_api import PASSWORD, PORT, PREFIX, TOKEN, create, data, download, export, ok
+
+from tests.contracts.test_api import (
+    PASSWORD,
+    PORT,
+    PREFIX,
+    TOKEN,
+    create,
+    data,
+    download,
+    export,
+    ok,
+)
 
 PARTY_ID = "74f6918c-4c8d-4b21-8d01-e6448a80d7c8"
 WEIGHING_ID = "07f0c6ae-f80a-4c84-a93c-4065795bdbe6"

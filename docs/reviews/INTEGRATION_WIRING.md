@@ -95,3 +95,46 @@ No import-scale benchmark, external send, credential-value test, native
 installation or clean Windows acceptance is claimed by this wiring.
 Accounting's public provider is a live capture reader; historic reports use their
 frozen stored snapshot rather than trying to recreate an old book with a new read.
+
+## Combined-suite test discovery
+
+Pytest uses `--import-mode=importlib`. The root `tests` directory and each Python
+test lane (`core`, `records`, `contracts`, `accounting`, `reporting`, `integration`)
+are explicit packages. Shared test helpers use `tests.<lane>.<module>` imports,
+including reporting conftest imports inside crash-process scripts. Those children
+receive the repository root and backend on `PYTHONPATH`; no `sys.path` mutation is
+used. Repeated names such as contracts/reporting `test_api.py` and
+accounting/reporting `test_process_crash.py` coexist under distinct namespaces.
+
+Run the reporting evidence helper from the repository root as a module (this
+supersedes the older direct-script invocation in reporting handoffs):
+
+```powershell
+.venv/Scripts/python.exe -m tests.reporting.generate_evidence --named --output "$env:TEMP/cafe-fin-reporting-v3-evidence"
+```
+
+The module command passed with synthetic sources and produced PDF, XLSX and TXT
+outside Git. An AST comparison of all 26 changed existing Python files verifies
+that test bodies/assertions are unchanged except the deliberate subprocess helper
+import/PYTHONPATH namespace changes. No test skips or name changes were introduced.
+
+Collect-only PASS: **1017 tests in 1.72 seconds**, no import mismatch or
+missing-helper errors. Full-suite PASS: **1017 passed, zero failed/skipped, one
+existing Starlette/httpx deprecation warning in 391.82 seconds**. This includes
+the real 60-second periodic timer, WAL/process-death recovery and real Windows
+credential-store tests already in the suite.
+
+```powershell
+.venv/Scripts/python.exe -m pytest --collect-only -q -p no:cacheprovider
+.venv/Scripts/python.exe -m pytest tests -q -p no:cacheprovider --junitxml="<outside-git>/backend-full-importlib-20261107.xml"
+.venv/Scripts/python.exe -m ruff check tests
+```
+
+The collect log, full-run log and JUnit XML are outside Git in the session
+visualizations directory (`test-discovery-importlib.txt`,
+`backend-full-importlib-20261107.txt`, `backend-full-importlib-20261107.xml`).
+
+`ruff check tests` passes. A broader `ruff format --check tests` reports existing
+formatting differences in 15 files after the three updated subprocess expressions
+are formatted; four are pre-existing bodies in records files whose imports changed.
+These bodies are preserved by this discovery-only change.

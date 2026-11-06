@@ -2,7 +2,8 @@ import pytest
 from cafe_fin.core.errors import CoreError
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.service import ReportingService
-from conftest import preview_command
+
+from tests.reporting.conftest import preview_command
 
 
 def operator(env):

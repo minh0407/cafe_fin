@@ -8,7 +8,8 @@ from cafe_fin.contracts.migrations.v001 import ATTACHMENTS
 from cafe_fin.core.db import AUDIT, REQUESTS
 from cafe_fin.core.errors import CoreError
 from sqlalchemy import select
-from test_api import PASSWORD, PREFIX, create, ok, running
+
+from tests.contracts.test_api import PASSWORD, PREFIX, create, ok, running
 
 PRIVATE_BYTES = b"%PDF-1.7\nsynthetic-private-source-attachment\n%%EOF\n"
 

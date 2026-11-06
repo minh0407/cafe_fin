@@ -12,7 +12,8 @@ from cafe_fin.core.errors import CoreError
 from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.core.runtime import Runtime
 from sqlalchemy import event, select
-from test_records_api import balances, snapshot
+
+from tests.records.test_records_api import balances, snapshot
 
 
 def test_two_real_connections_cannot_consume_the_same_stock(records_api, monkeypatch):

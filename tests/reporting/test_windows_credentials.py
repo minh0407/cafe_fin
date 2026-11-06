@@ -10,8 +10,9 @@ from cafe_fin.core.secrets import WindowsCredentialStore
 from cafe_fin.reporting import models
 from cafe_fin.reporting.sender import dispatch_one
 from cafe_fin.reporting.service import ReportingService
-from conftest import configure, saved
 from sqlalchemy import select
+
+from tests.reporting.conftest import configure, saved
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Genuine Windows credential test")

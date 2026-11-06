@@ -12,11 +12,12 @@ from cafe_fin.reporting import exports, models
 from cafe_fin.reporting.migrations import REPORTS
 from cafe_fin.reporting.service import ReportingService
 from cafe_fin.reporting.sources import BridgeSources, SourceBundle, build_snapshot
-from conftest import preview_command, saved
 from openpyxl import load_workbook
 from pydantic import ValidationError
 from pypdf import PdfReader
 from sqlalchemy.exc import IntegrityError
+
+from tests.reporting.conftest import preview_command, saved
 
 
 def test_vietnam_month_boundary_exact_money_missing_mapping_and_no_cross_book_sum(env):

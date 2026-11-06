@@ -16,7 +16,8 @@ from cafe_fin.reporting import models
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.sender import dispatch_one
 from cafe_fin.reporting.service import ReportingService
-from conftest import TypedSyntheticSource, configure, saved
+
+from tests.reporting.conftest import TypedSyntheticSource, configure, saved
 
 
 def until(predicate, timeout=5):
@@ -172,7 +173,7 @@ from cafe_fin.core.periodic import PeriodicTask
 from cafe_fin.core.runtime import Runtime
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.service import ReportingService
-from conftest import SyntheticSource, MemorySecrets, FakeTransport
+from tests.reporting.conftest import SyntheticSource, MemorySecrets, FakeTransport
 class BlockAfterEffect(FakeTransport):
     def send_text(self, token, group, text):
         with Path(sys.argv[2]).open("x", encoding="utf-8") as stream:
@@ -198,9 +199,7 @@ threading.Event().wait(90)
 """
     root = Path(__file__).resolve().parents[2]
     child_env = os.environ.copy()
-    child_env["PYTHONPATH"] = os.pathsep.join(
-        (str(root / "backend"), str(root / "tests/reporting"))
-    )
+    child_env["PYTHONPATH"] = os.pathsep.join((str(root / "backend"), str(root)))
     child = subprocess.Popen(
         [sys.executable, "-c", code, str(env.root), str(proof)],
         cwd=root,

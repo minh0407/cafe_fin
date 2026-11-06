@@ -3,8 +3,9 @@
 import pytest
 from cafe_fin.accounting.validation import normalize_value
 from cafe_fin.core.errors import CoreError
-from test_import_regressions import account as account
-from test_import_regressions import key
+
+from tests.accounting.test_import_regressions import account as account
+from tests.accounting.test_import_regressions import key
 
 
 def test_formula_templates_recompute_on_crud_and_ignore_display_reorder(account):

@@ -9,7 +9,8 @@ from cafe_fin.core.auth import USERS
 from cafe_fin.core.errors import CoreError
 from sqlalchemy import insert, select
 from sqlalchemy.exc import IntegrityError
-from test_records_api import balances, error, snapshot
+
+from tests.records.test_records_api import balances, error, snapshot
 
 
 @pytest.mark.parametrize("table_name", ["REVISIONS", "MOVEMENTS", "REFERENCES", "LINES"])

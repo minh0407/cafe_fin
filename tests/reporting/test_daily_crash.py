@@ -7,7 +7,8 @@ from pathlib import Path
 from cafe_fin.core.runtime import Runtime
 from cafe_fin.reporting.schedule import list_runs
 from cafe_fin.reporting.service import ReportingService
-from test_daily_generation import setup_auto
+
+from tests.reporting.test_daily_generation import setup_auto
 
 
 def test_process_crash_after_capture_resumes_frozen_snapshot_next_day_without_source_read(env):
@@ -21,7 +22,7 @@ from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.core.runtime import Runtime
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.service import ReportingService
-from conftest import TypedSyntheticSource
+from tests.reporting.conftest import TypedSyntheticSource
 class CrashAfterCapture(ReportingService):
     def preview(self, *args, **kwargs):
         result = super().preview(*args, **kwargs)
@@ -33,9 +34,7 @@ service.tick()
 raise AssertionError("did not crash")
 """
     process_env = os.environ.copy()
-    process_env["PYTHONPATH"] = os.pathsep.join(
-        (str(root / "backend"), str(root / "tests/reporting"))
-    )
+    process_env["PYTHONPATH"] = os.pathsep.join((str(root / "backend"), str(root)))
     result = subprocess.run(
         [sys.executable, "-c", code, str(env.root)],
         env=process_env,

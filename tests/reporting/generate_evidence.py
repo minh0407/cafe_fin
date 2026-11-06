@@ -11,7 +11,8 @@ from cafe_fin.core.runtime import Runtime
 from cafe_fin.reporting import models
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.service import ReportingService
-from conftest import TypedSyntheticSource, saved
+
+from tests.reporting.conftest import TypedSyntheticSource, saved
 
 
 def main():
@@ -26,7 +27,7 @@ def main():
     output = args.output
     output.mkdir(parents=True, exist_ok=True)
     if args.named:
-        from test_display_names import NamedSource
+        from tests.reporting.test_display_names import NamedSource
 
         source = NamedSource()
     else:
