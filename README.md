@@ -6,7 +6,7 @@
 
 Repo đã có core, API local và shell giao diện được điều phối review: số liệu chính xác, migration, serialized writer, tài khoản local, job phục hồi, snapshot import, lưu tệp, sao lưu, mẫu Word/PDF và grid phân trang. [Kiểm tra core increment 01](docs/reviews/CORE_INCREMENT_01.md), [kiểm tra API/UI increment 02](docs/reviews/FOUNDATION_INCREMENT_02.md).
 
-Đây là phần nền tảng đang phát triển. Chưa có ứng dụng nghiệp vụ hoặc bộ cài hoàn chỉnh; chưa công bố tag foundation READY và chưa nghiệm thu production. Các module nghiệp vụ vẫn chờ baseline được điều phối xác nhận theo [gate phát triển và phát hành](docs/adr/20261106_COORDINATION_GATES.md).
+Baseline phát triển được điều phối chốt tại tag `cafe-fin-foundation-ready-v1` để các module nghiệp vụ bắt đầu. [Biên bản freeze](docs/reviews/FOUNDATION_BASELINE_V1.md) ghi bằng chứng và phần còn thiếu. Chưa có ứng dụng nghiệp vụ hoặc bộ cài hoàn chỉnh; chưa nghiệm thu production. Native/Windows sạch vẫn phải qua [gate phát hành](docs/adr/20261106_COORDINATION_GATES.md).
 
 - [Yêu cầu sản phẩm](docs/SPEC.md)
 - [Kiến trúc và quyết định kỹ thuật](docs/ARCHITECTURE.md)
