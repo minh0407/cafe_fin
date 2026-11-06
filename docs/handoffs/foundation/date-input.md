@@ -65,6 +65,18 @@ autofocus and allowClear. Ref forwarding now uses AntD `InputRef` for Form focus
 Calendar opening/navigation does not mutate the date; choosing a day emits its
 ISO string. Calendar/clear buttons are non-submit buttons and respect disabled.
 
+Disabled behavior uses the public pinned AntD
+`ConfigProvider.useConfig().componentDisabled` and the standard precedence
+`props.disabled ?? componentDisabled`. Thus `Form disabled` locks the input and
+calendar together even without an explicit DateInput prop. Disabling closes an
+already open popup, blocks pending calendar selection/text changes and clear,
+and does not emit or mutate the field. Re-enabling starts with the popup closed.
+An explicit `disabled={false}` consistently overrides disabled context, as in
+AntD's built-in Input; the calendar header also receives that resolved context.
+Callbacks retained by a hidden Popover consult the latest disabled ref, so a
+queued click from its previously open day cell cannot mutate a disabled Form.
+This changes no DateInput value/rule API.
+
 No app/main, registry, feature code, package files or real-api browser tests were
 modified. Lanes must adopt the rule/submit guard together with the component.
 
@@ -88,9 +100,12 @@ produce no request; correction sends the new ISO, not the old one. A genuinely
 cleared optional value submits `''`; typing invalid text afterwards cannot submit
 another empty value.
 
-- `npx playwright test tests/date-input.spec.ts --workers=1`: **11 PASS**,
+- `npx playwright test tests/date-input.spec.ts --workers=1`: **13 PASS**,
   Chromium, including the actual Form/HTTP-payload regressions and keyboard
-  month/year calendar navigation.
+  month/year calendar navigation. The two disabled-context regressions toggle a
+  real Form while its calendar is open, exercise a queued former-popup click,
+  verify no changes while disabled and re-enable, and verify explicit false
+  overrides the Form for both text and calendar header navigation.
 - `npm run typecheck`: **PASS**.
 - Independent read-only review found no new blocker in the controlled-draft model.
 
