@@ -6,7 +6,8 @@ cherry-picked unchanged: root57a2ed26 ->0da9c87 (read bridge v2), root22ca5431
 The coordinator already owns those originals; do not apply the copies twice.
 
 PASS: `.venv/Scripts/python.exe -m pytest tests/accounting tests/core -q`:
-**438 passed**, no SKIP/XFAIL/FAIL,126.41s. One existing Starlette/httpx deprecation
+**465 passed**, no SKIP/XFAIL/FAIL,126.60s on 2026-11-07 after the nullable-schema
+compatibility and bounded duplicate-query changes. One existing Starlette/httpx deprecation
 warning remains. Ruff PASS; scoped Git whitespace check PASS.
 
 The full run includes real file-backed WAL databases, real worker/foreground
@@ -17,6 +18,13 @@ chunk receipts/checkpoints, actual os._exit subprocess crashes and restart/resum
 schema locks during retained attempts, additive upgrade/checksum rejection,
 same-day/inclusive periods, v2 null-vs-known meanings, exact Decimal totals,
 row/chunk budgets and cooperative XML/SST/CSV cancellation.
+
+The latest run also covers nullable additions with historical null fields,
+keep/confirm and final live business-key rechecks, create/update/restore against
+equivalent historical values, rejection of nonblank conflicting values, locked
+duplicate-rule changes, bounded exact-pair result groups, unused pre-data schemas,
+display-revision grouping and real accounting migration 1→2 preservation of
+rows, original bytes/hash, audit and the applied migration-1 checksum.
 
 Parser cancellation now receives the trusted JobContext callback through both
 manifest and iterator scans, including skipped/hidden rows and shared strings.

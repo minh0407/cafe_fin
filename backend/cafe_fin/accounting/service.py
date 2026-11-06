@@ -27,6 +27,7 @@ from cafe_fin.core.jobs import JOBS
 from cafe_fin.core.time import utc_now
 
 from . import schema as s
+from .duplicate_compatibility import same_values
 from .validation import check_row_budget, fingerprint, normalize_schema, normalize_value
 
 BUSY = {"PARSING", "VALIDATING", "COMMITTING", "UPLOADED"}
@@ -425,6 +426,16 @@ class AccountingService:
                 select(s.batches.c.id).where(s.batches.c.book_id == book_id).limit(1)
             ).first()
             if occupied or staged:
+                previous_meaning = json.loads(old["semantics_json"])
+                if any(
+                    meaning.get(rule, []) != previous_meaning.get(rule, [])
+                    for rule in ("duplicate_columns", "business_key_columns")
+                ):
+                    raise CoreError(
+                        "SCHEMA_DUPLICATE_RULES_LOCKED",
+                        "Sổ có dữ liệu hoặc staging: thay khóa so trùng cần tác vụ lập lại chỉ mục đã kiểm. Chưa hỗ trợ đổi cấu hình này tại chỗ.",
+                        409,
+                    )
                 current = {c["id"]: c for c in configured}
                 for col in previous:
                     new = current.get(col["id"])
@@ -680,7 +691,9 @@ class AccountingService:
                 updated_at=now,
                 deleted_at=None,
             )
-            self._check_business_key(conn, book_id, data["business_key"], None, data["fingerprint"])
+            self._check_business_key(
+                conn, book, data["business_key"], None, data["fingerprint"], typed
+            )
             conn.execute(insert(s.entries).values(**data))
             if json.loads(book["columns_json"]):
                 conn.execute(
@@ -701,17 +714,22 @@ class AccountingService:
         )
 
     @staticmethod
-    def _check_business_key(conn, book_id, key, row_id, row_fingerprint):
+    def _check_business_key(conn, book, key, row_id, row_fingerprint, values):
         if (
             key
             and conn.execute(
                 select(s.entries.c.id)
                 .where(
-                    s.entries.c.book_id == book_id,
+                    s.entries.c.book_id == book["id"],
                     s.entries.c.business_key == key,
                     s.entries.c.deleted_at.is_(None),
                     s.entries.c.id != (row_id or ""),
                     s.entries.c.fingerprint != row_fingerprint,
+                    ~same_values(
+                        s.entries.c.values_json,
+                        canonical_json(values),
+                        json.loads(book["columns_json"]),
+                    ),
                     visible(),
                 )
                 .limit(1)
@@ -756,6 +774,7 @@ class AccountingService:
                         }
                 formulas = preserved | formulas
                 revised.update(
+                    schema_revision=book["schema_revision"],
                     values_json=canonical_json(typed),
                     formulas_json=canonical_json(formulas),
                     fingerprint=fingerprint(typed),
@@ -763,7 +782,7 @@ class AccountingService:
                     business_key=fingerprint(typed, semantic.get("business_key_columns", [])),
                 )
                 self._check_business_key(
-                    conn, book["id"], revised["business_key"], row_id, revised["fingerprint"]
+                    conn, book, revised["business_key"], row_id, revised["fingerprint"], typed
                 )
                 conn.execute(delete(s.cells).where(s.cells.c.row_id == row_id))
                 if json.loads(book["columns_json"]):
@@ -775,7 +794,12 @@ class AccountingService:
                 revised["deleted_at"] = utc_now() if action == "delete" else None
                 if action == "restore":
                     self._check_business_key(
-                        conn, book["id"], revised["business_key"], row_id, revised["fingerprint"]
+                        conn,
+                        book,
+                        revised["business_key"],
+                        row_id,
+                        revised["fingerprint"],
+                        json.loads(revised["values_json"]),
                     )
             else:
                 raise CoreError("ACTION_INVALID", "Thao tác không được hỗ trợ.")

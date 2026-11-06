@@ -281,17 +281,27 @@ def module_manifest():
         # Detail is bounded; exact matching stays a warning unless explicit business key.
         with service.rt.reader() as conn:
             batch = _batch(conn, batch_id, actor)
+            from .duplicate_compatibility import historical_shapes, projected_fingerprints
             from .service import effective_decision, published_target, stage_dto, visible
 
+            old_shapes = historical_shapes(conn, _book(conn, batch["book_id"]))
             for row in result["items"]:
                 keys = conn.execute(
-                    select(s.stage.c.fingerprint, s.stage.c.candidate_key).where(
-                        s.stage.c.batch_id == batch_id, s.stage.c.row_id == row["row_id"]
-                    )
+                    select(
+                        s.stage.c.fingerprint,
+                        s.stage.c.candidate_key,
+                        s.stage.c.business_key,
+                        s.stage.c.typed_json,
+                    ).where(s.stage.c.batch_id == batch_id, s.stage.c.row_id == row["row_id"])
                 ).one()
                 pred = s.entries.c.fingerprint == keys.fingerprint
+                old_fps = tuple(projected_fingerprints(json.loads(keys.typed_json), old_shapes))
+                if old_fps:
+                    pred |= s.entries.c.fingerprint.in_(old_fps)
                 if keys.candidate_key:
                     pred |= s.entries.c.candidate_key == keys.candidate_key
+                if keys.business_key:
+                    pred |= s.entries.c.business_key == keys.business_key
                 matches = conn.execute(
                     select(s.entries)
                     .where(
@@ -306,6 +316,8 @@ def module_manifest():
                 file_pred = s.stage.c.fingerprint == keys.fingerprint
                 if keys.candidate_key:
                     file_pred |= s.stage.c.candidate_key == keys.candidate_key
+                if keys.business_key:
+                    file_pred |= s.stage.c.business_key == keys.business_key
                 peers = conn.execute(
                     select(
                         *[c for c in s.stage.c if c.name not in ("target_id", "decision")],

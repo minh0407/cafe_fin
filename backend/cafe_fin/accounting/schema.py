@@ -211,6 +211,19 @@ tasks = Table(
     Column("created_at", String, nullable=False),
 )
 
+# Additive raw DDL deliberately stays outside `metadata`: changing that object
+# would change the already-published migration-1 checksum and its create_all.
+_DUPLICATE_INDEX_SQL = (
+    "CREATE INDEX accounting_stage_business_fp ON accounting_staged_rows (batch_id, business_key, fingerprint)",
+    "CREATE INDEX accounting_entry_business_fp ON accounting_entries (book_id, business_key, fingerprint)",
+)
+
+
+def _duplicate_pair_indexes(conn):
+    for statement in _DUPLICATE_INDEX_SQL:
+        conn.exec_driver_sql(statement)
+
+
 MIGRATIONS = (
     Migration(
         "accounting",
@@ -218,5 +231,12 @@ MIGRATIONS = (
         "independent_books_staging_lineage",
         metadata.create_all,
         checksum=schema_checksum(metadata),
+    ),
+    Migration(
+        "accounting",
+        2,
+        "bounded_duplicate_pair_indexes",
+        _duplicate_pair_indexes,
+        checksum=schema_checksum(MetaData(), _DUPLICATE_INDEX_SQL),
     ),
 )

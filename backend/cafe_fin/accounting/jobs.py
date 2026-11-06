@@ -8,7 +8,7 @@ import os
 import time
 from decimal import Decimal
 
-from sqlalchemy import bindparam, func, insert, select, update
+from sqlalchemy import bindparam, func, insert, select, tuple_, update
 
 from cafe_fin.core.auth import Principal
 from cafe_fin.core.db import canonical_json
@@ -18,12 +18,12 @@ from cafe_fin.core.imports import (
     manifest_rows,
     manifests,
     receipts,
-    visibility_predicate,
 )
 from cafe_fin.core.time import utc_now
 
 from . import parsers
 from . import schema as s
+from .duplicate_compatibility import historical_counts, historical_shapes, same_values
 from .exporting import write_xlsx
 from .service import (
     ATTEMPTS,
@@ -350,6 +350,8 @@ class AccountingJobs:
         if payload["revision"] != batch["revision"]:
             raise CoreError("VALIDATION_STALE", "Revision kiểm tra đã thay đổi.", 409)
         semantic = json.loads(book["semantics_json"])
+        with self.rt.reader() as conn:
+            old_shapes = historical_shapes(conn, book)
         checkpoint = context.checkpoint()
         last = checkpoint.get("last", "") if checkpoint.get("phase") == "normalize" else ""
         normalized = checkpoint.get("normalized", 0)
@@ -486,7 +488,15 @@ class AccountingJobs:
                 if not rows:
                     break
                 matches = {}
+                old_exact = historical_counts(conn, book["id"], rows, old_shapes, visible())
                 business_exact_file, business_exact_db = {}, {}
+                business_pairs = sorted(
+                    {
+                        (row.business_key, row.fingerprint)
+                        for row in rows
+                        if row.business_key and row.fingerprint
+                    }
+                )
                 for field in ("fingerprint", "candidate_key", "business_key"):
                     keys = {r[field] for r in rows if r[field]}
                     extra = [published_target().is_(None)]
@@ -529,6 +539,9 @@ class AccountingJobs:
                         else {}
                     )
                     matches[field] = (stage_counts, db_counts)
+                    if field == "fingerprint":
+                        for key, count in old_exact.items():
+                            db_counts[key] = db_counts.get(key, 0) + count
                     if field == "business_key" and keys:
                         business_exact_file = {
                             (key, fp): n
@@ -537,6 +550,9 @@ class AccountingJobs:
                                 .where(
                                     s.stage.c.batch_id == batch_id,
                                     s.stage.c.business_key.in_(keys),
+                                    tuple_(s.stage.c.business_key, s.stage.c.fingerprint).in_(
+                                        business_pairs
+                                    ),
                                     *extra,
                                 )
                                 .group_by(s.stage.c.business_key, s.stage.c.fingerprint)
@@ -551,12 +567,19 @@ class AccountingJobs:
                                 .where(
                                     s.entries.c.book_id == book["id"],
                                     s.entries.c.business_key.in_(keys),
+                                    tuple_(s.entries.c.business_key, s.entries.c.fingerprint).in_(
+                                        business_pairs
+                                    ),
                                     s.entries.c.deleted_at.is_(None),
                                     visible(),
                                 )
                                 .group_by(s.entries.c.business_key, s.entries.c.fingerprint)
                             )
                         }
+                        for key, fp in business_pairs:
+                            business_exact_db[(key, fp)] = business_exact_db.get(
+                                (key, fp), 0
+                            ) + old_exact.get(fp, 0)
                 revised = []
                 for row in rows:
                     duplicates, conflict = 0, False
@@ -916,24 +939,53 @@ class AccountingJobs:
             if current["schema_revision"] != pins["schema_revision"]:
                 raise CoreError("SCHEMA_STALE", "Schema đổi trong lúc import; không công bố.", 409)
             # Recheck explicit keys against live published CRUD, set-wise before publication.
-            own = s.entries.alias("own")
-            prior = s.entries.alias("prior")
+            # Collapse identical payloads before checking cross-schema values.
+            # A repeated exact row on either side must not create an N x M join.
+            own_groups = (
+                select(
+                    s.entries.c.business_key,
+                    s.entries.c.fingerprint,
+                    func.min(s.entries.c.id).label("row_id"),
+                )
+                .where(
+                    s.entries.c.import_attempt_id == attempt_id,
+                    s.entries.c.business_key.is_not(None),
+                )
+                .group_by(s.entries.c.business_key, s.entries.c.fingerprint)
+                .subquery("own_keys")
+            )
+            prior_groups = (
+                select(
+                    s.entries.c.business_key,
+                    s.entries.c.fingerprint,
+                    func.min(s.entries.c.id).label("row_id"),
+                )
+                .where(
+                    s.entries.c.book_id == book["id"],
+                    s.entries.c.business_key.in_(select(own_groups.c.business_key)),
+                    s.entries.c.deleted_at.is_(None),
+                    visible(),
+                )
+                .group_by(s.entries.c.business_key, s.entries.c.fingerprint)
+                .subquery("prior_keys")
+            )
+            own = s.entries.alias("own_representative")
+            prior = s.entries.alias("prior_representative")
             conflicts = conn.execute(
                 select(own.c.id)
                 .select_from(
-                    own.join(
-                        prior,
-                        (own.c.business_key == prior.c.business_key)
-                        & (own.c.book_id == prior.c.book_id),
+                    own_groups.join(
+                        prior_groups,
+                        (own_groups.c.business_key == prior_groups.c.business_key)
+                        & (own_groups.c.fingerprint != prior_groups.c.fingerprint),
                     )
+                    .join(own, own.c.id == own_groups.c.row_id)
+                    .join(prior, prior.c.id == prior_groups.c.row_id)
                 )
                 .where(
-                    own.c.import_attempt_id == attempt_id,
-                    own.c.business_key.is_not(None),
-                    prior.c.import_attempt_id.is_distinct_from(attempt_id),
-                    prior.c.deleted_at.is_(None),
-                    own.c.fingerprint != prior.c.fingerprint,
-                    visibility_predicate(prior.c.import_attempt_id),
+                    ~same_values(
+                        own.c.values_json, prior.c.values_json, json.loads(book["columns_json"])
+                    ),
                 )
                 .limit(1)
             ).first()

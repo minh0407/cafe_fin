@@ -116,3 +116,41 @@ Output khi được chạy: `frontend/test-results/accounting-bulk-real/.../bulk
 - PASS strict typecheck. PASS mock/helper mục tiêu: 501 ô đòi lựa chọn rõ, upload body bytes đúng, create-job chỉ chứa file ID/profile/key; không JSON rows/IDs; staging page có giới hạn, không tự publish; staging paste tạo lựa chọn batch mới; discard làm nút upload disabled; draft và actor isolation; paste nhỏ off-page tiếp tục bị chặn; đúng 500 ô có newline cuối vẫn được parse.
 - PASS real HTTP/auth/FileStore/jobs flow mở rộng **23,6 giây** (tổng suite 25,5 giây), chạy trước timed 1m: paste **1.000 dòng** từ grid → lựa chọn → CSV/tab/header0/UTF8 → lưu gốc; download bằng bytes khớp nguyên clipboard; mapping ban đầu `{}`; mapping/validate 1.000 dòng, mỗi staging response/UI page 200, published vẫn 0, sổ vẫn đúng 4 dòng ban đầu. Đây là bằng chứng luồng clipboard nhỏ có staging thật, không phải benchmark 1m.
 - Không sửa backend/runner hoặc thêm dependency. Không chạy bulk UI 1m trong lượt này; vẫn chờ CSV1m/XLSX và clone riêng như gate ở trên.
+
+## Helper clone + Admin tổng hợp cho bulk UI — PREPARED, NOT RUN
+
+Đường dẫn: `tests/accounting/ui/prepare_bulk_clone.py`. Chỉ chuẩn bị script trong khi Frozen033 CSV1m còn chạy; **không gọi script, không hash DB, không mở SQLite/Runtime nguồn, không clone và không khởi động browser ở lượt chuẩn bị này**. Script chưa được chạy/smoke-test; chưa có clone hoặc credential mới nào được tạo bởi lượt này. Không sửa backend hoặc benchmark runner frozen.
+
+Sau khi điều phối xác nhận result **PASS**, CSV Runtime/process đã đóng và không có phép đo timed khác bị ảnh hưởng bởi I/O clone, chạy từ accounting worktree:
+
+```powershell
+$env:PYTHONPATH = Join-Path (Get-Location) 'backend'
+$env:CAFE_FIN_BULK_PASSWORD = '<mật khẩu MỚI tổng hợp, 10..128 ký tự, chỉ dùng trên clone>'
+$prepared = & .\.venv\Scripts\python.exe tests/accounting/ui/prepare_bulk_clone.py `
+  --result "$env:TEMP\cafe-fin-frozen-20261106-<Frozen033 run>\<csv-1m-result.json>" `
+  --runtime-closed --username bulk-ui-admin | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $prepared.status -ne 'PASS') { throw 'Clone preparation failed; do not start bulk UI.' }
+. $prepared.activate
+```
+
+`--book <UUID>` tùy chọn nếu không chỉ có duy nhất một sổ đúng 1m dòng; `--root <thư mục MỚI dưới Temp\cafe-fin-bulk-ui-*\...>` tùy chọn, mặc định script tự tạo parent bằng `mkdtemp`. Không dùng root đã có dữ liệu. `--code-column code` là mặc định. Giữ **cùng** `CAFE_FIN_BULK_PASSWORD` trong shell để login browser sau này. Mật khẩu không nằm trong argv, JSON report, stdout hoặc env-activation file; script không in token/password hash.
+
+Các kiểm tra và thao tác chuẩn bị khi thật sự được gọi:
+
+1. Từ chối ngay nếu result chưa PASS hoặc fixture/final reconciliation chưa đủ 1.000.000 published. Source path phải nằm dưới Temp `cafe-fin-frozen-20261106...`; clone phải dưới Temp `cafe-fin-bulk-ui-*`, độc lập storage/file identity, không hard link.
+2. Giữ OS lock byte 0 của `.instance.lock` đã tồn tại trong source để chứng minh Runtime không còn giữ lock và ngăn Runtime hợp tác mở lại trong lúc copy. Handle chỉ lock/unlock, không ghi/truncate/create lock file. WAL nguồn phải vắng hoặc rỗng; script không checkpoint hay sửa nguồn để vượt gate.
+3. Ghi SHA-256/size/mtime_ns DB nguồn trước; dùng SQLite URI `mode=ro&immutable=1` và API `backup()` sang DB mới. Không mở Runtime hoặc writer trên nguồn. Kiểm integrity/foreign keys của DB clone; tạo đủ LAYOUT và copy marker cùng mọi immutable file được `core_files` tham chiếu, đối chiếu size/SHA-256. Không copy WAL/shm/lock/log đang hoạt động.
+4. Stream digest từng dòng của accounting books/schema/entries (batch đọc 256; không giữ triệu dòng), so sánh nguồn với clone. Tạo Runtime **clone** nhưng không gọi `Runtime.start`, nên không chạy/recover job.
+5. Đọc public fields của một active Admin từ **clone**, dựng trusted Principal cho bootstrap được giao, gọi public `runtime.auth.create_user(..., role='admin')`. Không sửa/reset user cũ; so snapshot xác nhận credential/user cũ nguyên vẹn và chỉ thêm một user. Kiểm audit create, public login/authenticate của user mới rồi logout. Browser sau đó vẫn login bình thường qua HTTP auth production.
+6. Đóng clone Runtime, so digest accounting clone trước/sau auth; kiểm result JSON không đổi và DB nguồn SHA-256/size/mtime_ns trước/sau trùng hoàn toàn. Không xóa source hay clone khi lỗi; partial clone/report FAIL được giữ cho điều phối kiểm tra.
+
+Khi PASS, stdout trả `clone_root`, `book_id`, username, đường dẫn `clone-preparation.json` và `activate-bulk-env.ps1` trong parent clone. Dot-source activation file đặt chính xác `CAFE_FIN_BULK_ROOT`, `CAFE_FIN_BULK_RESULT`, `CAFE_FIN_BULK_BOOK`, `CAFE_FIN_BULK_USERNAME`, `CAFE_FIN_BULK_CODE_COLUMN`, `CAFE_FIN_BULK_READY=1`; password vẫn lấy từ env đã đặt. Chỉ sau các gate CSV/XLSX và quyền chạy UI của điều phối mới gọi riêng lệnh Playwright bulk đã nêu; helper không tự khởi động browser.
+
+### Kiểm tra tĩnh sau baseline033 PASS, chưa được cấp heavy slot
+
+- PASS `python -m py_compile tests/accounting/ui/prepare_bulk_clone.py`; PASS Ruff sau sửa thứ tự import trong đúng helper (không sửa backend/runner).
+- PASS strict TypeScript compile ba file bulk spec/config/Vite config. Sửa annotation `ViteDevServer` trong config test để tránh implicit-any; không đổi hành vi.
+- PASS parse-only embedded browser module bằng esbuild; không thực thi module hoặc khởi động Vite/browser.
+- PASS `playwright test --config=tests/accounting/ui/bulk-real.config.ts --list`: đúng một test bulk được nhận diện; list-only không chạy test, server, clone hoặc auth.
+- PASS frontend `npm run build` (bao gồm typecheck). Shared registry vẫn thuộc điều phối; bundle hiện tại chưa chứng minh feature accounting được đăng ký trong sản phẩm, như caveat build ở trên. Warning chunk >500 kB của baseline vẫn có.
+- **NOT RUN** helper trên dữ liệu thật/clone, SQLite backup/hash trên baseline, migration2 của clone, bootstrap Admin, browser hoặc phép đo 1m UI. Chờ điều phối release heavy slot sau full backend regression; Frozen033 source evidence chưa bị mở/sửa bởi lane UI.

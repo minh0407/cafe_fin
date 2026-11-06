@@ -48,10 +48,15 @@ Coordinator owns applying it and preserving other lane registrations. Approved
 root22ca543/48858654 are already cherry-picked as59d94da/1be5a0f; scope checks now
 assert403 directly without XFAIL, and structured cell errors reach the UI.
 
-`accounting.module.module_manifest()` exports namespace migration `accounting:1`,
+`accounting.module.module_manifest()` exports namespace migrations `accounting:1..2`,
 router, permissions, four resumable job handlers and startup recovery/outbox hook.
 DDL/checksum is in `schema.py`; never alter an applied migration after integration.
 Future changes append migrations. No down/drop/truncate/reset operation exists.
+Migration 2 adds non-unique composite duplicate indexes without changing the
+migration-1 checksum. Duplicate/business-key rules cannot change once a book has
+entries or staging; changing them requires a verified reindex workflow or a new
+book. Nullable column additions preserve duplicate identity against historical
+column shapes while retaining original row values and fingerprints unchanged.
 Application rollback to a build without this namespace must refuse newer schema;
 restore a verified backup into a separate root or keep the compatible application.
 Tests use fresh synthetic roots; no production migration or real data was touched.

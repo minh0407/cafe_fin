@@ -1,4 +1,4 @@
-import { mergeConfig } from '../../../frontend/node_modules/vite';
+import { mergeConfig, type ViteDevServer } from '../../../frontend/node_modules/vite';
 import base from '../../../frontend/vite.config';
 
 // Test-owned HTML; production source and API responses are served unchanged.
@@ -28,7 +28,7 @@ const html = `<!doctype html><html lang="vi"><head><meta charset="UTF-8"><title>
 export default mergeConfig(base, {
   plugins: [{
     name: 'accounting-bulk-isolated-harness',
-    configureServer(server) {
+    configureServer(server: ViteDevServer) {
       server.middlewares.use('/__accounting_bulk_harness', async (_request, response, next) => {
         try {
           const transformed = await server.transformIndexHtml('/__accounting_bulk_harness', html);

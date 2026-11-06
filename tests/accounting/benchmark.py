@@ -373,7 +373,10 @@ def run(args, measurements):
             session = runtime.auth.setup('benchmark-admin', password)
             actor = runtime.auth.authenticate(session['access_token'])
             service = AccountingService(runtime)
-            book = service.create_book(actor, 'Synthetic benchmark', COLUMNS, SEMANTICS, key())
+            semantics = dict(SEMANTICS)
+            if args.business_key_columns:
+                semantics['business_key_columns'] = list(args.business_key_columns)
+            book = service.create_book(actor, 'Synthetic benchmark', COLUMNS, semantics, key())
             probe_book = service.create_book(actor, 'Foreground probe', COLUMNS, SEMANTICS, key())
             probe_row = service.create_row(actor, probe_book['id'], dict(zip(MAPPING, record_for(7), strict=True)), key())
 
@@ -507,9 +510,13 @@ def main():
     parser.add_argument('--root', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--skip-second-pass', action='store_true')
+    parser.add_argument('--business-key-columns', nargs='+', choices=[column['id'] for column in COLUMNS],
+        default=[], help='Explicit stable column IDs for the primary book; use code for exact-pair fixture.')
     args = parser.parse_args()
     if not 2 <= args.rows <= 1_000_000:
         parser.error('--rows must be between 2 and 1000000')
+    if len(args.business_key_columns) != len(set(args.business_key_columns)):
+        parser.error('--business-key-columns must not repeat a stable column ID')
     default_parent = Path(tempfile.mkdtemp(prefix='cafe-fin-benchmark-')) if args.root is None else None
     args.root = (args.root or default_parent / 'data').resolve()
     args.output = (args.output or args.root.with_name(args.root.name + '-result.json')).resolve()
@@ -522,6 +529,9 @@ def main():
         parser.error('Output/fixture already exists; use a fresh benchmark directory')
     args.root.parent.mkdir(parents=True, exist_ok=True)
     measurements = Measurements(args.root, args.output)
+    measurements.result['scenario'] = dict(
+        name='explicit_business_key' if args.business_key_columns else 'no_business_key',
+        business_key_columns=list(args.business_key_columns))
     measurements.result['environment'] = dict(python=sys.version, platform=platform.platform(),
         architecture=platform.machine(), cpu_logical=os.cpu_count(), sqlite=sqlite3.sqlite_version,
         chunk_rows=CHUNK, page_rows=PAGE, ui_cache_rows='NOT RUN: no UI',
