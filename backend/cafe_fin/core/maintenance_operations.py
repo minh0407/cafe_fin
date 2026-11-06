@@ -309,6 +309,13 @@ class MaintenanceOperations:
                 }
             return complete
 
+    def authorize_source_identity(self, access_token):
+        """Read the current physical binding before native persists transition intent."""
+        with self.runtime._lifecycle_lock:
+            authorize_current(self.runtime, access_token)
+            _, fingerprint, root_id = self._source()
+            return {"root_id": root_id, "source_fingerprint": fingerprint}
+
     def authorize_open_reports(self, access_token):
         with self.runtime._lifecycle_lock:
             authorize_current(self.runtime, access_token, "reporting.read")

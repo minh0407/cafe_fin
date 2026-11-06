@@ -66,11 +66,38 @@ private memory only; they are authenticated by the target core on every operatio
 | maintenance.activate | operation_id, origin_generation | MaintenanceOperations.activate |
 | maintenance.close | operation_id, origin_generation | authorize_close, then verified teardown |
 | reports.authorize_open | none | authorize_open_reports, current reporting.read |
+| maintenance.source_identity | none | authorize_source_identity, current core.manage Admin |
 
 kind is backup/move/restore. Preparation destination is the native-selected final
 child path from native-ui-contract-v1.md, not a renderer-supplied path. Restore
 requires backup_source; other kinds reject that field even when null. Reports
 opening accepts no operation ID, path, actor, role or root identity.
+
+Additive source identity command (no boot-field changes) supplies the current
+physical source binding before native writes its journal INTENT and requests
+quiescence. It does not need a preexisting operation/intent and creates none:
+
+```json
+{"maintenance_protocol":1,"request_id":"<fresh canonical UUID>","generation":"<current child UUID>","command":"maintenance.source_identity","access_token":"<current Admin token>"}
+```
+
+It extends Control directly, so operation_id, origin_generation, paths and input
+identity/role fields are forbidden. Core freshly authenticates and checks current
+core.manage under the Runtime lifecycle lock and serialized authorization fence,
+then validates the canonical opened root. Public Python method
+`MaintenanceOperations.authorize_source_identity(access_token)` returns only
+root_id and source_fingerprint. Its bounded private response is exactly:
+
+```json
+{"maintenance_protocol":1,"request_id":"<matching UUID>","generation":"<current child UUID>","status":"ok","state":"ACTIVE","runtime_state":"ACTIVE","root_id":"<lineage UUID>","source_fingerprint":"<opaque core fingerprint>"}
+```
+
+state/runtime_state always reflect the actual admission state, including DORMANT
+when applicable. The same current-generation and fresh recent-window nonce checks
+apply. Operator, revoked or logged-out users receive no source identity. The call
+does not mutate DB/files, create an intent/receipt/login, freeze admission or grant
+permission. Native stores the returned binding in its own durable journal before
+quiesce; native must not hash path spellings itself or call a private core helper.
 
 The child serializes commands. It rejects a stale generation without invoking a
 core operation or consuming the current-generation nonce namespace. A current-
@@ -145,6 +172,20 @@ integration cases. No fake method result is presented as filesystem acceptance.
 
 Final transport validation: **28 PASS, 30.28 seconds**, scoped Ruff lint/format and whitespace checks PASS. The bounded recent-window test executes over 8192 distinct safe dispatcher commands, rejects a recent duplicate, rechecks authorization after eviction, and keeps close callable. A separate current-policy test proves reports opening uses fresh reporting.read rather than an Admin-only shortcut. Error projection preserves a whitelisted operation FAILED_HELD state while runtime_state still reflects the actual admission gate. The actual-backup child uses a two-entry test window to prove an evicted wire ID replays the same verified core artifact and cannot bypass a logged-out token. It does not substitute a filesystem result. Earlier combined protocol + existing API/sidecar/file-transfer/recovery regression was **44 PASS, 55.11 seconds** before the final recent-window and unexpected-BaseException hardening; the final 28-case transport suite was rerun after both changes. The existing nineteen HTTP regression cases were not repeated for the private-window-only change. No commit/push
 or native/UI/activation/operations source edits belong to this transport increment.
+
+Additive source-identity validation: **39 focused cases PASS in 34.42 seconds**
+(`test_source_identity.py` plus the 28-case transport suite). Real current Admin
+reads leave all SQLite rows, data-file hashes, sessions, admission and the live
+exclusive root lease unchanged. Operator, revoked/logged-out token, stale generation
+and repeated recent nonce are denied; schema probes reject operation/origin/path/
+identity inputs. The real child flow now obtains source identity before preparing
+a verified backup and matching CLOSED plus exit 0, and checks the prepared source
+UUID/fingerprint match the earlier identity. Scoped Ruff lint/format and whitespace
+checks pass. Evidence XML/log is outside Git as `source-identity-20261107.{xml,txt}`.
+
+```powershell
+.venv/Scripts/python.exe -m pytest tests/core/test_source_identity.py tests/core/test_maintenance_protocol.py -q -p no:cacheprovider
+```
 
 
 

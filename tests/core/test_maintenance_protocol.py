@@ -41,7 +41,7 @@ def envelope(generation, command="reports.authorize_open", **fields):
         "command": command,
         "access_token": "SYNTHETIC-private-token",
     }
-    if command != "reports.authorize_open":
+    if command not in ("reports.authorize_open", "maintenance.source_identity"):
         value.update(operation_id=str(uuid4()), origin_generation=generation)
     return value | fields
 
@@ -298,6 +298,18 @@ def test_real_backup_status_reports_permissions_nonce_revocation_and_clean_close
         assert child.boot["maintenance_protocol"] == 1 and child.boot["runtime_state"] == "ACTIVE"
         with httpx.Client(trust_env=False, timeout=10) as client:
             token = login(client, child, setup=True)
+            source_identity = child.control("maintenance.source_identity", token)
+            assert set(source_identity) == {
+                "maintenance_protocol",
+                "request_id",
+                "generation",
+                "status",
+                "state",
+                "runtime_state",
+                "root_id",
+                "source_fingerprint",
+            }
+            assert source_identity["state"] == source_identity["runtime_state"] == "ACTIVE"
             headers = {"X-App-Session": TOKEN, "Authorization": "Bearer " + token}
             client.post(
                 child.base + "/users",
@@ -350,6 +362,8 @@ def test_real_backup_status_reports_permissions_nonce_revocation_and_clean_close
             child.send(prepare_request)
             prepared = child.read()
             assert prepared["state"] == "PREPARED", prepared
+            assert prepared["source_root_id"] == source_identity["root_id"]
+            assert prepared["source_fingerprint"] == source_identity["source_fingerprint"]
             assert len(prepared["manifest_sha256"]) == 64 and destination.is_dir()
             for _ in range(2):
                 assert child.control("reports.authorize_open", token)["allowed"]

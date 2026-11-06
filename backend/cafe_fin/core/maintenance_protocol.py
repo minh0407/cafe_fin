@@ -173,9 +173,14 @@ class OpenReports(Control):
     command: Literal["reports.authorize_open"]
 
 
+class SourceIdentity(Control):
+    command: Literal["maintenance.source_identity"]
+
+
 COMMAND = TypeAdapter(
     Annotated[
-        Quiesce | Prepare | Status | Activate | Close | OpenReports, Field(discriminator="command")
+        Quiesce | Prepare | Status | Activate | Close | OpenReports | SourceIdentity,
+        Field(discriminator="command"),
     ]
 )
 
@@ -319,6 +324,8 @@ class ControlDispatcher:
                     self._seen.popitem(last=False)
                 if isinstance(request, OpenReports):
                     result = self.operations.authorize_open_reports(request.access_token)
+                elif isinstance(request, SourceIdentity):
+                    result = self.operations.authorize_source_identity(request.access_token)
                 elif isinstance(request, Quiesce):
                     result = self.runtime.quiesce(
                         request.operation_id, access_token=request.access_token
