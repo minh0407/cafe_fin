@@ -173,6 +173,7 @@ test("create surfaces field errors, preserves password bytes, and edits use the 
   expect(state.commands.at(-1)!.body).toMatchObject({ expected_version: 1, role: "admin", active: false });
   await page.getByRole("button", { name: "Đóng", exact: true }).click();
   await page.getByRole("button", { name: "Tải lại danh sách", exact: true }).click();
+  await expect(page.getByRole("row").filter({ hasText: "new-operator" }).getByRole("cell", { name: "2", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Sửa tài khoản new-operator", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("Phiên bản 2.");
   await choose(page, "Vai trò sửa tài khoản", "Admin");

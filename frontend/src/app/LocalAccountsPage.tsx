@@ -187,7 +187,7 @@ function LocalAccountsWorkspace() {
         <Input.Search aria-label="Tìm tài khoản" placeholder="Tìm tên đăng nhập" maxLength={128} allowClear onSearch={(value) => { setSearch(value); setPage(1); }} />
         <Select aria-label="Lọc vai trò tài khoản" placeholder="Mọi vai trò" allowClear value={role} options={roles} style={{ width: 160 }} onChange={(value) => { setRole(value); setPage(1); }} />
         <Select aria-label="Lọc trạng thái tài khoản" placeholder="Mọi trạng thái" allowClear value={active} options={[{ value: "true", label: "Đang hoạt động" }, { value: "false", label: "Đã khóa" }]} style={{ width: 160 }} onChange={(value) => { setActive(value); setPage(1); }} />
-        <Button onClick={() => setReload((value) => value + 1)} loading={reading}>Tải lại danh sách</Button>
+        <Button aria-label="Tải lại danh sách" onClick={() => setReload((value) => value + 1)} loading={reading}>Tải lại danh sách</Button>
       </Space>
       <ErrorNotice error={readError} />
       <Table<LocalAccount> rowKey="id" size="small" loading={reading} dataSource={listing?.items ?? []}

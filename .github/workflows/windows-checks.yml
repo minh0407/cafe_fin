@@ -77,9 +77,10 @@ jobs:
           $featureConfigs = @(Get-ChildItem -LiteralPath 'tests' -Filter 'playwright.config.*' -File -Recurse | Sort-Object FullName)
           # The accounting real-API workflow is a separate bounded configuration;
           # million-row benchmarks remain opt-in measured host work.
-          $accountingApiConfig = 'tests/accounting/ui/real.config.ts'
-          if (Test-Path -LiteralPath $accountingApiConfig) {
-            $featureConfigs += Get-Item -LiteralPath $accountingApiConfig
+          foreach ($accountingConfig in @('tests/accounting/ui/real.config.ts', 'tests/accounting/ui/schema.config.ts')) {
+            if (Test-Path -LiteralPath $accountingConfig) {
+              $featureConfigs += Get-Item -LiteralPath $accountingConfig
+            }
           }
           $featureConfigs = @($featureConfigs | Sort-Object FullName -Unique)
           foreach ($featureConfig in $featureConfigs) {

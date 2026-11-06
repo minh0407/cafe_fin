@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -373,6 +373,33 @@ test("real sidecar API integrates auth, original uploads, paged grid and verifie
       const { api } = await import(modulePath);
       return (await api(`/accounting/rows/${id}`)).values.income;
     }, localBook.row.id)).toBe("20.03");
+    await page.getByRole("menuitem", { name: "Báo cáo", exact: true }).click();
+    await page.getByLabel("Từ ngày (VN)", { exact: true }).fill("06/11/2026");
+    await page.getByLabel("Đến hết ngày (VN)", { exact: true }).fill("06/11/2026");
+    await page.getByRole("combobox", { name: "Sổ kế toán cho báo cáo", exact: true }).click();
+    await page.getByRole("option", { name: "Sổ quỹ kiểm thử tích hợp", exact: true }).click();
+    await page.keyboard.press("Escape");
+    const reportPreview = page.waitForResponse((item) => item.url().endsWith("/reporting/reports/preview") && item.request().method() === "POST");
+    await page.getByRole("button", { name: "Xem trước báo cáo", exact: true }).click();
+    const report = await (await reportPreview).json();
+    expect(report.snapshot.consistency).toBe("atomic_read_snapshot");
+    expect(report.snapshot.sources.books).toHaveLength(1);
+    expect(report.snapshot.sources.books[0]).toMatchObject({ book_id: localBook.book.id, book_name: "Sổ quỹ kiểm thử tích hợp" });
+    expect(report.snapshot.sources.books[0].metrics).toContainEqual(expect.objectContaining({ meaning: "cash_receipts", amount_vnd: "20.03" }));
+    await page.getByRole("button", { name: "Lưu snapshot", exact: true }).click();
+    for (const format of ["pdf", "xlsx", "txt"]) {
+      const exported = page.waitForResponse((item) => item.url().endsWith(`/reporting/reports/${report.id}/exports`) && item.request().method() === "POST");
+      const download = page.waitForEvent("download");
+      await page.getByRole("button", { name: `Xuất ${format.toUpperCase()}`, exact: true }).click();
+      const file = await (await exported).json();
+      expect(file.local_export.state).toBe("READY");
+      const visibleCopy = path.resolve(root, file.local_export.relative_key);
+      expect(visibleCopy.startsWith(path.join(root, "reports") + path.sep)).toBe(true);
+      expect(createHash("sha256").update(await readFile(visibleCopy)).digest("hex")).toBe(file.sha256);
+      const downloaded = await download;
+      expect(createHash("sha256").update(await readFile((await downloaded.path())!)).digest("hex")).toBe(file.sha256);
+    }
+    await page.getByRole("dialog", { name: "Snapshot báo cáo", exact: true }).getByRole("button", { name: "Đóng", exact: true }).click();
     await page.getByRole("menuitem", { name: "Cài đặt trên máy", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Tài khoản nội bộ", exact: true })).toBeVisible();
     await page.getByLabel("Tên đăng nhập mới", { exact: true }).fill("shell-operator");
