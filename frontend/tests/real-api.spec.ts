@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Only native invoke is stubbed. HTTP, CORS, local auth, grid and files use a real sidecar.
-test("real sidecar API integrates auth, paged grid and verified document downloads", async ({
+test("real sidecar API integrates auth, original uploads, paged grid and verified document downloads", async ({
   page,
 }) => {
   test.skip(
@@ -120,6 +120,97 @@ test("real sidecar API integrates auth, paged grid and verified document downloa
     await expect(
       page.getByRole("menuitem", { name: "Bản thử bảng tính" }),
     ).toBeVisible();
+    let uploadRequests = 0;
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === "/api/v1/files"
+      )
+        uploadRequests += 1;
+    });
+    const upload = await page.evaluate(async () => {
+      const modulePath = "/src/shared/api.ts";
+      const sessionPath = "/src/shared/session.ts";
+      const { api, uploadOriginal } = await import(modulePath);
+      const { useSession } = await import(sessionPath);
+      const content = new Uint8Array(2 * 1024 ** 2 + 257);
+      for (let index = 0; index < content.length; index += 1)
+        content[index] = (index * 31 + 7) % 256;
+      // Opaque synthetic bytes with a ZIP marker, deliberately not parsed as a workbook.
+      content.set(
+        new TextEncoder().encode(
+          "PK\u0003\u0004Cafe Fin harmless synthetic XLSM marker",
+        ),
+      );
+      async function digest(bytes: ArrayBuffer) {
+        return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+          .map((value) => value.toString(16).padStart(2, "0"))
+          .join("");
+      }
+      const originalName = "Sổ kế toán thử 0001.xlsm";
+      const file = new File([content], originalName, {
+        type: "application/vnd.ms-excel.sheet.macroenabled.12",
+      });
+      const first = await uploadOriginal(
+        file,
+        "workbooks",
+        "real-original-upload-001",
+      );
+      const replay = await uploadOriginal(
+        file,
+        "workbooks",
+        "real-original-upload-001",
+      );
+      const metadata = await api(`/files/${first.id}`);
+      const downloaded = await api(
+        `/files/${first.id}/content`,
+        {},
+        true,
+        "blob",
+      );
+      const downloadedBytes = await downloaded.arrayBuffer();
+      content[content.length - 1] ^= 1;
+      let conflictCode = "";
+      try {
+        await uploadOriginal(
+          new File([content], originalName, { type: file.type }),
+          "workbooks",
+          "real-original-upload-001",
+        );
+      } catch (error) {
+        conflictCode = (error as { code: string }).code;
+      }
+      content[content.length - 1] ^= 1;
+      const session = useSession.getState();
+      const storage = JSON.stringify({
+        local: { ...localStorage },
+        session: { ...sessionStorage },
+      });
+      return {
+        first,
+        replay,
+        metadata,
+        originalName,
+        sourceHash: await digest(content.buffer),
+        downloadedHash: await digest(downloadedBytes),
+        downloadedSize: downloadedBytes.byteLength,
+        conflictCode,
+        credentialsPersisted:
+          storage.includes(session.boot.session_token) ||
+          storage.includes(session.token),
+      };
+    });
+    expect(upload.first).toEqual(upload.replay);
+    expect(upload.metadata).toEqual(upload.first);
+    expect(upload.first.category).toBe("workbooks");
+    expect(upload.first.original_name).toBe(upload.originalName);
+    expect(upload.first.size).toBeGreaterThan(2 * 1024 ** 2);
+    expect(upload.first.size).toBe(upload.downloadedSize);
+    expect(upload.first.sha256).toBe(upload.sourceHash);
+    expect(upload.downloadedHash).toBe(upload.sourceHash);
+    expect(upload.conflictCode).toBe("IDEMPOTENCY_CONFLICT");
+    expect(upload.credentialsPersisted).toBe(false);
+    expect(uploadRequests).toBe(3); // Two explicit same-key calls, one deliberate conflict; no automatic retry.
     const response = page.waitForResponse(
       (item) =>
         item.url().endsWith("/spikes/documents") &&

@@ -6,8 +6,11 @@ import json
 import re
 import secrets
 import sqlite3
+import tempfile
 import uuid
 from contextlib import ExitStack, asynccontextmanager
+from typing import Literal
+from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +18,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
+from starlette.concurrency import run_in_threadpool
 
 from .auth import Principal
 from .db import REQUESTS
@@ -24,6 +28,7 @@ from .http_types import (
     DataRootDTO,
     DocumentExportsDTO,
     ErrorEnvelopeDTO,
+    FileDTO,
     GridPageDTO,
     HealthDTO,
     JobDTO,
@@ -34,6 +39,7 @@ from .http_types import (
 )
 from .renderers import DocumentRenderer, DocumentSnapshot, synthetic_snapshot
 from .runtime import Runtime
+from .storage import _io_error
 
 PROTOCOL_VERSION = 1
 ALLOWED_ORIGINS = frozenset(
@@ -132,7 +138,13 @@ class ScopeGuard:
         if request_origin is not None and request_origin != self.origin:
             return await reject(CoreError("ORIGIN_DENIED", "Origin không được phép.", 403))
         if scope["method"] == "OPTIONS":
-            allowed_headers = {"content-type", "authorization", "x-app-session"}
+            allowed_headers = {
+                "content-type",
+                "authorization",
+                "x-app-session",
+                "x-file-name",
+                "x-request-key",
+            }
             wanted = {
                 item.strip().lower()
                 for item in headers.get("access-control-request-headers", "").split(",")
@@ -146,7 +158,7 @@ class ScopeGuard:
                 {},
                 headers={
                     "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,PUT",
-                    "Access-Control-Allow-Headers": "Content-Type,Authorization,X-App-Session",
+                    "Access-Control-Allow-Headers": "Content-Type,Authorization,X-App-Session,X-File-Name,X-Request-Key",
                 },
             )
             return await response(scope, receive, wrapped_send)
@@ -167,14 +179,22 @@ class ScopeGuard:
                 return await reject(exc)
         # Buffer only a bounded HTTP command body before any domain handler may mutate.
         body = bytearray()
-        if scope["method"] in {"POST", "PATCH", "PUT", "DELETE"}:
+        body_method = scope["method"] in {"POST", "PATCH", "PUT", "DELETE"}
+        file_stream = scope["method"] == "POST" and scope["path"] == "/api/v1/files"
+        if body_method:
+            limit = self.runtime.files.max_bytes if file_stream else MAX_BODY
             try:
-                if int(headers.get("content-length", "0")) > MAX_BODY:
-                    return await reject(CoreError("PAYLOAD_TOO_LARGE", "Yêu cầu quá lớn.", 413))
+                length = int(headers.get("content-length", "0"))
+                if length < 0:
+                    raise ValueError()
+                if length > limit:
+                    code = "FILE_TOO_LARGE" if file_stream else "PAYLOAD_TOO_LARGE"
+                    return await reject(CoreError(code, "Yêu cầu quá lớn.", 413))
             except ValueError:
                 return await reject(
                     CoreError("INVALID_LENGTH", "Độ dài yêu cầu không hợp lệ.", 400)
                 )
+        if body_method and not file_stream:
             while True:
                 message = await receive()
                 if message["type"] == "http.disconnect":
@@ -188,7 +208,7 @@ class ScopeGuard:
 
         async def replay():
             nonlocal delivered
-            if not delivered and scope["method"] in {"POST", "PATCH", "PUT", "DELETE"}:
+            if not delivered and body_method and not file_stream:
                 delivered = True
                 return {"type": "http.request", "body": bytes(body), "more_body": False}
             return await receive()
@@ -490,6 +510,102 @@ def create_app(
                     }
                 )
         return {"snapshot_sha256": snapshot.sha256, "documents": outputs, "errors": errors}
+
+    def file_dto(stored):
+        return {name: getattr(stored, name) for name in FileDTO.model_fields}
+
+    @app.post(
+        "/api/v1/files",
+        response_model=FileDTO,
+        openapi_extra={
+            "parameters": [
+                {
+                    "name": "X-File-Name",
+                    "in": "header",
+                    "required": True,
+                    "description": "UTF-8 filename percent-encoded; never a filesystem path.",
+                    "schema": {"type": "string"},
+                },
+                {
+                    "name": "X-Request-Key",
+                    "in": "header",
+                    "required": True,
+                    "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                },
+            ],
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+                },
+            },
+        },
+    )
+    async def upload_original(
+        request: Request,
+        category: Literal["workbooks", "documents", "imports", "reports"] = "workbooks",
+    ):
+        actor = require(request, "files.write")
+        encoded_name, request_key = (
+            request.headers.get("x-file-name"),
+            request.headers.get("x-request-key"),
+        )
+        if not encoded_name or not request_key:
+            raise CoreError("UPLOAD_METADATA_REQUIRED", "Thiếu tên tệp hoặc khóa yêu cầu upload.")
+        if not re.fullmatch(r"[!-~]{1,128}", request_key):
+            raise CoreError("INVALID_REQUEST_KEY", "Khóa yêu cầu upload không hợp lệ.")
+        try:
+            if re.search(r"%(?![0-9A-Fa-f]{2})", encoded_name):
+                raise ValueError()
+            name = unquote(encoded_name, encoding="utf-8", errors="strict")
+        except (ValueError, UnicodeError):
+            raise CoreError("FILE_NAME_INVALID", "Tên tệp UTF-8 không hợp lệ.") from None
+        if (
+            name in {".", ".."}
+            or len(name) > 255
+            or any(ord(char) < 32 or char in "/\\" for char in name)
+        ):
+            raise CoreError("FILE_NAME_INVALID", "Tên tệp không được là đường dẫn.")
+        media_type = request.headers.get("content-type", "application/octet-stream")
+        if len(media_type) > 255 or media_type.lower().startswith("multipart/"):
+            raise CoreError("UPLOAD_FORMAT_INVALID", "Gửi nguyên byte tệp, không dùng multipart.")
+        declared = int(request.headers.get("content-length", "0"))
+        await run_in_threadpool(
+            runtime.root.check_writable, max(256 * 1024**2, 2 * declared + 64 * 1024**2)
+        )
+        try:
+            # Spool only under the selected data root. No file-sized JSON/base64/DOM
+            # buffer and no writer slot while receiving or hashing original bytes.
+            with tempfile.TemporaryFile(
+                mode="w+b", dir=runtime.root.resolve_key("imports")
+            ) as source:
+                count = 0
+                async for chunk in request.stream():
+                    count += len(chunk)
+                    if count > runtime.files.max_bytes:
+                        raise CoreError(
+                            "FILE_TOO_LARGE", "Tệp vượt giới hạn dung lượng cho phép.", 413
+                        )
+                    await run_in_threadpool(source.write, chunk)
+                source.seek(0)
+                stored = await run_in_threadpool(
+                    runtime.files.put,
+                    source,
+                    category=category,
+                    original_name=name,
+                    media_type=media_type,
+                    actor=actor.id,
+                    request_key=request_key,
+                    authorize=lambda conn: runtime.auth.authorize(conn, actor, "files.write"),
+                )
+            return file_dto(stored)
+        except OSError as exc:
+            raise _io_error(exc) from None
+
+    @app.get("/api/v1/files/{file_id}", response_model=FileDTO)
+    def file_metadata(file_id: str, request: Request):
+        require(request, "files.read")
+        return file_dto(runtime.files.get(file_id))
 
     @app.get(
         "/api/v1/files/{file_id}/content",

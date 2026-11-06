@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useSession } from "./session";
-import type { BootSession, DesktopStatus, ErrorEnvelope } from "./types";
+import type {
+  BootSession,
+  DesktopStatus,
+  ErrorEnvelope,
+  FileCategory,
+  FileDTO,
+} from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -35,7 +41,7 @@ export async function api<T>(
   headers.set("X-App-Session", session.boot.session_token);
   if (auth && session.token)
     headers.set("Authorization", `Bearer ${session.token}`);
-  if (init.body && !(init.body instanceof FormData))
+  if (typeof init.body === "string" && !headers.has("Content-Type"))
     headers.set("Content-Type", "application/json");
   let response: Response;
   try {
@@ -53,14 +59,16 @@ export async function api<T>(
       "Mất kết nối dữ liệu local. Chưa xác nhận thao tác đã được lưu; kiểm tra lại trước khi gửi lại.",
     );
   }
-  useSession.getState().connection(true);
   if (!response.ok) {
     let envelope: ErrorEnvelope | undefined;
+    let bodyComplete = false;
     try {
       envelope = (await response.json()) as ErrorEnvelope;
+      bodyComplete = true;
     } catch {
       /* never expose a raw server response */
     }
+    useSession.getState().connection(bodyComplete);
     if (response.status === 401 && auth) useSession.getState().logout();
     throw new ApiError(
       envelope?.error?.code ?? "API_ERROR",
@@ -69,10 +77,72 @@ export async function api<T>(
       envelope?.error?.field_errors,
     );
   }
-  if (response.status === 204) return undefined as T;
-  if (responseType === "blob") return (await response.blob()) as T;
-  return (await response.json()) as T;
+  if (response.status === 204) {
+    useSession.getState().connection(true);
+    return undefined as T;
+  }
+  try {
+    const result =
+      responseType === "blob" ? await response.blob() : await response.json();
+    useSession.getState().connection(true);
+    return result as T;
+  } catch {
+    useSession.getState().connection(false);
+    throw new ApiError(
+      "INVALID_API_RESPONSE",
+      "Không đọc được phản hồi từ dữ liệu local. Chưa xác nhận thao tác đã hoàn tất; kiểm tra lại trước khi gửi lại.",
+    );
+  }
 }
+
+export async function uploadOriginal(
+  file: File,
+  category: FileCategory,
+  requestKey: string,
+): Promise<FileDTO> {
+  if (
+    !Number.isSafeInteger(file.size) ||
+    file.size < 0 ||
+    file.size > 2 * 1024 ** 3
+  )
+    throw new ApiError("FILE_TOO_LARGE", "Tệp gốc vượt giới hạn 2 GiB.");
+  if (!["workbooks", "documents", "imports", "reports"].includes(category))
+    throw new ApiError("FILE_CATEGORY_INVALID", "Loại tệp không hợp lệ.");
+  if (
+    !file.name ||
+    file.name.length > 255 ||
+    /[\\/\u0000-\u001f\u007f]/.test(file.name)
+  )
+    throw new ApiError("FILE_NAME_INVALID", "Tên tệp gốc không hợp lệ.");
+  if (!/^[\u0021-\u007e]{1,128}$/.test(requestKey))
+    throw new ApiError(
+      "INVALID_REQUEST_KEY",
+      "Khóa chống ghi lặp không hợp lệ.",
+    );
+  const signal = AbortSignal.timeout(300000);
+  try {
+    // Pass the native File body directly; do not JSON/base64 encode or read the
+    // entire workbook into application memory. A retry must reuse requestKey.
+    return await api<FileDTO>(`/files?category=${category}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "X-File-Name": encodeURIComponent(file.name),
+        "X-Request-Key": requestKey,
+      },
+      body: file,
+      signal,
+    });
+  } catch (error) {
+    if (signal.aborted)
+      throw new ApiError(
+        "UPLOAD_TIMEOUT",
+        "Tải tệp quá thời hạn. Chưa xác nhận đã lưu; kiểm tra lại bằng cùng khóa yêu cầu.",
+      );
+    throw error;
+  }
+}
+
 export function messageOf(error: unknown): string {
   return error instanceof Error
     ? error.message
