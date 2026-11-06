@@ -1,12 +1,21 @@
 # Reporting integration requests (development baseline e668355)
 
-No shared/core/registry/dependency files have been changed by this lane.
+No shared/core/registry/dependency changes were authored by this lane; only the
+exact coordinator-approved cherry-picks below are included.
+
+Update: coordinator approved root commit `57a2ed26bf70b8d6b3c4d2c7a30620d3d6b3033a`,
+cherry-picked exactly as `64ae735`. The only shared-file changes on this branch
+are those authorized commits: `57a2ed2` -> `64ae735`, and OS adapter
+`13222da` -> `84abda4`. Items 2 and 3 below are resolved at DTO level and
+covered by a real-v2 typed consumer test; concrete providers remain integration work.
 
 1. **Bind public providers**: register `reporting.module.module_manifest(source=...)` and
    frontend `reportingFeature`. `source.capture(first,last,book_ids,cutoff)` returns a
    reporting `SourceBundle` containing frozen core InventorySummaryDTO/BookSummaryDTO.
-   Provider should read all sources in one SQLite read transaction and attest
-   `consistency='atomic_read_snapshot'`. Convenience BridgeSources is cutoff-only and
+   `source_factory(runtime)` is also accepted, so coordinator can bind after Runtime
+   services exist. `AtomicSources(runtime.reader, records_public_helper,
+   accounting_public_helper)` explicitly BEGINs a read-only SQLite transaction and
+   returns `consistency='atomic_read_snapshot'`. Convenience BridgeSources is cutoff-only and
    explicitly warns; it is not evidence of cross-provider snapshot isolation.
 2. **Inventory detail missing in frozen DTO**: production input/output, transfers,
    adjustments and hold subset cannot be reconstructed from received/issued totals.
@@ -33,14 +42,19 @@ No shared/core/registry/dependency files have been changed by this lane.
    transfer 2 between warehouses, adjustment +/-1; purchases remain 10, not 15;
    each ledger event belongs to exactly one category, transfer net cancels across
    warehouses, and per-scope reconciliation equals ledger closing including backdates.
-3. **Accounting semantics**: agree metric keys (`income`,`expense`,`deposit`,`offset`)
-   or provide explicit typed meanings. Unknown keys remain visible locally but do
-   not get interpreted as cash. Books remain separate; no cross-book/CRM money sum.
+3. **Accounting semantics**: coordinator has approved an additive typed `meaning`
+   field, now applied from that approved SHA. No meaning is inferred from `key`, including
+   income/expense/deposit/offset. Null meaning remains local with a warning and
+   never enters the shareable summary. Books remain separate; no cross-book/CRM money sum.
    Provider owns PUBLISHED visibility and deduplication of source transaction IDs.
-4. **OS secret store**: foundation currently has no public OS secret-store service.
+4. **OS secret store — adapter resolved; registry binding pending**: coordinator
+   supplied `core.secrets.WindowsCredentialStore` in approved commit `13222da`,
+   applied as `84abda4`. One reporting test calls the genuine Windows adapter
+   through Admin authorization, rotates fake tokens as one pair, checks redaction
+   and cleans only the exact random data-root key. The core's 15 adapter tests pass.
    Reporting exports a minimal injected SecretStore protocol. Default is unavailable,
-   so credential writes fail explicitly and sender stays UNCONFIGURED. Request a
-   foundation-owned Windows Credential Manager adapter scoped by data-root UUID/OA,
+   so credential writes fail explicitly and sender stays UNCONFIGURED until root
+   injects the foundation-owned Windows Credential Manager adapter scoped by data-root UUID/OA,
    durable atomic token-pair replacement and no secrets in DB/receipts/audit/logs.
    Do not bind a plaintext-file adapter. Rotating-refresh timeout requires reauth,
    not blind reuse of a one-time refresh token.

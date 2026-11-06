@@ -379,6 +379,19 @@ class ReportingService:
                 raise CoreError("ZALO_UNCONFIGURED", "Lưu OA trước khi lưu credential.", 409)
             try:
                 self.secrets.put(self.secret_key(config), command.model_dump())
+            except CoreError as exc:
+                messages = {
+                    "SECRET_VALUE_TOO_LARGE": (
+                        "Credential vượt giới hạn 2.560 byte của kho bí mật Windows.",
+                        400,
+                    ),
+                    "SECRET_STORE_BUSY": ("Kho bí mật đang bận; vui lòng thử lại.", 503),
+                }
+                message, status = messages.get(
+                    exc.code, ("Không lưu được credential trong kho bí mật Windows.", 503)
+                )
+                code = exc.code if exc.code in messages else "SECRET_STORE_UNAVAILABLE"
+                raise CoreError(code, message, status) from None
             except Exception:
                 raise CoreError(
                     "SECRET_STORE_UNAVAILABLE",

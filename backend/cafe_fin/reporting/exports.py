@@ -160,10 +160,9 @@ def render(snapshot: dict, version: int, digest: str, format: str) -> tuple[byte
     period = snapshot["period"]
     title = "Báo cáo tổng hợp cà phê"
     fields = (
-        ("Kỳ Việt Nam", f"{period['from_on']} đến {period['through_on']}"),
-        ("Phiên bản", str(version)),
+        ("Kỳ Việt Nam", f"{period['from_on']} đến {period['through_on']} - bản {version}"),
         ("SHA-256 snapshot", digest),
-        ("Cutoff UTC", snapshot["cutoff"]),
+        ("Cutoff UTC", snapshot["cutoff"] + f" | {len(snapshot['warnings'])} cảnh báo dữ liệu"),
     )
     paragraphs = (
         NOTICE,
@@ -174,7 +173,6 @@ def render(snapshot: dict, version: int, digest: str, format: str) -> tuple[byte
         ),
         "Sổ tiền độc lập; không cộng các sổ hoặc cộng cọc vào tổng thu/chi. Hóa đơn không phải thu tiền.",
         "Kho/Loại/Sổ được đánh số trong bản này; xem nguồn chi tiết tại ứng dụng local.",
-        f"Có {len(snapshot['warnings'])} cảnh báo dữ liệu. Kiểm tra tại ứng dụng local.",
     )
     if format == "pdf":
         document = DocumentSnapshot(
