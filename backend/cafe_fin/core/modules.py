@@ -17,6 +17,8 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 from .errors import CoreError
 
 if TYPE_CHECKING:
+    from .activation import ActivationContext
+    from .auth import Principal
     from .jobs import JobHandler
     from .periodic import PeriodicTask
     from .runtime import Runtime
@@ -69,6 +71,9 @@ class ModuleManifest:
     job_handlers: Mapping[str, JobHandler] = field(default_factory=dict, compare=False)
     on_startup: Callable[[Runtime], None] | None = field(default=None, compare=False)
     periodic_tasks: Mapping[str, PeriodicTask] = field(default_factory=dict, compare=False)
+    on_activate: Callable[[Runtime, Principal, ActivationContext], None] | None = field(
+        default=None, compare=False
+    )
 
     def __post_init__(self):
         # Registration is a frozen handoff, not a live plugin dictionary.
@@ -101,6 +106,8 @@ class ModuleRegistry:
             )
         if module.on_startup is not None and not callable(module.on_startup):
             raise CoreError("INVALID_MODULE_HOOK", "Startup hook của module phải là callable.")
+        if module.on_activate is not None and not callable(module.on_activate):
+            raise CoreError("INVALID_MODULE_HOOK", "Activation hook của module phải là callable.")
         if (
             len(module.periodic_tasks) > MAX_MODULE_TASKS
             or len(module.periodic_tasks)

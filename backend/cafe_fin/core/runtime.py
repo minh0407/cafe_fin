@@ -13,6 +13,7 @@ from pathlib import Path
 from sqlalchemy.engine import Connection
 
 from . import auth, imports, jobs, storage
+from .activation import begin_activation, boot_preflight, complete_activation, guarded_boot_mode
 from .auth import AuthService
 from .backup import BackupService
 from .db import Database, WriteCoordinator
@@ -63,6 +64,7 @@ class Runtime:
             self.root.open_existing()
         self.root.acquire_lock()
         try:
+            context = boot_preflight(self.root)
             self.database = Database(self.root.database_path, create=initialize)
             if modules is None:
                 from cafe_fin.registry import registered_modules
@@ -72,6 +74,9 @@ class Runtime:
             migrations = auth.MIGRATIONS + jobs.MIGRATIONS + storage.MIGRATIONS + imports.MIGRATIONS
             migrations += tuple(m for module in self.modules.ordered() for m in module.migrations)
             self.database.migrate(migrations)
+            self.maintenance = AdmissionGate(
+                guarded_boot_mode(self.root, self.database, activation_mode, context)
+            )
             self.reader: Callable[[], AbstractContextManager[Connection]] = self.database.read
             self.writer = WriteCoordinator(self.database)
             self.auth = AuthService(self.database, self.writer)
@@ -168,10 +173,25 @@ class Runtime:
             actor = self._maintenance_actor(access_token)
             # Serialized current authorization precedes any hook, recovery or worker.
             self._maintenance_fence(actor, access_token)
+            state = self.maintenance.status()
+            replay = state["state"] == "ACTIVE" and state["operation_id"] == operation_id
+            if not replay and (state["state"] != "DORMANT" or state["operation_id"] is not None):
+                raise CoreError("MAINTENANCE_CONFLICT", "Trạng thái bảo trì không phù hợp.", 409)
+            context, activation_payload, run_hooks = begin_activation(
+                self, actor, access_token, operation_id
+            )
+            if replay:
+                return state
             if not self.maintenance.begin_activation(operation_id):
                 return self.maintenance.status()
             try:
+                if context is not None and run_hooks:
+                    for module in self.modules.ordered():
+                        if module.on_activate is not None:
+                            module.on_activate(self, actor, context)
                 self._start_services(cleanup_on_failure=False)
+                if run_hooks:
+                    complete_activation(self, actor, access_token, operation_id, activation_payload)
             except BaseException:
                 self.periodic.request_stop()
                 self.runner.request_stop()

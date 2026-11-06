@@ -90,6 +90,11 @@ class DataRootService:
         self.path = Path(path).absolute()
         self._lock = None
 
+    def preflight_location(self) -> Path:
+        """Validate a trusted native local location, including nonexistent leaf paths."""
+        self._validate_local()
+        return self.path.resolve()
+
     def _validate_local(self) -> None:
         candidate = self.path.resolve()
         if str(candidate).startswith(("\\\\", "//")):

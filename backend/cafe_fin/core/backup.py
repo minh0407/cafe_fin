@@ -45,11 +45,23 @@ class BackupService:
     def __init__(self, root: DataRootService, database, writer):
         self.root, self.database, self.writer = root, database, writer
 
-    def create(self, trusted_native_destination: Path) -> dict:
-        return self._create(trusted_native_destination, inside_barrier=False)
+    def create(
+        self, trusted_native_destination: Path, *, operation_metadata: dict | None = None
+    ) -> dict:
+        return self._create(
+            trusted_native_destination, inside_barrier=False, operation_metadata=operation_metadata
+        )
 
-    def _create(self, trusted_native_destination: Path, *, inside_barrier: bool) -> dict:
+    def _create(
+        self,
+        trusted_native_destination: Path,
+        *,
+        inside_barrier: bool,
+        operation_metadata: dict | None = None,
+    ) -> dict:
         destination = Path(trusted_native_destination).absolute()
+        self.root.preflight_location()
+        DataRootService(destination).preflight_location()
         if destination.exists():
             raise CoreError(
                 "BACKUP_EXISTS", "Thư mục sao lưu đã tồn tại. Chọn thư mục mới.", status=409
@@ -96,6 +108,8 @@ class BackupService:
                     "referenced_file_count": len(references),
                 }
                 atomic_json(partial / "backup-manifest.json", manifest)
+                if operation_metadata is not None:
+                    atomic_json(partial / ".cafe-fin-operation.json", operation_metadata)
                 self.verify(partial)
                 os.rename(partial, destination)
                 return {
@@ -164,8 +178,16 @@ class BackupService:
             ) from None
 
     @classmethod
-    def restore(cls, backup: Path, trusted_native_destination: Path) -> DataRootService:
+    def restore(
+        cls,
+        backup: Path,
+        trusted_native_destination: Path,
+        *,
+        operation_metadata: dict | None = None,
+    ) -> DataRootService:
         backup, destination = Path(backup).absolute(), Path(trusted_native_destination).absolute()
+        DataRootService(backup).preflight_location()
+        DataRootService(destination).preflight_location()
         if destination.exists():
             raise CoreError(
                 "RESTORE_DESTINATION_EXISTS", "Khôi phục cần thư mục mới chưa tồn tại.", status=409
@@ -189,6 +211,8 @@ class BackupService:
                 with target.open("r+b") as stream:
                     os.fsync(stream.fileno())
             atomic_json(partial / "backup-manifest.json", manifest)
+            if operation_metadata is not None:
+                atomic_json(partial / ".cafe-fin-operation.json", operation_metadata)
             cls.verify(partial)
             os.rename(partial, destination)
             return DataRootService(destination).open_existing()
