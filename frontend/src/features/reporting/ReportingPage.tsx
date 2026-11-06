@@ -275,7 +275,7 @@ function ReportingView() {
   }
   const reportColumns = [
     {
-      title: "Kỳ Việt Nam",
+      title: "Mốc ngày đã lưu (VN)",
       key: "period",
       render: (_: unknown, row: Report) => `${row.from_on} → ${row.through_on}`,
     },
@@ -484,6 +484,10 @@ function ReportingView() {
       )}
       {notice && <Alert type="info" showIcon title={notice} />}
       <Card title="Chọn kỳ và xem trước">
+        <Typography.Paragraph>
+          Kỳ gồm cả ngày đầu và ngày cuối theo giờ Việt Nam. Báo cáo một ngày:
+          chọn hai ô cùng ngày.
+        </Typography.Paragraph>
         <Form
           form={periodForm}
           layout="vertical"
@@ -781,12 +785,23 @@ function ReportingView() {
             <Space>
               {status(detail.state)}
               <Typography.Text>
-                Phiên bản {detail.version} • {detail.from_on} →{" "}
+                Phiên bản {detail.version} • {detail.from_on}{" "}
+                {detail.snapshot.period.date_range_contract ===
+                "inclusive_business_dates_v1"
+                  ? "đến hết"
+                  : "/"}{" "}
                 {detail.through_on}
               </Typography.Text>
             </Space>
             <Typography.Text copyable>SHA-256: {detail.sha256}</Typography.Text>
             <Typography.Text>Cutoff: {detail.snapshot.cutoff}</Typography.Text>
+            {detail.snapshot.period.date_range_contract !==
+              "inclusive_business_dates_v1" && (
+              <Alert
+                type="warning"
+                title="Kỳ cũ chưa định danh cách chọn ngày. Bản cũ giữ nguyên; tạo bản điều chỉnh để dùng ngày cuối được bao gồm."
+              />
+            )}
             {detail.reason && (
               <Typography.Paragraph>
                 Lý do: {detail.reason}
@@ -901,7 +916,11 @@ function ReportingView() {
                   }))}
                 />
                 <Button
-                  disabled={busy}
+                  disabled={
+                    busy ||
+                    detail.snapshot.period.date_range_contract !==
+                      "inclusive_business_dates_v1"
+                  }
                   onClick={() =>
                     void action(async () => {
                       const result = await mutate<Delivery>(

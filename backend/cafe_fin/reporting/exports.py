@@ -10,6 +10,7 @@ from reportlab import rl_config
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.renderers import DocumentRenderer, DocumentSnapshot
 
+from .models import DATE_RANGE_CONTRACT
 from .sources import NOTICE
 
 MONEY_LABELS = {
@@ -91,9 +92,15 @@ def summary_rows(snapshot: dict) -> tuple[tuple[str, str, str], ...]:
     return tuple(rows)
 
 
-def short_message(snapshot: dict, version: int, digest: str) -> str:
+def period_text(snapshot: dict) -> str:
     period = snapshot["period"]
-    lines = [f"Cafe Fin {period['from_on']} đến {period['through_on']} - bản {version}"]
+    if period.get("date_range_contract") == DATE_RANGE_CONTRACT:
+        return f"{period['from_on']} đến hết {period['through_on']}"
+    return f"{period['from_on']} / {period['through_on']} (kỳ cũ chưa định danh cách chọn ngày)"
+
+
+def short_message(snapshot: dict, version: int, digest: str) -> str:
+    lines = [f"Cafe Fin {period_text(snapshot)} - bản {version}"]
     inventory = snapshot["sources"]["inventory"]["items"]
     if inventory:
         for field, label in (
@@ -157,10 +164,9 @@ def render(snapshot: dict, version: int, digest: str, format: str) -> tuple[byte
     rows = summary_rows(snapshot)
     if format == "txt":
         return short_message(snapshot, version, digest).encode("utf-8"), "text/plain; charset=utf-8"
-    period = snapshot["period"]
     title = "Báo cáo tổng hợp cà phê"
     fields = (
-        ("Kỳ Việt Nam", f"{period['from_on']} đến {period['through_on']} - bản {version}"),
+        ("Kỳ Việt Nam", f"{period_text(snapshot)} - bản {version}"),
         ("SHA-256 snapshot", digest),
         ("Cutoff UTC", snapshot["cutoff"] + f" | {len(snapshot['warnings'])} cảnh báo dữ liệu"),
     )

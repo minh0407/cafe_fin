@@ -33,6 +33,8 @@ export interface Snapshot {
   source_sha256: string;
   consistency: string;
   period: {
+    date_range_contract?: "inclusive_business_dates_v1";
+    timestamp_range_contract?: "half_open_utc";
     from_on: string;
     through_on: string;
     from: string;

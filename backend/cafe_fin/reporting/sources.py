@@ -18,7 +18,8 @@ from cafe_fin.core.contracts import (
 )
 from cafe_fin.core.db import canonical_json
 from cafe_fin.core.errors import CoreError
-from cafe_fin.core.time import business_day_bounds
+
+from .models import DATE_RANGE_CONTRACT
 
 NOTICE = "Chỉ tổng hợp dữ liệu đã nhập; không phải báo cáo tài chính pháp định."
 
@@ -32,18 +33,24 @@ class SourceBundle:
 
 
 class ReportSource(Protocol):
+    """first <= business_date <= last; cutoff is independent of date membership."""
+
     def capture(
         self, first: date, last: date, book_ids: tuple[str, ...], cutoff: datetime
     ) -> SourceBundle: ...
 
 
 class InventoryConnectionReader(Protocol):
+    """Connection-bound public inventory summary; last is included."""
+
     def __call__(
         self, conn: Connection, first: date, last: date, *, cutoff: datetime
     ) -> InventorySummaryDTO: ...
 
 
 class BookConnectionReader(Protocol):
+    """Connection-bound public book summary; last is included."""
+
     def __call__(
         self, conn: Connection, book_id: str, first: date, last: date, *, cutoff: datetime
     ) -> BookSummaryDTO: ...
@@ -98,7 +105,7 @@ class UnboundSources:
 
 
 def build_snapshot(source: ReportSource, period, cutoff: datetime) -> dict:
-    first, last = date.fromisoformat(period.from_on), date.fromisoformat(period.through_on)
+    first, last = period.business_dates()
     bundle = source.capture(first, last, tuple(period.book_ids), cutoff)
     inventory = bundle.inventory
     all_dtos = (inventory, *bundle.books)
@@ -118,8 +125,7 @@ def build_snapshot(source: ReportSource, period, cutoff: datetime) -> dict:
         if len(metric_keys) != len(set(metric_keys)):
             raise CoreError("REPORT_SOURCE_DUPLICATE", "Sổ trả trùng chỉ tiêu tiền.", 409)
         books.append(book.model_dump(mode="json"))
-    start, _ = business_day_bounds(first)
-    _, end = business_day_bounds(last)
+    start, end = period.utc_bounds()
     sources = {
         "inventory": inventory.model_dump(mode="json"),
         "books": books,
@@ -152,11 +158,13 @@ def build_snapshot(source: ReportSource, period, cutoff: datetime) -> dict:
     for book in bundle.books:
         flags.extend(book.validation_flags)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "bridge_contract_version": CONTRACT_VERSION,
         "coverage": "entered_records_only",
         "notice": NOTICE,
         "period": {
+            "date_range_contract": DATE_RANGE_CONTRACT,
+            "timestamp_range_contract": "half_open_utc",
             "from_on": period.from_on,
             "through_on": period.through_on,
             "from": start.isoformat(),

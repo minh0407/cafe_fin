@@ -16,6 +16,7 @@ from cafe_fin.core.time import utc_now
 
 from . import exports
 from .migrations import ATTEMPTS, EXPORTS, LOCKS, OUTBOX, REPORTS, SETTINGS
+from .models import DATE_RANGE_CONTRACT
 from .sources import UnboundSources, build_snapshot
 
 
@@ -401,6 +402,13 @@ class ReportingService:
         return {"configured": True}
 
     def _enqueue(self, conn, report, config, attachment=None, *, credential_ready=False):
+        snapshot = json.loads(report.snapshot_json)
+        if snapshot["period"].get("date_range_contract") != DATE_RANGE_CONTRACT:
+            raise CoreError(
+                "REPORT_PERIOD_CONTRACT_REQUIRED",
+                "Kỳ báo cáo cũ chưa định danh. Tạo bản điều chỉnh với ngày cuối được bao gồm.",
+                409,
+            )
         existing = (
             conn.execute(
                 select(OUTBOX).where(
@@ -434,9 +442,8 @@ class ReportingService:
                 raise CoreError("ATTACHMENT_INVALID", "Chỉ chọn bản tổng hợp của báo cáo này.", 409)
         # No file ID or local path is included in the transport payload.
         payload = {
-            "text": exports.short_message(
-                json.loads(report.snapshot_json), report.version, report.sha256
-            )
+            "date_range_contract": DATE_RANGE_CONTRACT,
+            "text": exports.short_message(snapshot, report.version, report.sha256),
         }
         now = utc_now()
         row = dict(
@@ -616,6 +623,8 @@ class ReportingService:
                     OUTBOX.update()
                     .where(
                         OUTBOX.c.state == "UNCONFIGURED",
+                        func.json_extract(OUTBOX.c.payload_json, "$.date_range_contract")
+                        == DATE_RANGE_CONTRACT,
                         OUTBOX.c.destination == config["group_id"],
                         OUTBOX.c.oa_id == config["oa_id"],
                     )
@@ -635,6 +644,8 @@ class ReportingService:
                 select(REPORTS)
                 .where(
                     REPORTS.c.state == "SAVED",
+                    func.json_extract(REPORTS.c.snapshot_json, "$.period.date_range_contract")
+                    == DATE_RANGE_CONTRACT,
                     REPORTS.c.through_on <= local_now.date().isoformat(),
                     ~select(newer.c.id)
                     .where(
@@ -656,7 +667,8 @@ class ReportingService:
             )
             count = 0
             for report in rows.mappings():
-                # Report end is Vietnam's last day, converted to configured scheduler zone.
+                # through_on IS the final included business date, not the following day.
+                # send_at applies to that date in the configured scheduler timezone.
                 last = datetime.fromisoformat(report.through_on).date()
                 due = datetime.combine(last, clock, ZoneInfo(config["timezone"]))
                 if local_now < due:

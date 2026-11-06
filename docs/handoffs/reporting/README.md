@@ -3,6 +3,12 @@
 Development candidate; **integration/live acceptance remains pending**. No push,
 merge or READY tag has been made by this lane.
 
+Latest integration follow-up: [inclusive date contract v1](date-range-v1.md).
+New snapshots are reporting JSON schema 2 with explicit inclusive date/half-open
+UTC markers; unmarked legacy ranges are preserved without reinterpretation.
+The follow-up has 53 reporting tests and 10 synthetic browser cases PASS.
+The 168 combined tests and export hashes below describe the preceding candidate.
+
 ## Checkout and baseline
 
 - Worktree: `C:\Users\NC\.codex\worktrees\cafe-fin-reporting\cafe_fin`

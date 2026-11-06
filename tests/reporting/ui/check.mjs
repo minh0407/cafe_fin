@@ -31,6 +31,8 @@ const snapshot = {
   source_sha256: "b".repeat(64),
   consistency: "atomic_read_snapshot",
   period: {
+    date_range_contract: "inclusive_business_dates_v1",
+    timestamp_range_contract: "half_open_utc",
     from_on: row.from_on,
     through_on: row.through_on,
     from: "2026-11-05T17:00:00Z",
@@ -127,6 +129,10 @@ await page.route("**/api/v1/**", async (route) => {
 try {
   await page.goto("http://127.0.0.1:1431");
   await page.getByText("Xem bản 1", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByLabel("Từ ngày (VN)", { exact: true }).inputValue(),
+    await page.getByLabel("Đến hết ngày (VN)", { exact: true }).inputValue(),
+  );
   await page.getByTitle("2", { exact: true }).click();
   await page.waitForFunction(() =>
     location.search.includes("reporting_page=2"),
@@ -134,6 +140,7 @@ try {
   assert(calls.some((x) => x.query.includes("page=2")));
   await page.getByText("Xem bản 1", { exact: true }).click();
   await page.getByText("Snapshot báo cáo", { exact: true }).waitFor();
+  await page.getByText(/2026-11-06 đến hết 2026-11-06/).waitFor();
   await page.getByText("Chưa đủ dữ liệu tiền", { exact: true }).waitFor();
   await page.getByText("25,250", { exact: true }).waitFor();
   assert(await page.getByRole("button", { name: "Xuất PDF" }).isVisible());
@@ -240,6 +247,17 @@ try {
     fullPage: true,
     animations: "disabled",
   });
+  delete snapshot.period.date_range_contract;
+  delete snapshot.period.timestamp_range_contract;
+  await page.getByRole("tab", { name: "Báo cáo", exact: true }).click();
+  await page.getByText("Xem bản 1", { exact: true }).click();
+  await page.getByText(/Kỳ cũ chưa định danh cách chọn ngày/).waitFor();
+  assert(
+    await page
+      .getByRole("button", { name: "Xếp gửi bản tổng hợp này", exact: true })
+      .isDisabled(),
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   // Actor change clears in-memory detail and Admin-only credentials UI.
   await page.evaluate(() => window.reportingQA.logout());
   assert.equal(
@@ -254,6 +272,8 @@ try {
       status: "PASS",
       cases: [
         "paging URL+server",
+        "single-day defaults and inclusive end label",
+        "unmarked legacy cannot enqueue",
         "snapshot exact kg/missing mapping",
         "v2 components and deposit subset labels",
         "UNKNOWN no retry",

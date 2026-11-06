@@ -11,6 +11,7 @@ from cafe_fin.core.errors import CoreError
 from cafe_fin.core.time import utc_now
 
 from .migrations import ATTEMPTS, EXPORTS, LOCKS, OUTBOX
+from .models import DATE_RANGE_CONTRACT
 from .service import new_id, outbox_dto
 from .zalo import DeliveryError, access_token
 
@@ -32,6 +33,7 @@ SAFE_CODES = frozenset(
         "ZALO_ATTACHMENT_INVALID",
         "ZALO_UPLOAD_INVALID",
         "SENDER_INTERRUPTED",
+        "REPORT_PERIOD_CONTRACT_REQUIRED",
     }
 )
 
@@ -157,6 +159,8 @@ def dispatch_one(service):
             return {"state": "IDLE"}
         identity, phase = row["id"], "preflight"
         try:
+            if json.loads(row["payload_json"]).get("date_range_contract") != DATE_RANGE_CONTRACT:
+                raise DeliveryError("REPORT_PERIOD_CONTRACT_REQUIRED")
             if row["destination"] != config["group_id"] or row["oa_id"] != config["oa_id"]:
                 raise DeliveryError("ZALO_CONFIG_CHANGED")
             if row["attachment_export_id"] and not config["attachments_enabled"]:

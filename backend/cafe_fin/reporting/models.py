@@ -1,10 +1,14 @@
 """Reporting commands. Decimal values remain strings through JSON and exports."""
 
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from cafe_fin.core.time import business_day_bounds
+
+DATE_RANGE_CONTRACT = "inclusive_business_dates_v1"
 
 
 class Command(BaseModel):
@@ -13,9 +17,11 @@ class Command(BaseModel):
 
 
 class Period(BaseModel):
+    """Both date-only endpoints are included; one day uses from_on == through_on."""
+
     model_config = ConfigDict(extra="forbid", strict=True)
-    from_on: str
-    through_on: str
+    from_on: str = Field(description="Ngày đầu được bao gồm, YYYY-MM-DD theo giờ Việt Nam.")
+    through_on: str = Field(description="Ngày cuối được bao gồm; báo cáo một ngày dùng cùng from_on.")
     book_ids: list[str] = Field(default_factory=list, max_length=100)
 
     @field_validator("from_on", "through_on")
@@ -39,6 +45,15 @@ class Period(BaseModel):
         if last < first or (last - first).days > 365 or last == date.max:
             raise ValueError("Khoảng báo cáo tối đa 366 ngày, ngày cuối không trước ngày đầu.")
         return self
+
+    def business_dates(self) -> tuple[date, date]:
+        return date.fromisoformat(self.from_on), date.fromisoformat(self.through_on)
+
+    def utc_bounds(self) -> tuple[datetime, datetime]:
+        first, last = self.business_dates()
+        start, _ = business_day_bounds(first)
+        _, end = business_day_bounds(last)
+        return start, end
 
 
 class Preview(Period, Command):
