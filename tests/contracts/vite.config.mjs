@@ -11,5 +11,5 @@ export default {
     antd: path.join(repository, "frontend/node_modules/antd"),
   } },
   optimizeDeps: { entries: ["tests/contracts/browser-main.tsx"] },
-  server: { host: "127.0.0.1", port: 1420, strictPort: true },
+  server: { host: "127.0.0.1", port: 1422, strictPort: true },
 };

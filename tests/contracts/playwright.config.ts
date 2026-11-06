@@ -7,7 +7,7 @@ export default defineConfig({
   testMatch: "browser.spec.ts",
   workers: 1,
   retries: 0,
-  use: { baseURL: "http://127.0.0.1:1420", browserName: "chromium", viewport: { width: 1600, height: 1050 }, actionTimeout: 15000, trace: "retain-on-failure" },
-  webServer: { command: "node frontend/node_modules/vite/bin/vite.js --config tests/contracts/vite.config.mjs", cwd: repository, url: "http://127.0.0.1:1420/tests/contracts/browser.html", reuseExistingServer: false },
+  use: { baseURL: "http://127.0.0.1:1422", browserName: "chromium", viewport: { width: 1600, height: 1050 }, actionTimeout: 15000, trace: "retain-on-failure" },
+  webServer: { command: "node frontend/node_modules/vite/bin/vite.js --config tests/contracts/vite.config.mjs", cwd: repository, url: "http://127.0.0.1:1422/tests/contracts/browser.html", reuseExistingServer: false },
   reporter: "list",
 });

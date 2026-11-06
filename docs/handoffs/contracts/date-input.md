@@ -29,3 +29,47 @@ The regenerated ignored screenshot was opened and inspected:
 `C:\Users\NC\.codex\worktrees\cafe-fin-contracts\cafe_fin\tests\contracts\test-results\browser-real-contracts-UI--0029d-ies-sources-and-attachments\desktop-editor.png`
 
 It shows the new `DD/MM/YYYY` date text with clear/calendar controls fitting the existing desktop editor. No screenshots or operational data are committed. Native installation and clean Windows release checks remain outside this frontend adoption. The legacy untracked `.vite` cache was left untouched; its previously rejected cleanup was not retried.
+
+## Shared disabled-context follow-up and dedicated harness port
+
+Approved shared fix `3aa94c601dbf878f07b46b0902fc71b0f388c40c` was cherry-picked
+locally as `47689a4`, exactly its three shared/test/foundation-handoff files. It
+inherits public disabled context, closes an open calendar and fences stale
+callbacks. No additional shared/component edits were made by the lane.
+
+The contracts-only browser harness now uses fixed port **1422** consistently for
+Vite strictPort, Playwright baseURL/readiness, HTTP-fixture CORS and the real test
+API's bound origin. `reuseExistingServer` remains false. There is no arbitrary
+environment-origin override. Production desktop/dev port 1420, CSP, origin
+allowlist, core source and API semantics are unchanged.
+
+The production create_app bootstrap only permits Tauri and dev1420, so the first
+1422 attempt failed with BOOT_PROTOCOL_INVALID before its real Runtime flow could
+start (the two HTTP-fixture date regressions passed). The test-only Python helper
+now temporarily adds exactly `http://127.0.0.1:1422` to the exported allowlist with
+`unittest.mock.patch.object` solely during create_app construction, restoring the
+production value immediately afterwards and before serving. Actual ScopeGuard,
+authentication, request handling and CORS enforcement are not mocked: the real
+flow asserts that origin1423 receives403 without an allow-origin header, whereas
+the bound origin1422 receives200 and its exact allow-origin header. This fixture
+allowance is not production bootstrap-origin acceptance evidence and ships only
+under tests/contracts.
+
+Latest verification after the approved shared fix:
+
+```powershell
+node frontend/node_modules/@playwright/test/cli.js test --config tests/contracts/playwright.config.ts
+# PASS: 3 tests /26.0s; real Runtime flow17.4s, raw-date guard4.7s, export guard2.2s.
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+# PASS; existing932.79kB/gzip305.06kB shell chunk warning remains.
+.\.venv\Scripts\python.exe -m ruff check tests/contracts/browser-server.py
+.\.venv\Scripts\python.exe -m ruff format --check tests/contracts/browser-server.py
+git diff --check
+# PASS.
+```
+
+The lane did not rerun root's reserved-port shared13-case suite or unchanged
+backend suite. The appropriate contracts consumer flows above were rerun with
+the exact approved shared fix. Only tests/contracts and this handoff change in
+the dedicated-port increment; no feature was added.
