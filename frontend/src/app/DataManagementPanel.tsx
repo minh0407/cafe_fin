@@ -36,7 +36,7 @@ export function DataManagementPanel() {
     (!pending || pending.operation_id === cachedOperation.operation_id) ? cachedOperation : null;
   const operationId = operation?.operation_id ?? pending?.operation_id;
   const frozen = session.maintenance.uncertain || session.maintenance.beginUncertain || !!pending?.recovery_required || (!!operation && operation.phase !== "SELECTING");
-  const canContinue = !!operation && ["INTENT", "QUIESCED", "PREPARED", "OLD_CLOSED", "CONFIG_SWITCHED"].includes(operation.phase) && operation.runtime_state !== "DORMANT";
+  const canContinue = !!operation && ["INTENT", "QUIESCED", "PREPARED", "OLD_CLOSED", "CONFIG_SWITCHED"].includes(operation.phase) && !operation.can_activate;
   const canReplaceDraft = !!operation && operation.phase === "SELECTING" &&
     (!pending || pending.phase === "SELECTING") && !operation.recovery_required && !held && !frozen && !busy;
 
@@ -65,7 +65,7 @@ export function DataManagementPanel() {
   function acceptView(view: MaintenanceView, expectedId?: string, expectedKind?: MaintenanceKind) {
     const state = useSession.getState();
     validateView(view, state.boot?.generation, expectedId, expectedKind);
-    state.maintenanceState({ operation: view, uncertain: ["INTENT", "ACTIVATION_DISPATCHED"].includes(view.phase), beginUncertain: false });
+    state.maintenanceState({ operation: view, uncertain: view.phase === "INTENT" || (view.phase === "ACTIVATION_DISPATCHED" && !view.can_activate), beginUncertain: false });
     state.bootMetadata(state.generation, view.generation, {
       runtime_state: view.runtime_state,
       pending_transition: complete(view) ? null : {

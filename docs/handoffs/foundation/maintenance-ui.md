@@ -60,6 +60,16 @@ dependency, migration or installer changes are included in this patch.
   remains held; UI does not infer completion from a missing child or status.
   Native's bounded generation/root/journal checks remain the authority across
   races between the earlier status read and the attach call.
+- Recovered source transitions in INTENT/QUIESCED/PREPARED/OLD_CLOSED/
+  CONFIG_SWITCHED may explicitly continue Run with the same operation even if
+  the current source Runtime is DORMANT, provided native does not offer candidate
+  activation. UI keeps DORMANT unchanged and delegates fresh verification/close
+  to native/core. It does not emulate quiescence or activate the source.
+  For ACTIVATION_DISPATCHED, an unknown optimistic dispatch remains uncertain
+  with `can_activate=false`. Only a fresh validated native result that explicitly
+  returns `can_activate=true` clears that uncertainty for a manual activation
+  retry. Partial/replay-required activation with false remains held; status does
+  not automatically retry either Run or Activate.
 - Known native rejection codes map to fixed safe UI messages. Unrecognized
   rejection bodies/suffixes are not echoed, including paths or tokens.
 
@@ -88,6 +98,13 @@ Draft-switch follow-up, same date: focused maintenance browser suite PASS,
 22 tests in 26.3 seconds, including three new cases for cancelled-picker→new native
 kind/ID, stale old-operation status, lost replacement ACK→new-ID reconciliation,
 and busy/INTENT/recovery gating. No full-suite or native GUI/install rerun.
+
+Recovered-source/activation-ACK follow-up: `npm run typecheck` PASS; focused
+`npx playwright test tests/maintenance-ui.spec.ts --workers=1` PASS, 25 tests in
+27.9 seconds. Three added cases cover PREPARED/DORMANT source continuation with
+the same operation, explicit activation retry after fresh native proof, and a
+partial activation remaining held without that proof. Scoped whitespace check
+PASS. No backend full-suite, build, native GUI or installer run for this UI patch.
 
 These tests do not exercise actual native dialogs, filesystem copies, the private
 sidecar protocol, Windows journal durability, frozen sidecar or installer. Those

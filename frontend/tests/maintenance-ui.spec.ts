@@ -498,3 +498,61 @@ test("draft replacement is unavailable while a picker is busy and after INTENT o
   await expect(page.getByRole("button", { name: /^Đổi sang:/ })).toHaveCount(0);
   expect(state.calls.filter((call) => call.command === "maintenance_begin")).toHaveLength(1);
 });
+
+test("restarted PREPARED source remains DORMANT but can explicitly continue the same native operation", async ({ page }) => {
+  const operation = view("move", { phase: "PREPARED", runtime_state: "DORMANT", can_activate: false, recovery_required: true });
+  const state = await mount(page, { boot: { ...sourceBoot, runtime_state: "DORMANT", pending_transition: operation }, operation });
+  await login(page, "recovery-admin");
+  await page.getByRole("button", { name: "Kiểm tra trạng thái thao tác", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Tiếp tục cùng thao tác", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Kích hoạt dữ liệu hiện tại", exact: true })).toBeDisabled();
+  expect((await store(page)).boot?.runtime_state).toBe("DORMANT");
+  expect(state.usersReads).toBe(0);
+  await page.getByRole("button", { name: "Tiếp tục cùng thao tác", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Đăng nhập", exact: true })).toBeVisible();
+  expect(state.calls.filter((call) => call.command === "maintenance_run").map((call) => call.args)).toEqual([
+    { operationId: operation.operation_id, userToken: "synthetic-token-recovery-admin" },
+  ]);
+  expect(state.calls.filter((call) => call.command === "maintenance_begin" || call.command === "maintenance_activate")).toEqual([]);
+  expect((await store(page)).boot).toMatchObject({ generation: "target-generation", runtime_state: "DORMANT" });
+});
+
+test("lost activation ACK stays frozen until fresh native proof permits explicit retry with the same operation", async ({ page }) => {
+  const operation = view("restore", { phase: "CANDIDATE_DORMANT", runtime_state: "DORMANT", can_activate: true });
+  const state = await mount(page, { boot: { ...sourceBoot, runtime_state: "DORMANT", pending_transition: operation }, operation });
+  await login(page, "target-admin");
+  await page.getByRole("button", { name: "Kiểm tra trạng thái thao tác", exact: true }).click();
+  let attempts = 0;
+  state.handler = async (call) => {
+    if (call.command === "maintenance_activate" && ++attempts === 1) return { error: "activation-wire-ack-lost-before-core-intent" };
+    return undefined;
+  };
+  await page.getByRole("button", { name: "Kích hoạt dữ liệu hiện tại", exact: true }).click();
+  await expect(page.getByText("Chưa rõ kết quả thao tác", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Kích hoạt dữ liệu hiện tại", exact: true })).toBeDisabled();
+  expect((await store(page)).maintenance.operation).toMatchObject({ phase: "ACTIVATION_DISPATCHED", can_activate: false });
+  state.operation = { ...operation, phase: "ACTIVATION_DISPATCHED", can_activate: true };
+  await page.getByRole("button", { name: "Kiểm tra trạng thái thao tác", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Kích hoạt dữ liệu hiện tại", exact: true })).toBeEnabled();
+  expect((await store(page)).boot?.runtime_state).toBe("DORMANT");
+  expect(state.usersReads).toBe(0);
+  expect(state.calls.filter((call) => call.command === "maintenance_activate")).toHaveLength(1);
+  await page.getByRole("button", { name: "Kích hoạt dữ liệu hiện tại", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Tài khoản nội bộ", exact: true })).toBeVisible();
+  const calls = state.calls.filter((call) => call.command === "maintenance_activate");
+  expect(calls).toHaveLength(2); expect(calls[1].args).toEqual(calls[0].args);
+  expect((await store(page)).actor).toBe("target-admin");
+});
+
+test("partial activation without native retry proof stays held and cannot run or activate again", async ({ page }) => {
+  const operation = view("restore", { phase: "ACTIVATION_DISPATCHED", runtime_state: "DORMANT", can_activate: false, recovery_required: true });
+  const state = await mount(page, { boot: { ...sourceBoot, runtime_state: "DORMANT", pending_transition: operation }, operation });
+  await login(page);
+  await page.getByRole("button", { name: "Kiểm tra trạng thái thao tác", exact: true }).click();
+  await expect(page.getByText("Chưa rõ kết quả thao tác", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Kích hoạt dữ liệu hiện tại", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /cùng thao tác/ })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Tài khoản nội bộ", exact: true })).toHaveCount(0);
+  expect((await store(page)).boot?.runtime_state).toBe("DORMANT");
+  expect(state.calls.filter((call) => call.command === "maintenance_activate" || call.command === "maintenance_run")).toEqual([]);
+});
