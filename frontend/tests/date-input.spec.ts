@@ -7,6 +7,8 @@ async function mountDateInput(
     disabled?: boolean;
     form?: boolean;
     required?: boolean;
+    formDisabled?: boolean;
+    controlDisabled?: boolean;
   } = {},
 ) {
   await page.route("**/date-input-save", (route) =>
@@ -30,7 +32,14 @@ async function mountDateInput(
     const reactPath = "/node_modules/.vite/deps/react.js";
     const rootPath = "/node_modules/.vite/deps/react-dom_client.js";
     const componentPath = "/src/shared/DateInput.tsx";
-    const antdPath = "/node_modules/.vite/deps/antd.js";
+    // Use the component's exact optimized-module URL (including Vite's version
+    // query). A second URL would instantiate a different AntD DisabledContext,
+    // making this harness unlike a real app even though Form values still work.
+    const componentSource = await (await fetch(componentPath)).text();
+    const antdPath = componentSource.match(
+      /["'](\/node_modules\/\.vite\/deps\/antd\.js(?:\?[^"']*)?)["']/,
+    )?.[1];
+    if (!antdPath) throw new Error("Vite AntD module URL unavailable");
     const React = (await import(reactPath)).default;
     const { createRoot } = (await import(rootPath)).default;
     const { DateInput, dateInputRule } = await import(componentPath);
@@ -67,13 +76,18 @@ async function mountDateInput(
       const [form] = Form.useForm();
       const [submitted, setSubmitted] = React.useState("");
       const [draft, setDraft] = React.useState(settings.value ?? "2026-11-06");
+      const [formDisabled, setFormDisabled] = React.useState(settings.formDisabled ?? false);
+      const [changeCount, setChangeCount] = React.useState(0);
       return h(
         Form,
         {
           form,
+          disabled: formDisabled,
           initialValues: { date: settings.value ?? "2026-11-06" },
-          onValuesChange: (_changed: unknown, values: { date: string }) =>
-            setDraft(values.date),
+          onValuesChange: (_changed: unknown, values: { date: string }) => {
+            setDraft(values.date);
+            setChangeCount((previous: number) => previous + 1);
+          },
           onFinish: async (values: { date: string }) => {
             await fetch("/date-input-save", {
               method: "POST",
@@ -93,11 +107,20 @@ async function mountDateInput(
               dateInputRule,
             ],
           },
-          h(DateInput, { "aria-label": "Ngày biểu mẫu" }),
+          h(DateInput, {
+            "aria-label": "Ngày biểu mẫu",
+            disabled: settings.controlDisabled,
+          }),
         ),
         h("button", { type: "submit" }, "Lưu biểu mẫu"),
         h("output", { "data-testid": "submitted" }, submitted),
         h("output", { "data-testid": "form-draft" }, draft),
+        h("output", { "data-testid": "change-count" }, String(changeCount)),
+        h(
+          "button",
+          { type: "button", onClick: () => setFormDisabled((previous: boolean) => !previous) },
+          formDisabled ? "Mở biểu mẫu" : "Khóa biểu mẫu",
+        ),
       );
     }
     createRoot(document.getElementById("root")!).render(
@@ -289,4 +312,68 @@ test("calendar can navigate month/year without changing the draft until a day is
   await page.locator('[title="2027-01-02"]').click();
   await expect(page.getByTestId("form-draft")).toHaveText("2027-01-02");
   await expect(page.getByTestId("submitted")).toHaveText("");
+});
+
+test("Form disabled context locks text, clear and an already open calendar without emitting changes", async ({
+  page,
+}) => {
+  await mountDateInput(page, { form: true });
+  const field = page.getByLabel("Ngày biểu mẫu", { exact: true });
+  const calendar = page.getByRole("button", { name: "Mở lịch chọn ngày" });
+  await calendar.click();
+  const nextDay = page.locator('[title="2026-11-07"]');
+  await expect(nextDay).toBeVisible();
+  const previouslyOpenDay = await nextDay.elementHandle();
+  await page.getByRole("button", { name: "Khóa biểu mẫu", exact: true }).click();
+  await expect(field).toBeDisabled();
+  await expect(calendar).toBeDisabled();
+  await expect(calendar).toHaveAttribute("aria-expanded", "false");
+  await expect(nextDay).toBeHidden();
+  await expect(page.getByRole("button", { name: "Xóa", exact: true })).toBeHidden();
+  // A queued click targeting the former popup must not alter Form state either.
+  await previouslyOpenDay?.dispatchEvent("click");
+  await calendar.click({ force: true });
+  await expect(nextDay).toBeHidden();
+  await expect(field).toHaveValue("06/11/2026");
+  await expect(page.getByTestId("form-draft")).toHaveText("2026-11-06");
+  await expect(page.getByTestId("change-count")).toHaveText("0");
+  await expect(page.getByTestId("submitted")).toHaveText("");
+
+  await page.getByRole("button", { name: "Mở biểu mẫu", exact: true }).click();
+  await expect(field).toBeEnabled();
+  await expect(calendar).toBeEnabled();
+  await expect(calendar).toHaveAttribute("aria-expanded", "false");
+  await field.fill("");
+  await expect(page.getByTestId("form-draft")).toHaveText("");
+  await field.fill("07/11/2026");
+  await expect(page.getByTestId("form-draft")).toHaveText("2026-11-07");
+  await calendar.click();
+  await page.locator('[title="2026-11-08"]').click();
+  await expect(page.getByTestId("form-draft")).toHaveText("2026-11-08");
+  await expect(page.getByTestId("change-count")).toHaveText("3");
+});
+
+test("explicit disabled false overrides Form context consistently for input and calendar", async ({
+  page,
+}) => {
+  await mountDateInput(page, { form: true, formDisabled: true, controlDisabled: false });
+  const field = page.getByLabel("Ngày biểu mẫu", { exact: true });
+  const calendar = page.getByRole("button", { name: "Mở lịch chọn ngày" });
+  await expect(field).toBeEnabled();
+  await expect(calendar).toBeEnabled();
+  await field.fill("07/11/2026");
+  await expect(page.getByTestId("form-draft")).toHaveText("2026-11-07");
+  await calendar.click();
+  const year = page.locator(".ant-picker-calendar-year-select").getByRole("combobox");
+  await expect(year).toBeEnabled();
+  await year.click();
+  await year.press("ArrowDown");
+  await year.press("Enter");
+  const month = page.locator(".ant-picker-calendar-month-select").getByRole("combobox");
+  await expect(month).toBeEnabled();
+  await month.click();
+  for (let index = 0; index < 10; index += 1) await month.press("ArrowUp");
+  await month.press("Enter");
+  await page.locator('[title="2027-01-08"]').click();
+  await expect(page.getByTestId("form-draft")).toHaveText("2027-01-08");
 });

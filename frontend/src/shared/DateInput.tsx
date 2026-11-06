@@ -1,10 +1,10 @@
-import { Calendar, Input, Popover, type InputProps, type InputRef } from "antd";
+import { Calendar, ConfigProvider, Input, Popover, type InputProps, type InputRef } from "antd";
 import viVN from "antd/es/calendar/locale/vi_VN";
 import type { Rule } from "antd/es/form";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import "dayjs/locale/vi";
-import { forwardRef, useState, type AriaAttributes } from "react";
+import { forwardRef, useLayoutEffect, useRef, useState, type AriaAttributes } from "react";
 
 dayjs.extend(customParseFormat);
 
@@ -63,8 +63,17 @@ export const DateInput = forwardRef<InputRef, DateInputProps>(function DateInput
   { value, onChange, ...props },
   ref,
 ) {
+  const { componentDisabled } = ConfigProvider.useConfig();
+  const disabled = props.disabled ?? componentDisabled;
+  const disabledRef = useRef(disabled);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarView, setCalendarView] = useState(() => dayjs().locale("vi"));
+  useLayoutEffect(() => {
+    // Popover may retain hidden content/handlers from its last open render.
+    // Those callbacks must consult current state before mutating this field.
+    disabledRef.current = disabled;
+    if (disabled) setCalendarOpen(false);
+  }, [disabled]);
   const selected = parseISO(value);
   const invalidValue = !isDateInputValueValid(value);
   const clearOptions =
@@ -73,6 +82,7 @@ export const DateInput = forwardRef<InputRef, DateInputProps>(function DateInput
     <Input
       {...props}
       ref={ref}
+      disabled={disabled}
       value={selected ? selected.format(DISPLAY_DATE) : (value ?? "")}
       placeholder={props.placeholder ?? "DD/MM/YYYY"}
       allowClear={
@@ -81,6 +91,7 @@ export const DateInput = forwardRef<InputRef, DateInputProps>(function DateInput
       status={props.status ?? (invalidValue ? "error" : undefined)}
       aria-invalid={invalidValue || props["aria-invalid"] || undefined}
       onChange={(event) => {
+        if (disabledRef.current) return;
         const text = event.target.value;
         const parsed = dayjs(text, DISPLAY_DATE, "vi", true);
         // Invalid/partial input must reach the controlled parent immediately.
@@ -90,35 +101,45 @@ export const DateInput = forwardRef<InputRef, DateInputProps>(function DateInput
       suffix={
         <Popover
           trigger="click"
-          open={calendarOpen && !props.disabled}
+          open={calendarOpen && !disabled}
           onOpenChange={(open) => {
+            if (disabledRef.current) {
+              setCalendarOpen(false);
+              return;
+            }
             if (open) setCalendarView(selected ?? dayjs().locale("vi"));
             setCalendarOpen(open);
           }}
           title="Chọn ngày"
           content={
-            <Calendar
-              fullscreen={false}
-              locale={viVN}
-              value={calendarView}
-              onPanelChange={setCalendarView}
-              style={{ width: 300 }}
-              onSelect={(date, info) => {
-                setCalendarView(date);
-                if (info.source === "date" && !props.disabled) {
-                  const iso = date.format(ISO_DATE);
-                  if (parseISO(iso)) onChange?.(iso);
-                  setCalendarOpen(false);
-                }
-              }}
-            />
+            <ConfigProvider componentDisabled={disabled}>
+              <Calendar
+                fullscreen={false}
+                locale={viVN}
+                value={calendarView}
+                disabledDate={() => disabledRef.current}
+                onPanelChange={(date) => {
+                  if (!disabledRef.current) setCalendarView(date);
+                }}
+                style={{ width: 300 }}
+                onSelect={(date, info) => {
+                  if (disabledRef.current) return;
+                  setCalendarView(date);
+                  if (info.source === "date") {
+                    const iso = date.format(ISO_DATE);
+                    if (parseISO(iso)) onChange?.(iso);
+                    setCalendarOpen(false);
+                  }
+                }}
+              />
+            </ConfigProvider>
           }
         >
           <button
             type="button"
             aria-label="Mở lịch chọn ngày"
-            aria-expanded={calendarOpen && !props.disabled}
-            disabled={props.disabled}
+            aria-expanded={calendarOpen && !disabled}
+            disabled={disabled}
             style={{ border: 0, background: "transparent", cursor: "pointer" }}
           >
             📅
