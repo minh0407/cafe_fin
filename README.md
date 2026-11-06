@@ -4,7 +4,9 @@
 
 ## Trạng thái
 
-Repo hiện chứa bộ yêu cầu, kiến trúc và prompt triển khai đã thống nhất ngày 06/11/2026. Chưa có ứng dụng hoặc bộ cài hoạt động. Không coi việc các tài liệu đã lên Git là nghiệm thu phần mềm.
+Repo đã có phần core được điều phối review và kiểm thử: số liệu chính xác, migration, serialized writer, tài khoản local, job phục hồi, snapshot import, lưu tệp, sao lưu và bộ render chứng từ local. [Kết quả kiểm tra increment 01](docs/reviews/CORE_INCREMENT_01.md).
+
+Đây là phần nền tảng đang phát triển. Chưa có ứng dụng nghiệp vụ hoặc bộ cài hoàn chỉnh; chưa công bố tag foundation READY và chưa nghiệm thu production. Các module nghiệp vụ vẫn chờ baseline được điều phối xác nhận.
 
 - [Yêu cầu sản phẩm](docs/SPEC.md)
 - [Kiến trúc và quyết định kỹ thuật](docs/ARCHITECTURE.md)
