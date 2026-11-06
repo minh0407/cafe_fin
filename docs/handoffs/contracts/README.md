@@ -11,6 +11,9 @@ Attachment security follow-up: [attachment-scopes.md](attachment-scopes.md)
 documents owner/Admin ingress checks, explicit contract-reference downloads and
 the approved shared file-ACL dependency.
 
+Records integration: [records-factory.md](records-factory.md) provides the
+per-request principal-aware bridge registration for root wiring.
+
 - Worktree: `C:\Users\NC\.codex\worktrees\cafe-fin-contracts\cafe_fin`
 - Branch: `codex/cafe-fin-contracts`
 - Baseline: `cafe-fin-foundation-ready-v1`

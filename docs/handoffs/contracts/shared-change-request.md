@@ -13,8 +13,10 @@ from cafe_fin.contracts.module import module_manifest as contracts_manifest
 
 # Add to the existing ModuleRegistry tuple without replacing other manifests:
 contracts_manifest()
-# Optional once records' public provider is available:
-contracts_manifest(records=records_read_bridge)
+# Per-request public provider once records is registered:
+from cafe_fin.records.module import RecordsReadProvider
+contracts_manifest(records_factory=RecordsReadProvider)
+# Static records=bridge remains supported for isolated synthetic fixtures only.
 ```
 
 ```typescript
@@ -27,6 +29,12 @@ The module declares its own namespace/checksummed migration and router under
 `/api/v1/contracts`. The optional read provider implements the already-frozen
 `core.contracts.RecordsReadBridge`; only lookup_party/get_weighing are called.
 There is no dependency on a records provider for manual drafting or export.
+The optional records_factory(runtime, principal) is invoked freshly for source
+lookups after the endpoint's records.read check. No principal is cached globally.
+Manual CRUD/preview/export do not construct the optional provider. Configure
+records or records_factory, never both. The feature's bounded records list GETs
+are used only to select an ID, followed by the contracts typed bridge and explicit
+copy/line selection; they do not write records or autosave a contract.
 
 Permissions use existing `contracts.read`/`contracts.write`. Only template changes
 add `contracts.templates`, available through the existing Admin wildcard; no
