@@ -10,11 +10,18 @@ Các endpoint chạy qua FastAPI thật, app-session và tài khoản local th�
 SQLAlchemy, core writer và SQLite file/WAL. Native desktop không được mock rồi
 ghi là đã nghiệm thu; kiểm thử UI/native được bàn giao riêng.
 
-## Kết quả cuối của nhóm test này
+## Kết quả của nhóm test này
 
 ```powershell
+.\.venv\Scripts\python.exe -m pytest tests/core tests/records -q -o faulthandler_timeout=30
+# Final sau toàn bộ fix: 155 passed, 1 warning in 64.19s (86 core +69 records).
 .\.venv\Scripts\python.exe -m pytest tests/records -q -o faulthandler_timeout=20
-# PASS: 58 passed, 1 warning in 24.91s
+# PASS: 67 passed, 1 warning in 33.08s
+# Trước bổ sung guard transaction identity và hai case commit/rollback rồi BEGIN mới.
+.\.venv\Scripts\python.exe -m pytest tests/records/test_records_shared_snapshot.py -q -o faulthandler_timeout=20
+# PASS sau fix transaction identity: 11 passed, 1 warning in 5.01s
+.\.venv\Scripts\python.exe -m pytest tests/records --collect-only -q
+# 69 cases cuối; đã bao gồm trong final155 phía trên.
 .\.venv\Scripts\python.exe -m ruff check tests/records
 # PASS: All checks passed!
 .\.venv\Scripts\python.exe -m compileall -q tests/records
@@ -32,6 +39,7 @@ Không sửa dependency hoặc tắt warning để làm pass.
 | `tests/records/test_records_api.py` | 34 | CRUD, nhiều vai trò, ngừng sử dụng, cân đầy/rỗng và tịnh trực tiếp, nullable weights, precision/overflow/float validation, nhập→xuất→sản xuất, dòng trùng, edit/delete/cancel/backdate/restore, retry/version, draft/post, summary cutoff/coverage, lọc/phân trang, chuyển kho, công nợ tổng lớn, Operator tự ghi, biên nửa đêm VN, giới hạn nguồn sản xuất, OpenAPI typed |
 | `tests/records/test_records_history_security.py` | 20 | UPDATE/DELETE/OR REPLACE bị chặn trên revisions/movements/references/lines, master tham chiếu không xóa được, thứ tự cùng ngày ổn định, thu hồi quyền lúc lệnh đang chờ và trước replay, 4 bridge revalidate quyền, cutoff khi xóa/khôi phục, sắp lại dòng giữ tham chiếu inactive |
 | `tests/records/test_records_transactions.py` | 4 | Hai connection tranh stock, audit failure rollback, reopen/replay bền vững, SQL persistence integer/null đúng scale |
+| `tests/records/test_records_shared_snapshot.py` | 11 | Borrowed readonly connection, cùng snapshot với synthetic source probe, không mở reader khác, quyền trên từng read, ownership khi lỗi, write/no-BEGIN/ended/closed guards, commit/rollback rồi BEGIN mới không hồi sinh provider cũ |
 
 ## Bằng chứng tồn âm và rollback
 
@@ -73,9 +81,34 @@ OpenAPI sinh từ app thật có typed request/response cho records CRUD/history
 stock và receivables; trọng lượng nullable/string, saved DTO không lộ command
 request_key/expected_version, security vẫn app session + local user.
 
+## Bridge dùng chung snapshot với caller
+
+`RecordsReadProvider(runtime, principal).bind_connection(conn)` hoặc constructor
+`connection=conn` dùng nguyên connection chỉ đọc đã có SQLite `BEGIN` do caller
+mở. Tests khóa `runtime.reader` bằng hàm fail: bốn method của core protocol và
+`inventory_breakdown` đều chỉ dùng connection đã nhận và revalidate quyền trên
+connection đó mỗi lần. Không commit, rollback hoặc đóng connection của caller.
+
+Một Database/WriteCoordinator thứ hai cập nhật phiếu qua public RecordsService.
+SQLAlchemy commit event cập nhật synthetic probe trên chính write connection và
+trước DBAPI commit. Bởi vậy revision records và probe được công bố nguyên tử.
+Provider bound cùng truy vấn probe ở transaction cũ vẫn thấy tồn/công nợ/marker
+cũ sau writer commit; provider và reader mới thấy cả số liệu và marker mới.
+Cutoff cho phép revision mới, nên kết quả cũ là bằng chứng SQLite snapshot,
+không phải lọc revision mới bằng cutoff.
+
+Write connection, query_only chưa có SQLite BEGIN thật, transaction đã commit/
+rollback và connection đã đóng đều bị từ chối. Kết thúc transaction rồi BEGIN
+lại trên cùng connection không hồi sinh bound provider cũ; bind provider mới
+mới được đọc. Các lỗi validation, thiếu reference và quyền bị thu hồi giữ nguyên
+lifetime/transaction caller để caller còn sử dụng lại được với principal hợp lệ.
+
+Đây là chứng minh records cùng một nguồn SQL tổng hợp dùng chung snapshot,
+**chưa phải kiểm tích hợp thực với lane accounting hoặc reporting Source.capture**.
+
 ## Giới hạn bằng chứng
 
 Nhóm này chỉ xác nhận backend records trên nền trong worktree riêng.
 Browser flow, root wiring liên module, native Tauri GUI và Windows sạch không
-được chứng minh bởi 58 backend cases. Native installer/release acceptance giữ
+được chứng minh bởi các backend cases này. Native installer/release acceptance giữ
 gate riêng của điều phối. Không commit hoặc áp migration vào runtime chung.

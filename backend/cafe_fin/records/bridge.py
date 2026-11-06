@@ -2,7 +2,10 @@
 
 import json
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import date, datetime
+
+from sqlalchemy.engine import Connection
 
 from cafe_fin.core.contracts import (
     InventoryLineDTO,
@@ -33,14 +36,57 @@ class RecordsReadProvider:
     reading saved references. They never mutate a contract or the source record.
     """
 
-    def __init__(self, runtime, principal):
+    def __init__(self, runtime, principal, *, connection: Connection | None = None):
         self.runtime, self.principal = runtime, principal
         self.service = RecordsService(runtime)
+        self.connection = connection
+        self._transaction = connection.get_transaction() if connection is not None else None
+
+    @staticmethod
+    def _require_snapshot(conn: Connection) -> None:
+        if (
+            conn.closed
+            or conn.invalidated
+            or not conn.in_transaction()
+            or not conn.connection.driver_connection.in_transaction
+            or conn.exec_driver_sql("PRAGMA query_only").scalar_one() != 1
+        ):
+            raise CoreError(
+                "READ_ONLY_SNAPSHOT_REQUIRED",
+                "Cần connection chỉ đọc đang giữ SQLite BEGIN snapshot do caller quản lý.",
+                409,
+            )
+
+    def bind_connection(self, conn: Connection) -> "RecordsReadProvider":
+        """Borrow caller's explicit read-only transaction without opening/closing it.
+
+        Source.capture may bind records/accounting to the same connection. The
+        caller owns BEGIN and lifetime; ending it invalidates subsequent reads.
+        """
+        self._require_snapshot(conn)
+        self.service._authorize(conn, self.principal)
+        return RecordsReadProvider(self.runtime, self.principal, connection=conn)
+
+    @contextmanager
+    def _read(self):
+        if self.connection is not None:
+            self._require_snapshot(self.connection)
+            if self.connection.get_transaction() is not self._transaction:
+                raise CoreError(
+                    "READ_ONLY_SNAPSHOT_REQUIRED",
+                    "Snapshot đã kết thúc; cần bind reader mới cho transaction mới.",
+                    409,
+                )
+            self.service._authorize(self.connection, self.principal)
+            yield self.connection
+        else:
+            with self.runtime.reader() as conn:
+                conn.exec_driver_sql("BEGIN")
+                self.service._authorize(conn, self.principal)
+                yield conn
 
     def lookup_party(self, identity: str) -> PartyDTO | None:
-        with self.runtime.reader() as conn:
-            conn.exec_driver_sql("BEGIN")
-            self.service._authorize(conn, self.principal)
+        with self._read() as conn:
             try:
                 data, _ = get_record(conn, "parties", identity)
             except CoreError as exc:
@@ -70,9 +116,7 @@ class RecordsReadProvider:
             )
 
     def get_weighing(self, identity: str) -> WeighingDTO | None:
-        with self.runtime.reader() as conn:
-            conn.exec_driver_sql("BEGIN")
-            self.service._authorize(conn, self.principal)
+        with self._read() as conn:
             try:
                 data, _ = get_record(conn, "weighings", identity)
             except CoreError as exc:
@@ -108,9 +152,7 @@ class RecordsReadProvider:
             raise CoreError("INVALID_RANGE", "Khoảng ngày báo cáo không hợp lệ.", 422)
         cutoff_text(cutoff)
         values, breakdown = defaultdict(lambda: [0, 0, 0]), defaultdict(lambda: [0, 0])
-        with self.runtime.reader() as conn:
-            conn.exec_driver_sql("BEGIN")
-            self.service._authorize(conn, self.principal)
+        with self._read() as conn:
             query = effective_movements(cutoff=cutoff).where(
                 M.c.occurred_on <= through_on.isoformat()
             )
@@ -157,9 +199,7 @@ class RecordsReadProvider:
             raise CoreError("INVALID_RANGE", "Ngày công nợ không hợp lệ.", 422)
         cutoff_text(cutoff)
         amounts = defaultdict(int)
-        with self.runtime.reader() as conn:
-            conn.exec_driver_sql("BEGIN")
-            self.service._authorize(conn, self.principal)
+        with self._read() as conn:
             for row in conn.execute(current_query("entries", cutoff=cutoff)).mappings():
                 data = json.loads(row.data_json)
                 if (

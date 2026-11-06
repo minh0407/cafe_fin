@@ -28,3 +28,10 @@ principal) cùng module_manifest() tại cafe_fin.records.module; read permissio
 Wiring đề nghị: registered_modules() thêm records.module.module_manifest(); frontend
 registry thay stub records bằng recordsModule từ features/records/index.ts.
 Migrations được manifest mang theo; không patch central migration registry.
+
+Theo yêu cầu capture chung của root: provider có public bind_connection(conn),
+hoặc keyword constructor connection=conn. Caller cấp read-only Connection và
+explicit SQLite BEGIN; records không mở/đóng connection đó. Mọi core DTO/method
+giữ nguyên, actor được authorize trong snapshot. Root Source.capture bind records
+và accounting vào đúng cùng conn; dùng chung cutoff nhưng mở2 readers riêng
+không phải bằng chứng cùng snapshot. Code/usage chi tiết trong README.md.
