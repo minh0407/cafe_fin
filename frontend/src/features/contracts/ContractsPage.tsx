@@ -337,7 +337,7 @@ function ContractsWorkspace() {
               { title: "Tình trạng", dataIndex: "status", render: (value: string) => value === "user_recorded_signed" ? "Người nhập ghi đã ký" : "Đã đính kèm" },
               { title: "Ghi chú", dataIndex: "note" },
               { title: "Bản xuất", dataIndex: "version_id", render: (id: string | null) => id ? id.slice(0, 8) : "Hợp đồng" },
-              { title: "Tệp", render: (_, attachment) => <Space orientation="vertical"><Typography.Text>{attachment.original_name ?? "Tệp đính kèm"}</Typography.Text><Button size="small" disabled={locked} onClick={() => void download(`/files/${encoded(attachment.file_id)}/content`, attachment.original_name ?? `dinh-kem-${attachment.id}`)}>Tải tệp gốc</Button></Space> },
+              { title: "Tệp", render: (_, attachment) => <Space orientation="vertical"><Typography.Text>{attachment.original_name ?? "Tệp đính kèm"}</Typography.Text><Button size="small" disabled={locked} onClick={() => void download(`/contracts/${encoded(selected.id)}/attachments/${encoded(attachment.id)}/content`, attachment.original_name ?? `dinh-kem-${attachment.id}`)}>Tải tệp gốc</Button></Space> },
             ]} />
           </> },
         ]} />

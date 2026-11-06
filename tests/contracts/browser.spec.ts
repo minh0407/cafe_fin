@@ -1,6 +1,6 @@
 import { test, expect } from "../../frontend/node_modules/@playwright/test/index.mjs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -125,6 +125,14 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     await page.getByRole("button", { name: "Lưu tệp đính kèm" }).click();
     await expect(page.getByText("Đã lưu tệp đính kèm và tình trạng do bạn ghi.", { exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Chứng từ thử tùy chọn." })).toBeVisible();
+    const attachmentResponse = page.waitForResponse((response) => response.url().startsWith(`${api_base}/contracts/${contractId}/attachments/`) && response.url().endsWith("/content"));
+    const attachmentDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Tải tệp gốc", exact: true }).click();
+    const originalAttachment = await attachmentResponse;
+    expect(originalAttachment.status()).toBe(200);
+    expect(await originalAttachment.body()).toEqual(Buffer.from(pdfBytes));
+    expect(originalAttachment.headers()["x-content-sha256"]).toBe(createHash("sha256").update(Buffer.from(pdfBytes)).digest("hex"));
+    expect((await attachmentDownload).suggestedFilename()).toBe("scan-tong-hop.pdf");
 
     // Manual sale remains independent; a failed PDF must keep the actual DOCX usable.
     await page.getByRole("button", { name: "Lập hợp đồng mới" }).click();

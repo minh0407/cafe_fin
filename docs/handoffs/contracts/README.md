@@ -7,6 +7,10 @@ Independent-review patch: [review-fixes.md](review-fixes.md) documents cross-act
 storage receipt recovery, canonical UUID handling, the appended v2 migration and
 the latest validation. The original candidate evidence below remains historical.
 
+Attachment security follow-up: [attachment-scopes.md](attachment-scopes.md)
+documents owner/Admin ingress checks, explicit contract-reference downloads and
+the approved shared file-ACL dependency.
+
 - Worktree: `C:\Users\NC\.codex\worktrees\cafe-fin-contracts\cafe_fin`
 - Branch: `codex/cafe-fin-contracts`
 - Baseline: `cafe-fin-foundation-ready-v1`

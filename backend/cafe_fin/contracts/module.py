@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from cafe_fin.core.api import require
 from cafe_fin.core.contracts import PartyDTO, RecordsReadBridge, WeighingDTO
+from cafe_fin.core.errors import CoreError
 from cafe_fin.core.http_types import ResponseDTO
 from cafe_fin.core.modules import ModuleManifest
 
@@ -345,6 +346,29 @@ def module_manifest(records: RecordsReadBridge | None = None) -> ModuleManifest:
             payload.version_id,
             payload.note,
             payload.status,
+        )
+
+    @router.get("/{contract_id}/attachments/{attachment_id}/content")
+    def attachment_content(contract_id: str, attachment_id: str, request: Request):
+        runtime, actor = request.app.state.runtime, request.state.principal
+        contracts = service(request)
+        stored = contracts.attachment_file(actor, contract_id, attachment_id)
+        # No read transaction is held while verifying/reading the bounded document.
+        with runtime.files.read(stored.id) as source:
+            content = source.read()
+        # A permission/reference change while hashing must fail before HTTP 200.
+        if contracts.attachment_file(actor, contract_id, attachment_id) != stored:
+            raise CoreError(
+                "ATTACHMENT_FILE_CHANGED", "Thông tin chứng từ đã thay đổi; hãy thử tải lại.", 409
+            )
+        return Response(
+            content,
+            media_type=stored.media_type,
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''"
+                + quote(stored.original_name),
+                "X-Content-SHA256": stored.sha256,
+            },
         )
 
     @router.get("/{contract_id}/history")
