@@ -20,6 +20,7 @@ function complete(operation: MaintenanceView) {
 export function DataManagementPanel() {
   const session = useSession();
   const mounted = useRef(false);
+  const requestSequence = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -29,17 +30,27 @@ export function DataManagementPanel() {
   const allowed = (permission: string) => !!session.user && (session.user.permissions.includes("*") || session.user.permissions.includes(permission));
   const admin = session.user?.role === "admin" && allowed("core.manage");
   const held = maintenanceHeld(session.boot);
-  const operation = session.maintenance.operation?.generation === session.boot?.generation ? session.maintenance.operation : null;
   const pending = session.boot?.pending_transition;
+  const cachedOperation = session.maintenance.operation;
+  const operation = cachedOperation && cachedOperation.generation === session.boot?.generation &&
+    (!pending || pending.operation_id === cachedOperation.operation_id) ? cachedOperation : null;
   const operationId = operation?.operation_id ?? pending?.operation_id;
   const frozen = session.maintenance.uncertain || session.maintenance.beginUncertain || !!pending?.recovery_required || (!!operation && operation.phase !== "SELECTING");
   const canContinue = !!operation && ["INTENT", "QUIESCED", "PREPARED", "OLD_CLOSED", "CONFIG_SWITCHED"].includes(operation.phase) && operation.runtime_state !== "DORMANT";
+  const canReplaceDraft = !!operation && operation.phase === "SELECTING" &&
+    (!pending || pending.phase === "SELECTING") && !operation.recovery_required && !held && !frozen && !busy;
 
-  function owner() {
+  function currentOperationId() {
     const state = useSession.getState();
+    return state.boot?.pending_transition?.operation_id ?? state.maintenance.operation?.operation_id;
+  }
+  function owner(expectedOperationId?: string) {
+    const state = useSession.getState();
+    const sequence = ++requestSequence.current;
     return () => mounted.current && useSession.getState().generation === state.generation &&
       !state.generationSignal.aborted && useSession.getState().boot?.generation === state.boot?.generation &&
-      useSession.getState().boot?.maintenance_protocol === 1;
+      useSession.getState().boot?.maintenance_protocol === 1 && requestSequence.current === sequence &&
+      (expectedOperationId === undefined || currentOperationId() === expectedOperationId);
   }
   function validateView(view: MaintenanceView, generation: string | null | undefined, expectedId?: string, expectedKind?: MaintenanceKind) {
     if (!view || view.generation !== generation || typeof view.operation_id !== "string" || !view.operation_id || view.operation_id.length > 256 ||
@@ -77,7 +88,7 @@ export function DataManagementPanel() {
   }
   async function select(purpose: "destination" | "backup_source") {
     if (!supported || !admin || busy || frozen || !operationId) return;
-    const current = owner();
+    const current = owner(operationId);
     setBusy(true); setError(""); setNotice("");
     useSession.getState().maintenanceState({ beginUncertain: true });
     try {
@@ -89,18 +100,21 @@ export function DataManagementPanel() {
     finally { if (current()) setBusy(false); }
   }
   async function begin(kind: MaintenanceKind) {
-    if (!supported || !admin || busy || held || session.maintenance.beginUncertain ||
-      (operation && !complete(operation)) || (pending && pending.phase !== "ACTIVE")) return;
+    if (!supported || !admin || busy || held || session.maintenance.uncertain || session.maintenance.beginUncertain ||
+      (operationId ? !canReplaceDraft : (pending && pending.phase !== "ACTIVE"))) return;
     const current = owner();
     setBusy(true); setError(""); setNotice("");
     useSession.getState().maintenanceState({ beginUncertain: true });
     try {
       const view = await desktop.maintenanceBegin(kind);
       if (!current()) return;
+      validateView(view, useSession.getState().boot?.generation, undefined, kind);
+      if (view.phase !== "SELECTING" || view.recovery_required || (operationId && view.operation_id === operationId))
+        throw new ApiError("NATIVE_RESULT_UNKNOWN", "Chưa xác nhận được bản nháp mới từ desktop. Hãy kiểm tra trạng thái.");
       acceptView(view, undefined, kind);
       useSession.getState().maintenanceState({ beginUncertain: true });
       const selected = await desktop.maintenanceSelect(view.operation_id, "destination");
-      if (!current()) return;
+      if (!current() || currentOperationId() !== view.operation_id) return;
       if (selected) acceptView(selected, view.operation_id, kind);
       else { useSession.getState().maintenanceState({ beginUncertain: false }); setNotice("Đã hủy chọn thư mục. Thao tác hiện tại được giữ nguyên."); }
     } catch (err) { if (current()) setError(messageOf(err)); }
@@ -111,7 +125,7 @@ export function DataManagementPanel() {
     if (kind === "run" && (session.maintenance.beginUncertain || !operation ||
       (operation.phase === "SELECTING" ? !operation.ready || frozen : !canContinue))) return;
     if (kind === "activate" && (!operation?.can_activate || operation.runtime_state !== "DORMANT" || session.maintenance.uncertain)) return;
-    const current = owner();
+    const current = owner(operationId);
     const token = useSession.getState().token!;
     setBusy(true); setError(""); setNotice("");
     if (kind !== "status") {
@@ -149,6 +163,8 @@ export function DataManagementPanel() {
         setNotice("Desktop đang giữ phiên dữ liệu khác. Kết nối phiên desktop hiện tại để đăng nhập lại; thao tác cũ vẫn được giữ.");
         return;
       }
+      if (status.pending_transition && operationId && status.pending_transition.operation_id !== operationId && !session.maintenance.beginUncertain)
+        throw new ApiError("NATIVE_RESULT_UNKNOWN", "Trạng thái desktop không khớp thao tác hiện tại.");
       const state = useSession.getState();
       // Absence/process death is not proof of completion or a safe abandonment.
       if (status.pending_transition) {
@@ -202,6 +218,13 @@ export function DataManagementPanel() {
             {operation.kind === "restore" && <Button disabled={busy} onClick={() => void select("backup_source")}>Chọn bản sao lưu</Button>}
             <Button type="primary" disabled={busy || !operation.ready} onClick={() => void command("run")}>Thực hiện</Button>
           </Space>}
+          {canReplaceDraft && <>
+            <Typography.Text strong>Chọn thao tác khác</Typography.Text>
+            <Space wrap>
+              {(["backup", "move", "restore"] as const).filter((kind) => kind !== operation.kind).map((kind) =>
+                <Button key={kind} onClick={() => void begin(kind)}>Đổi sang: {names[kind]}</Button>)}
+            </Space>
+          </>}
           {operation.runtime_state === "DORMANT" && <Button type="primary" disabled={busy || !operation.can_activate || session.maintenance.uncertain} onClick={() => void command("activate")}>Kích hoạt dữ liệu hiện tại</Button>}
           {complete(operation) && !held && <Button disabled={busy} onClick={() => useSession.getState().maintenanceState({ operation: null, uncertain: false })}>Thao tác dữ liệu tiếp theo</Button>}
         </>}

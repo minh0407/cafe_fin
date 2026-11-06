@@ -19,7 +19,11 @@ async function mount(page: Page, options: { boot?: BootSession; status?: Desktop
     if (override) { if (override.error) throw new Error(override.error); return override.value; }
     if (command === "desktop_status") return state.status ?? { data_root: state.boot.data_root, running: true, maintenance_protocol: state.boot.maintenance_protocol, generation: state.boot.generation, runtime_state: state.boot.runtime_state, pending_transition: state.operation ?? state.boot.pending_transition };
     if (command === "start_backend") { if (options.failStart) throw new Error("synthetic-start-held"); return state.boot; }
-    if (command === "maintenance_begin") { state.operation = view(args.kind as MaintenanceKind); return state.operation; }
+    if (command === "maintenance_begin") {
+      const number = state.calls.filter((item) => item.command === "maintenance_begin").length;
+      state.operation = view(args.kind as MaintenanceKind, { operation_id: `native-operation-${number}` });
+      return state.operation;
+    }
     if (command === "maintenance_select") {
       if (state.cancelPicker) return null;
       const op = state.operation!;
@@ -421,4 +425,76 @@ test("late safe-attach BootSession cannot clear a newer actor", async ({ page })
   await switchActor(page, "new-current-admin"); gate.resolve();
   await expect(page.getByText("new-current-admin", { exact: true })).toBeVisible();
   expect((await store(page)).boot?.generation).toBe("source-generation");
+});
+
+test("cancelled picker can switch draft kind only through a new native Begin/operation ID", async ({ page }) => {
+  const state = await mount(page); await login(page);
+  state.cancelPicker = true;
+  await page.getByRole("button", { name: "Sao lưu", exact: true }).click();
+  await expect(page.getByText("Đã hủy chọn thư mục. Thao tác hiện tại được giữ nguyên.")).toBeVisible();
+  state.cancelPicker = false;
+  await page.getByRole("button", { name: "Đổi sang: Chuyển nơi lưu", exact: true }).click();
+  await expect(page.getByText("Chuyển nơi lưu — Đang chọn thư mục", { exact: true })).toBeVisible();
+  expect(state.calls.filter((call) => call.command === "maintenance_begin").map((call) => call.args)).toEqual([{ kind: "backup" }, { kind: "move" }]);
+  expect(state.calls.filter((call) => call.command === "maintenance_select").map((call) => call.args)).toEqual([
+    { operationId: "native-operation-1", purpose: "destination" },
+    { operationId: "native-operation-2", purpose: "destination" },
+  ]);
+  expect((await store(page)).maintenance.operation?.operation_id).toBe("native-operation-2");
+  // A stale old-op response must not overwrite the replacement, even in the same generation.
+  state.handler = async (call) => call.command === "maintenance_status" ? { value: { operation: view("backup", { destination_display: "OLD-DRAFT-DESTINATION" }), boot_session: null } } : undefined;
+  await page.getByRole("button", { name: "Kiểm tra trạng thái thao tác", exact: true }).click();
+  await expect(page.getByText("Phản hồi không khớp phiên dữ liệu hiện tại. Hãy kiểm tra trạng thái.")).toBeVisible();
+  expect((await store(page)).maintenance.operation?.operation_id).toBe("native-operation-2");
+  await expect(page.getByText("OLD-DRAFT-DESTINATION", { exact: true })).toHaveCount(0);
+  state.handler = async (call) => call.command === "desktop_status" ? { value: { data_root: sourceBoot.data_root, running: true, maintenance_protocol: 1, generation: sourceBoot.generation, runtime_state: "ACTIVE", pending_transition: view("backup") } } : undefined;
+  await page.getByRole("button", { name: "Kiểm tra trạng thái desktop", exact: true }).click();
+  await expect(page.getByText("Chưa xác nhận được trạng thái desktop. Giữ nguyên thao tác hiện tại.")).toBeVisible();
+  expect((await store(page)).boot?.pending_transition?.operation_id).toBe("native-operation-2");
+  expect(state.calls.filter((call) => call.command === "maintenance_run")).toEqual([]);
+});
+
+test("lost replacement Begin ACK keeps old cache frozen until desktop status reconciles the new native ID", async ({ page }) => {
+  const state = await mount(page); await login(page);
+  await page.getByRole("button", { name: "Sao lưu", exact: true }).click();
+  const original = (await store(page)).maintenance.operation;
+  state.handler = async (call) => {
+    if (call.command === "maintenance_begin") {
+      state.operation = view("restore", { operation_id: "native-operation-replacement" });
+      return { error: "replacement-ack-lost" };
+    }
+    return undefined;
+  };
+  await page.getByRole("button", { name: "Đổi sang: Khôi phục bản sao lưu", exact: true }).click();
+  await expect(page.getByText("Chưa xác nhận lựa chọn hoặc thao tác desktop. Không tạo yêu cầu mới; kiểm tra trạng thái desktop hoặc thao tác.")).toBeVisible();
+  expect((await store(page)).maintenance.operation).toEqual(original);
+  await expect(page.getByRole("button", { name: /^Đổi sang:/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Thực hiện", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Kiểm tra trạng thái desktop", exact: true }).click();
+  await page.getByRole("button", { name: "Kiểm tra trạng thái thao tác", exact: true }).click();
+  expect(state.calls.filter((call) => call.command === "maintenance_status").at(-1)?.args.operationId).toBe("native-operation-replacement");
+  await expect(page.getByText("Khôi phục bản sao lưu — Đang chọn thư mục", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Chọn bản sao lưu", exact: true })).toBeVisible();
+  expect(state.calls.filter((call) => call.command === "maintenance_begin")).toHaveLength(2);
+});
+
+test("draft replacement is unavailable while a picker is busy and after INTENT or recovery-required status", async ({ page }) => {
+  const gate = deferred(); const started = deferred();
+  const state = await mount(page); await login(page);
+  state.handler = async (call) => {
+    if (call.command === "maintenance_select") { started.resolve(); await gate.promise; }
+    if (call.command === "maintenance_run") return { error: "run-ack-lost" };
+    return undefined;
+  };
+  await page.getByRole("button", { name: "Sao lưu", exact: true }).click(); await started.promise;
+  await expect(page.getByRole("button", { name: /^Đổi sang:/ })).toHaveCount(0);
+  gate.resolve();
+  await expect(page.getByRole("button", { name: "Đổi sang: Chuyển nơi lưu", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Thực hiện", exact: true }).click();
+  await expect(page.getByText("Chưa rõ kết quả thao tác", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Đổi sang:/ })).toHaveCount(0);
+  state.operation = { ...state.operation!, recovery_required: true };
+  await page.getByRole("button", { name: "Kiểm tra trạng thái thao tác", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Đổi sang:/ })).toHaveCount(0);
+  expect(state.calls.filter((call) => call.command === "maintenance_begin")).toHaveLength(1);
 });

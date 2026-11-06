@@ -26,6 +26,16 @@ dependency, migration or installer changes are included in this patch.
   until detailed native status confirms the actual labels.
   Status-proven intermediate phases may explicitly continue the same operation;
   native remains responsible for determining whether continuation is safe.
+- A confirmed memory-only SELECTING draft offers **Chọn thao tác khác** with
+  explicit alternative kinds. This invokes `maintenance_begin(kind)` and the
+  normal native destination picker; native returns a new operation ID and revokes
+  the old draft's handles (confirmed contract `8b8e20a`). UI does not clear a local
+  view and pretend that native work was cancelled. Replacement is unavailable
+  while busy, held, recovery-required, uncertain, or awaiting a Begin/picker ACK,
+  and after INTENT. There is no cancellation of persistent work.
+  A lost replacement ACK retains the old view as unconfirmed; fresh bounded
+  desktop status can identify the replacement ID, then detailed status reconciles
+  that ID. Cached/stale old-operation responses cannot resurrect the old draft.
 - In-memory session metadata keeps the operation across route and actor changes.
   There is no credential, DTO or journal logging/persistence. Every asynchronous
   begin/select/run/status/activate/open action is fenced by component lifetime,
@@ -73,6 +83,11 @@ Verification on 2026-11-07:
   HTTP, `npx playwright test tests/maintenance-ui.spec.ts --grep "lost move ACK"
   --workers=1`: PASS, 1 test in 3.7 seconds.
 - `git diff --check`: PASS. Independent read-only review: no remaining blocker.
+
+Draft-switch follow-up, same date: focused maintenance browser suite PASS,
+22 tests in 26.3 seconds, including three new cases for cancelled-picker→new native
+kind/ID, stale old-operation status, lost replacement ACK→new-ID reconciliation,
+and busy/INTENT/recovery gating. No full-suite or native GUI/install rerun.
 
 These tests do not exercise actual native dialogs, filesystem copies, the private
 sidecar protocol, Windows journal durability, frozen sidecar or installer. Those
