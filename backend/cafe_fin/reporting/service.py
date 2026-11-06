@@ -89,7 +89,8 @@ class ReportingService:
         self.actor_source_factory = actor_source_factory
         self.secrets = secret_store or MissingSecrets()
         self.transport = transport or OfficialGMF()
-        self.heartbeat_bound = heartbeat_bound
+        # Compatibility argument only. Public status is derived from real registration,
+        # never from a caller's claim that an external heartbeat exists.
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def authorize(self, actor, permission="reporting.write"):
@@ -361,17 +362,34 @@ class ReportingService:
             if (config["group_id"] and config["oa_id"] and config["credential_configured"])
             else "UNCONFIGURED"
         )
-        config["scheduler_mode"] = "APP_RUNTIME" if self.heartbeat_bound else "REPORTING_SCREEN"
+        periodic = self.runtime.periodic
+        status = periodic.status() if periodic is not None else {}
+        registered = "reporting.tick" in status.get("runs", {})
+        config["scheduler_mode"] = "APP_RUNTIME" if registered else "MANUAL"
+        config["scheduler_status"] = {
+            "registered": registered,
+            "state": status.get("state", "UNBOUND") if registered else "UNBOUND",
+            "running": bool(registered and status.get("running")),
+            "active": registered and status.get("active_task") == "reporting.tick",
+            "error_code": status.get("error_code") if registered else None,
+            "last_error_code": status.get("last_error_code") if registered else None,
+            "task_error_code": status.get("task_errors", {}).get("reporting.tick"),
+            "runs": status.get("runs", {}).get("reporting.tick", 0),
+            "failures": status.get("failures", {}).get("reporting.tick", 0),
+        }
         try:
             self.resolve_scheduled_actor(config)
             config["schedule_actor_status"] = "ACTIVE"
         except CoreError:
             config["schedule_actor_status"] = "BLOCKED"
         config["scheduler_limit"] = (
-            "Lịch chạy khi ứng dụng đang mở. "
-            if self.heartbeat_bound
-            else "Hiện lịch cập nhật khi màn hình Báo cáo đang mở. "
-        ) + "Máy ngủ/tắt hoặc app đóng không gửi; mở lại xử lý các bản đã lưu còn chờ."
+            "Lịch do backend kiểm tra mỗi 60 giây, không cần mở màn hình Báo cáo. "
+            if registered
+            else "Runtime chưa đăng ký lịch tự động; chỉ kiểm tra khi được yêu cầu. "
+        ) + (
+            "Máy ngủ/tắt hoặc backend dừng không chạy lịch; mở lại phục hồi bản đã lưu, "
+            "ngày cũ thiếu snapshot cần xử lý thủ công."
+        )
         return config
 
     def credential_ready(self, config):

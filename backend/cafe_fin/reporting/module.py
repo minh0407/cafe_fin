@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Request
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.jobs import JobHandler
 from cafe_fin.core.modules import ModuleManifest
+from cafe_fin.core.periodic import PeriodicTask
 
 from . import models
 from .migrations import MIGRATIONS
@@ -206,4 +207,7 @@ def module_manifest(
         router=router,
         job_handlers={"reporting.dispatch": JobHandler(run_dispatch, resumable=False)},
         on_startup=startup,
+        periodic_tasks={
+            "reporting.tick": PeriodicTask(lambda runtime: service(runtime).tick(), 60)
+        },
     )
