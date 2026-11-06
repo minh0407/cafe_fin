@@ -12,8 +12,13 @@ from cafe_fin.core.runtime import Runtime
 
 
 class AccountingRuntime(Runtime):
-    def __init__(self, path, *, initialize=False):
-        super().__init__(path, initialize=initialize, modules=ModuleRegistry((module_manifest(),)))
+    def __init__(self, path, *, initialize=False, activation_mode="active"):
+        super().__init__(
+            path,
+            initialize=initialize,
+            activation_mode=activation_mode,
+            modules=ModuleRegistry((module_manifest(),)),
+        )
 
 
 TEST_ORIGIN = 'http://127.0.0.1:1424'
