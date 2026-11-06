@@ -3,6 +3,8 @@
 import hashlib
 import sqlite3
 from contextlib import closing
+from copy import deepcopy
+from datetime import datetime
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -28,6 +30,31 @@ def call(client, child, token, method, path, *, expected=200, **kwargs):
 
 def data(client, child, token, method, path, **kwargs):
     return call(client, child, token, method, path, **kwargs).json()
+
+
+def immutable_report(report):
+    result = deepcopy(report)
+    for exported in result["exports"]:
+        # Repair advances only this copy receipt. Keep every canonical export,
+        # report/snapshot field and every immutable local pin in the comparison.
+        for field in ("attempts", "verified_at", "updated_at"):
+            del exported["local_export"][field]
+    return result
+
+
+def local_receipt(report, export_id):
+    return next(item for item in report["exports"] if item["id"] == export_id)["local_export"]
+
+
+def assert_human_copy(root, receipt, original_receipt, original_bytes):
+    for field in ("export_id", "relative_key", "sha256", "size"):
+        assert receipt[field] == original_receipt[field]
+    assert receipt["state"] == "READY" and receipt["error_code"] is None
+    assert receipt["verified_at"] is not None
+    content = DataRootService(root).resolve_key(receipt["relative_key"]).read_bytes()
+    assert content == original_bytes
+    assert len(content) == receipt["size"]
+    assert hashlib.sha256(content).hexdigest() == receipt["sha256"]
 
 
 def files_at(root):
@@ -256,6 +283,14 @@ def test_actual_wire_restore_default_registry_quarantines_once_preserves_data_an
                 f"/reporting/reports/{report['id']}/exports",
                 json={"format": "txt", "request_key": key()},
             )
+            source_local = exported["local_export"]
+            source_human_bytes = (
+                DataRootService(source_root).resolve_key(source_local["relative_key"]).read_bytes()
+            )
+            assert source_local["relative_key"].startswith("reports/CafeFin-")
+            assert source_local["sha256"] == exported["sha256"]
+            assert source_local["size"] == exported["size"]
+            assert_human_copy(source_root, source_local, source_local, source_human_bytes)
             saved_report = data(client, source, token, "GET", f"/reporting/reports/{report['id']}")
             saved_entry = data(client, source, token, "GET", f"/records/entries/{entry['id']}")
             saved_rows = data(client, source, token, "GET", f"/accounting/books/{book['id']}/rows")
@@ -368,10 +403,18 @@ def test_actual_wire_restore_default_registry_quarantines_once_preserves_data_an
                 data(client, target, target_token, "GET", f"/contracts/{contract['id']}")
                 == saved_contract
             )
-            assert (
-                data(client, target, target_token, "GET", f"/reporting/reports/{report['id']}")
-                == saved_report
+            target_report = data(
+                client, target, target_token, "GET", f"/reporting/reports/{report['id']}"
             )
+            assert immutable_report(target_report) == immutable_report(saved_report)
+            copied_local = local_receipt(target_report, exported["id"])
+            assert copied_local["attempts"] == source_local["attempts"] + 1
+            for field in ("verified_at", "updated_at"):
+                assert datetime.fromisoformat(copied_local[field]) > datetime.fromisoformat(
+                    source_local[field]
+                )
+            assert_human_copy(restored_root, copied_local, source_local, source_human_bytes)
+            assert_human_copy(source_root, source_local, source_local, source_human_bytes)
             for file_id, digest, size, relative_key in canonical_files:
                 content = call(
                     client, target, target_token, "GET", f"/files/{file_id}/content"
@@ -444,6 +487,14 @@ def test_actual_wire_restore_default_registry_quarantines_once_preserves_data_an
             )
             assert guard_counts(restored_root, restore_id) == (1, 1)
             assert files_at(restored_root) == canonical_files
+            restarted_report = data(
+                client, restarted, restart_token, "GET", f"/reporting/reports/{report['id']}"
+            )
+            assert immutable_report(restarted_report) == immutable_report(saved_report)
+            restarted_local = local_receipt(restarted_report, exported["id"])
+            assert restarted_local == copied_local  # Status/replay/restart do not copy again.
+            assert_human_copy(restored_root, restarted_local, source_local, source_human_bytes)
+            assert_human_copy(source_root, source_local, source_local, source_human_bytes)
             assert (
                 hashlib.sha256((backup / "backup-manifest.json").read_bytes()).hexdigest()
                 == backup_hash

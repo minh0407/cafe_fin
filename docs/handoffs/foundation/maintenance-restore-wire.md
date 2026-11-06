@@ -23,15 +23,32 @@ RESTORE_REVIEW_REQUIRED, without attempts. Real core audit and owner receipt eac
 occur once. Records/accounting/contract/report data, canonical file IDs/hash/size,
 downloaded original bytes and the original backup manifest hash are preserved.
 
+The test also captures the actual source human TXT bytes from
+`exported.local_export.relative_key` under reports. After target activation and
+again after restart, the target human copy must be READY at the same relative key
+with the same export ID, SHA and size, and exact source bytes. The old source human
+file remains byte-for-byte unchanged. The target repair advances attempts exactly
+once and refreshes verification/update timestamps.
+
+Full report/snapshot/canonical export comparison remains exact. Only nested
+local_export.attempts, verified_at and updated_at are excluded from the source vs
+target equality, because they describe the new physical copy attempt; those fields
+are independently checked for the expected advance. Every other report/export and
+local pin/state/error field remains in the comparison. After restart the complete
+local receipt must equal the post-activation receipt, including those mutable
+fields, proving status/replay/restart did not perform another copy.
+
 After an explicit target Admin local-only re-enable, two private status calls,
 duplicate activation and clean close/restart retain the reviewed settings/version.
 There remains exactly one quarantine audit/receipt; no resuspension or guard
 reexecution changes the Admin choice. The restarted child also closes with CLOSED
 plus exit 0.
 
-PASS: **1 case in 7.18 seconds**. Scoped Ruff lint/format and Git whitespace
-checks pass. Evidence XML/log is outside Git as `restore-wire-20261107.{xml,txt}`
-in the session visualization directory.
+PASS after the human-copy fix: **1 case in 7.28 seconds**. Scoped Ruff lint/format
+and Git whitespace checks pass. Final evidence XML/log is outside Git as
+`restore-wire-human-copy-20261107.{xml,txt}` in the session visualization directory.
+The earlier canonical-only run was 1 PASS in 7.18 seconds; its evidence does not
+prove the human copy existed at the target.
 
 ```powershell
 .venv/Scripts/python.exe -m pytest tests/core/test_maintenance_restore_protocol.py -q -p no:cacheprovider
@@ -40,7 +57,7 @@ in the session visualization directory.
 
 This is Python sidecar + HTTP + SQLite + canonical FileStore evidence, not native
 executable/GUI, cross-version migration restore, clean-client installation,
-power-loss, external send, credential-value or benchmark acceptance. No product,
-existing test, config/dependency, native or UI file was edited. The concurrent full
-backend run had already collected before this new case; this focused result is
-reported separately rather than included in its total.
+power-loss, external send, credential-value or benchmark acceptance. This update
+changes only the wire test and this handoff; no product, config/dependency, native
+or UI file is edited. No full suite was rerun. This focused result is reported
+separately from the broader backend/CI acceptance evidence.
