@@ -12,6 +12,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from argon2.low_level import Type, hash_secret_raw
 from sqlalchemy import Boolean, Column, Integer, MetaData, String, Table, func, insert, select
+from sqlalchemy.engine import Connection
 
 from .audit import AuditService, require_version
 from .db import Database, WriteCoordinator
@@ -122,6 +123,22 @@ class AuthService:
         if not row or not row.active or row.version != actor.version or row.role != actor.role:
             raise CoreError(
                 "SESSION_EXPIRED", "Quyền tài khoản đã thay đổi; vui lòng đăng nhập lại.", 401
+            )
+        current = AuthService._principal(row)
+        current.require(permission)
+        return current
+
+    @staticmethod
+    def resolve_actor(conn: Connection, actor_id: str, permission: str) -> Principal:
+        """Resolve a trusted persisted job/config actor, without login or a session.
+
+        Never accept an identity chosen by an untrusted request. Revalidate this
+        captured principal with authorize() in every writer chunk/finalization.
+        """
+        row = conn.execute(select(USERS).where(USERS.c.id == actor_id)).mappings().first()
+        if not row or not row.active or row.role not in {"admin", "operator"}:
+            raise CoreError(
+                "BACKGROUND_ACTOR_UNAVAILABLE", "Tài khoản vận hành tác vụ không còn khả dụng.", 403
             )
         current = AuthService._principal(row)
         current.require(permission)
