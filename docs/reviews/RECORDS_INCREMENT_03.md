@@ -31,3 +31,9 @@ Shared fixes gồm typed read bridge v2, generic file/job read ownership, API er
 Windows CI foundation trước đó có hai lần build NSIS thành công; lần [42237481263](https://github.com/minh0407/cafe_fin/actions/runs/42237481263) còn smoke frozen executable PASS, native installer 252.385.014 bytes SHA256 `B835FB225ED67C24A537E604B333AC8FE435875108675A53F79A3429B3C5A531`. Đây là source foundation `8755345`, không được dùng làm chứng minh native records. Binary chỉ tồn tại trong runner tạm, không upload/phát hành/cài thử. CI mới của increment này sẽ được theo dõi riêng.
 
 Clean-Windows install/native GUI/offline/update/uninstall, DOCX visual/in và nghĩa vụ native iconv source/relink còn là gate phát hành. Không thay Windows AppControl policy để build tại host.
+
+## Theo dõi CI và sửa test quan sát cạnh tranh
+
+Run [42255278298](https://github.com/minh0407/cafe_fin/actions/runs/42255278298) trên source `26a1f93` có 278 PASS và một assertion thất bại: bộ quan sát engine-wide đếm thêm connection của JobRunner poll (3 thay vì 2). Hai lệnh nghiệp vụ vẫn có một thành công và một `STOCK_NEGATIVE`; chưa coi run này là PASS.
+
+Commit module `163ef00` chỉ sửa instrumentation/tests và tài liệu, không đổi implementation kho. Phép đo nay bám đúng actor/action/request_key, giữ hai physical connection còn sống, chứng minh writer thứ hai thực sự đợi SQLite lock, rồi kiểm ledger/audit/receipt và rollback. Các BEGIN không thuộc lệnh mục tiêu được chủ động tạo và chứng minh không tính vào số đo. Điều phối chạy lại focused test sáu lần sau sửa, đều PASS; Ruff/diff PASS. CI mới phải kết thúc trước khi báo Windows run đạt, không rerun source cũ để che flake.
