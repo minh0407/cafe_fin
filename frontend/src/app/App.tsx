@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Empty,
   Form,
   Input,
   Layout,
@@ -20,6 +21,11 @@ import type { AuthResponse, Health } from "../shared/types";
 import { GridSpike } from "../shared/GridSpike";
 import { DocumentSpike } from "../shared/DocumentSpike";
 import { modules } from "./registry";
+import { LocalAccountsPage } from "./LocalAccountsPage";
+
+// Technical proofs are opt-in development fixtures, never product navigation.
+const showProofs = import.meta.env.DEV && import.meta.env.VITE_CAFE_FIN_PROOFS === "1";
+const initialRoute = showProofs ? "/foundation" : "/records";
 
 export function App() {
   const session = useSession();
@@ -29,7 +35,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [initialize, setInitialize] = useState(false);
-  const [route, setRoute] = useState(location.hash.slice(1) || "/foundation");
+  const [route, setRoute] = useState(location.hash.slice(1) || initialRoute);
   const initialized = useRef(false);
   useEffect(
     () =>
@@ -44,7 +50,7 @@ export function App() {
     [cache, authForm],
   );
   useEffect(() => {
-    const changed = () => setRoute(location.hash.slice(1) || "/foundation");
+    const changed = () => setRoute(location.hash.slice(1) || initialRoute);
     addEventListener("hashchange", changed);
     return () => removeEventListener("hashchange", changed);
   }, []);
@@ -295,14 +301,17 @@ export function App() {
         <Layout key={session.generation}>
           <Layout.Sider theme="light" width={220}>
             <Menu
-              selectedKeys={[route]}
+              selectedKeys={[selected?.path ?? routePath]}
               items={[
-                { key: "/foundation", label: "Nền tảng" },
-                { key: "/grid-spike", label: "Bản thử bảng tính" },
+                ...(showProofs ? [
+                  { key: "/foundation", label: "Nền tảng" },
+                  { key: "/grid-spike", label: "Bản thử bảng tính" },
+                ] : []),
                 ...available.map((module) => ({
                   key: module.routes[0].path,
                   label: module.title,
                 })),
+                { key: "/settings", label: "Cài đặt trên máy" },
               ]}
               onClick={({ key }) => {
                 location.hash = key;
@@ -328,11 +337,22 @@ export function App() {
                 showIcon
               />
             )}
-            {route === "/grid-spike" ? (
+            {showProofs && routePath === "/grid-spike" ? (
               <GridSpike />
             ) : selected ? (
               <selected.component />
-            ) : (
+            ) : routePath === "/settings" ? (
+              <>
+                <Typography.Title level={2}>Cài đặt trên máy</Typography.Title>
+                <Card title="Thư mục dữ liệu">
+                  <Typography.Paragraph code>{session.boot.data_root}</Typography.Paragraph>
+                  <Typography.Paragraph>
+                    Dữ liệu, chứng từ và báo cáo được lưu tại thư mục này trên máy.
+                  </Typography.Paragraph>
+                </Card>
+                {session.user.role === "admin" && <LocalAccountsPage />}
+              </>
+            ) : showProofs && routePath === "/foundation" ? (
               <>
                 <Typography.Title level={2}>Nền tảng Cafe Fin</Typography.Title>
                 <Typography.Paragraph>
@@ -351,6 +371,12 @@ export function App() {
                 </Card>
                 <DocumentSpike />
               </>
+            ) : (
+              <Empty description="Không tìm thấy trang hoặc tài khoản chưa có quyền xem.">
+                <Button onClick={() => { location.hash = available[0]?.routes[0].path ?? "/settings"; }}>
+                  Về trang chính
+                </Button>
+              </Empty>
             )}
           </Layout.Content>
         </Layout>

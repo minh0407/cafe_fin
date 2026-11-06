@@ -1,5 +1,7 @@
 import type { ComponentType } from "react";
 import { Empty } from "antd";
+import { contractsModule } from "../features/contracts";
+import { recordsModule } from "../features/records";
 
 export interface FeatureRoute {
   path: string;
@@ -32,18 +34,8 @@ const Pending = () => (
 );
 // Coordinator adds feature-owned index.ts exports here after the foundation gate.
 export const modules = defineModules([
-  {
-    id: "records",
-    title: "Ghi nhận cà phê",
-    permission: "records.read",
-    routes: [{ path: "/records", component: Pending }],
-  },
-  {
-    id: "contracts",
-    title: "Hợp đồng",
-    permission: "contracts.read",
-    routes: [{ path: "/contracts", component: Pending }],
-  },
+  recordsModule,
+  contractsModule,
   {
     id: "accounting",
     title: "Sổ kế toán",

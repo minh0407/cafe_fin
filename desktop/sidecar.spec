@@ -13,7 +13,7 @@ if not entrypoint.is_file():
 
 # Fixed package assets include Noto font binaries, their OFL license and exact
 # dependency notices. Do not collect ReportLab's unrelated DarkGarden GPL fonts.
-datas = collect_data_files("cafe_fin", includes=["core/assets/**/*"])
+datas = collect_data_files("cafe_fin", includes=["core/assets/**/*", "contracts/templates/*.json"])
 datas += collect_data_files("docx", includes=["templates/**/*"])
 datas += collect_data_files("tzdata")
 datas += copy_metadata("cafe-fin", recursive=True)

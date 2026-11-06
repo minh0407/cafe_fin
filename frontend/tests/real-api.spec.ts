@@ -282,6 +282,75 @@ test("real sidecar API integrates auth, original uploads, paged grid and verifie
     expect(await grid.getByRole("row").count()).toBeLessThan(40);
     await page.getByRole("listitem", { name: "2", exact: true }).click();
     await expect(grid.getByText("00000501", { exact: true })).toBeVisible();
+    // Exercise coordinator wiring through the actual app shell and default registry.
+    const realSources = await page.evaluate(async () => {
+      const modulePath = "/src/shared/api.ts";
+      const { api } = await import(modulePath);
+      const party = await api("/records/parties", { method: "POST", body: JSON.stringify({
+        request_key: "shell-source-party", code: "DT-SHELL", name: "Đối tác nguồn thật",
+        roles: ["supplier"],
+      }) });
+      const weighing = await api("/records/weighings", { method: "POST", body: JSON.stringify({
+        request_key: "shell-source-weighing", code: "CAN-SHELL", occurred_on: "2026-11-06",
+        party_id: party.id, lines: [{ description: "Cà phê nguồn thật", quantity_source: "direct_net", net_kg: "12.345" }],
+      }) });
+      return { party, weighing };
+    });
+    await page.getByRole("menuitem", { name: "Hợp đồng", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Hợp đồng mua và bán" })).toBeVisible();
+    await page.getByText("Tự điền từ dữ liệu đã lưu (tùy chọn)", { exact: true }).click();
+    await page.getByLabel("Tìm đối tác theo tên hoặc mã").fill("DT-SHELL");
+    await page.getByRole("button", { name: "Tìm đối tác", exact: true }).click();
+    await page.getByRole("button", { name: "Chọn đối tác DT-SHELL Đối tác nguồn thật", exact: true }).click();
+    await page.getByRole("button", { name: "Dùng thông tin nguồn", exact: true }).click();
+    await expect(page.getByLabel("Tên đầy đủ").nth(1)).toHaveValue("Đối tác nguồn thật");
+    await page.getByLabel("Tìm phiếu cân theo tên hoặc mã").fill("CAN-SHELL");
+    await page.getByRole("button", { name: "Tìm phiếu cân", exact: true }).click();
+    await page.getByRole("button", { name: "Chọn phiếu cân CAN-SHELL 2026-11-06", exact: true }).click();
+    await page.getByRole("checkbox", { name: /Dòng 1: Cà phê nguồn thật/ }).check();
+    await page.getByRole("button", { name: "Thêm các dòng đã chọn vào hợp đồng", exact: true }).click();
+    await expect(page.getByLabel("Số lượng hợp đồng (kg)")).toHaveValue("12.345");
+    await page.getByLabel("Số hợp đồng").fill("HD-SHELL-SYNTHETIC-001");
+    await page.getByLabel("Tên đầy đủ").nth(0).fill("Công ty tổng hợp Cafe Fin");
+    await page.getByLabel("Tên đầy đủ").nth(1).fill("Đối tác kiểm thử tích hợp");
+    await page.getByLabel("Hàng hóa / mô tả").fill("Cà phê tổng hợp");
+    await page.getByLabel("Số lượng hợp đồng (kg)").fill("1.125");
+    await page.getByLabel("Đơn giá (VND/kg)").fill("2.50");
+    await page.getByLabel("Điều khoản bổ sung").fill("Điều khoản nhập trên ứng dụng.");
+    await page.getByLabel("Nội dung và thỏa thuận thanh toán").fill("Thanh toán theo người nhập.");
+    await page.getByRole("button", { name: "Lưu hợp đồng", exact: true }).click();
+    await expect(page.getByText("Đã lưu hợp đồng HD-SHELL-SYNTHETIC-001 · phiên bản 1.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Xem trước", exact: true }).click();
+    await expect(page.locator(".contracts-paper")).toContainText("Điều khoản nhập trên ứng dụng.");
+    const contractExport = page.waitForResponse((item) =>
+      item.url().includes("/contracts/") && item.url().endsWith("/exports") &&
+      item.request().method() === "POST");
+    await page.getByRole("button", { name: "Xuất Word + PDF", exact: true }).click();
+    expect((await contractExport).status()).toBe(200);
+    await expect(page.getByRole("button", { name: "Tải DOCX", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Tải PDF", exact: true })).toBeVisible();
+    const originalQuantity = await page.evaluate(async (identity) => {
+      const modulePath = "/src/shared/api.ts";
+      const { api } = await import(modulePath);
+      return (await api(`/records/weighings/${identity}`)).lines[0].net_kg;
+    }, realSources.weighing.id);
+    expect(originalQuantity).toBe("12.345"); // Contract override never changes the source.
+    await page.getByRole("menuitem", { name: "Cài đặt trên máy", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Tài khoản nội bộ", exact: true })).toBeVisible();
+    await page.getByLabel("Tên đăng nhập mới", { exact: true }).fill("shell-operator");
+    await page.getByLabel("Mật khẩu ban đầu", { exact: true }).fill("synthetic-operator-password");
+    const createdAccount = page.waitForResponse((item) => item.url().endsWith("/users") && item.request().method() === "POST");
+    await page.getByRole("button", { name: "Tạo tài khoản", exact: true }).click();
+    const account = await (await createdAccount).json();
+    expect(account).toMatchObject({ username: "shell-operator", role: "operator", active: true, version: 1 });
+    const accountRow = page.getByRole("row").filter({ hasText: "shell-operator" });
+    await expect(accountRow).toContainText("Nhân viên");
+    await page.getByRole("button", { name: "Sửa tài khoản shell-operator", exact: true }).click();
+    await page.getByRole("switch", { name: "Tài khoản đang hoạt động", exact: true }).uncheck();
+    const updatedAccount = page.waitForResponse((item) => item.url().endsWith(`/users/${account.id}`) && item.request().method() === "PATCH");
+    await page.getByRole("button", { name: "Lưu tài khoản", exact: true }).click();
+    expect(await (await updatedAccount).json()).toMatchObject({ id: account.id, active: false, version: 2 });
+    await expect(accountRow).toContainText("Đã khóa");
     await page.getByRole("button", { name: "Đăng xuất", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Đăng nhập", exact: true }),
