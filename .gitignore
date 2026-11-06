@@ -9,6 +9,7 @@ dist/
 target/
 desktop/binaries/
 .runtime/
+.build/
 *.db
 *.db-wal
 *.db-shm

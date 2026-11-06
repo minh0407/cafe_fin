@@ -20,6 +20,7 @@ from sqlalchemy import (
     insert,
     select,
 )
+from sqlalchemy.engine import Connection
 
 from .db import Database, WriteCoordinator, canonical_json
 from .errors import CoreError
@@ -40,6 +41,7 @@ JOBS = Table(
     Column("checkpoint_json", Text, nullable=False),
     Column("cancel_requested", Boolean, nullable=False),
     Column("attempts", Integer, nullable=False),
+    Column("generation", Integer, nullable=False),
     Column("error_code", String),
     Column("created_at", String, nullable=False),
     Column("updated_at", String, nullable=False),
@@ -73,6 +75,7 @@ def _dto(row):
             "state",
             "phase",
             "attempts",
+            "generation",
             "error_code",
             "created_at",
             "updated_at",
@@ -105,7 +108,15 @@ class JobService:
         self.handlers = handlers or {}
         self.wake = threading.Event()
 
-    def submit(self, actor: str, kind: str, payload: dict, request_key: str):
+    def submit(
+        self,
+        actor: str,
+        kind: str,
+        payload: dict,
+        request_key: str,
+        *,
+        authorize: Callable[[Connection], None] | None = None,
+    ):
         if kind not in self.handlers:
             raise CoreError("UNKNOWN_JOB", "Tác vụ chưa được đăng ký.")
         if len(canonical_json(payload).encode()) > 64 * 1024:
@@ -127,6 +138,7 @@ class JobService:
                     checkpoint_json="{}",
                     cancel_requested=False,
                     attempts=0,
+                    generation=0,
                     created_at=now,
                     updated_at=now,
                 )
@@ -134,7 +146,12 @@ class JobService:
             return {"job_id": job_id, "state": "WAITING"}
 
         result = self.writer.execute(
-            actor, "jobs.submit", request_key, {"kind": kind, "payload": payload}, operation
+            actor,
+            "jobs.submit",
+            request_key,
+            {"kind": kind, "payload": payload},
+            operation,
+            authorize=authorize,
         )
         self.wake.set()
         return result
@@ -146,8 +163,10 @@ class JobService:
             raise CoreError("JOB_NOT_FOUND", "Không tìm thấy tác vụ.", 404)
         return _dto(row)
 
-    def cancel(self, job_id: str):
+    def cancel(self, job_id: str, *, authorize: Callable[[Connection], None] | None = None):
         def operation(conn):
+            if authorize is not None:
+                authorize(conn)
             row = conn.execute(select(JOBS).where(JOBS.c.id == job_id)).mappings().first()
             if row is None:
                 raise CoreError("JOB_NOT_FOUND", "Không tìm thấy tác vụ.", 404)
@@ -165,8 +184,10 @@ class JobService:
         self.writer.run(operation)
         return self.status(job_id)
 
-    def resume(self, job_id: str):
+    def resume(self, job_id: str, *, authorize: Callable[[Connection], None] | None = None):
         def operation(conn):
+            if authorize is not None:
+                authorize(conn)
             row = conn.execute(select(JOBS).where(JOBS.c.id == job_id)).mappings().first()
             if row is None:
                 raise CoreError("JOB_NOT_FOUND", "Không tìm thấy tác vụ.", 404)
@@ -205,16 +226,36 @@ class JobService:
 
 
 class JobContext:
-    def __init__(self, service: JobService, job_id: str, stop: threading.Event):
+    def __init__(
+        self,
+        service: JobService,
+        job_id: str,
+        stop: threading.Event,
+        *,
+        generation: int | None = None,
+    ):
         self.service, self.job_id, self.stop = service, job_id, stop
+        # Runner passes its claimed generation explicitly. The default preserves the
+        # public constructor for tests/module callers attaching to the current lease.
+        self.generation = service.status(job_id)["generation"] if generation is None else generation
+
+    def _assert_lease(self, row):
+        if (
+            row["state"] != "RUNNING"
+            or row["generation"] != self.generation
+            or row["cancel_requested"]
+            or self.stop.is_set()
+        ):
+            raise JobInterrupted()
 
     def checkpoint(self):
-        return self.service.status(self.job_id)["checkpoint"]
+        status = self.service.status(self.job_id)
+        self._assert_lease(status)
+        return status["checkpoint"]
 
     def check_cancelled(self):
         status = self.service.status(self.job_id)
-        if self.stop.is_set() or status["cancel_requested"]:
-            raise JobInterrupted()
+        self._assert_lease(status)
 
     def commit_chunk(
         self,
@@ -240,8 +281,7 @@ class JobContext:
 
         def operation(conn):
             row = conn.execute(select(JOBS).where(JOBS.c.id == self.job_id)).mappings().one()
-            if row.state != "RUNNING" or row.cancel_requested or self.stop.is_set():
-                raise JobInterrupted()
+            self._assert_lease(row)
             receipt = (
                 conn.execute(
                     select(RECEIPTS).where(
@@ -283,8 +323,7 @@ class JobContext:
 
         def operation(conn):
             row = conn.execute(select(JOBS).where(JOBS.c.id == self.job_id)).mappings().one()
-            if row.state != "RUNNING" or row.cancel_requested or self.stop.is_set():
-                raise JobInterrupted()
+            self._assert_lease(row)
             result = effect(conn)
             conn.execute(
                 JOBS.update()
@@ -322,9 +361,34 @@ class JobRunner:
             conn.execute(
                 JOBS.update()
                 .where(JOBS.c.id == row.id)
-                .values(state="RUNNING", attempts=row.attempts + 1, updated_at=utc_now())
+                .values(
+                    state="RUNNING",
+                    attempts=row.attempts + 1,
+                    generation=row.generation + 1,
+                    updated_at=utc_now(),
+                )
             )
-            return dict(row)
+            return dict(row) | {
+                "state": "RUNNING",
+                "attempts": row.attempts + 1,
+                "generation": row.generation + 1,
+            }
+
+    @staticmethod
+    def _finish_claim(conn, claimed, state: str, error: str | None):
+        current = conn.execute(select(JOBS).where(JOBS.c.id == claimed["id"])).mappings().one()
+        if current.generation != claimed["generation"] or current.state != "RUNNING":
+            return
+        final_state = "CANCELLED" if current.cancel_requested and state == "COMPLETED" else state
+        conn.execute(
+            JOBS.update()
+            .where(
+                JOBS.c.id == claimed["id"],
+                JOBS.c.generation == claimed["generation"],
+                JOBS.c.state == "RUNNING",
+            )
+            .values(state=final_state, error_code=error, updated_at=utc_now())
+        )
 
     def _write_with_backpressure(self, operation: Callable, *, finish: bool = False):
         while finish or not self.stop_event.is_set():
@@ -364,7 +428,9 @@ class JobRunner:
                 handler = self.service.handlers.get(row["kind"])
                 if not handler:
                     raise CoreError("UNKNOWN_JOB", "Tác vụ chưa được đăng ký.")
-                context = JobContext(self.service, row["id"], self.stop_event)
+                context = JobContext(
+                    self.service, row["id"], self.stop_event, generation=row["generation"]
+                )
                 context.check_cancelled()
                 handler.run(context, json.loads(row["payload_json"]))
                 if self.service.status(row["id"])["state"] != "COMPLETED":
@@ -378,17 +444,7 @@ class JobRunner:
                 state, error = "FAILED", "JOB_FAILED"
 
             def finish(conn):
-                current = conn.execute(select(JOBS).where(JOBS.c.id == row["id"])).mappings().one()
-                if current.state == "COMPLETED":
-                    return
-                final_state = (
-                    "CANCELLED" if current.cancel_requested and state == "COMPLETED" else state
-                )
-                conn.execute(
-                    JOBS.update()
-                    .where(JOBS.c.id == row["id"])
-                    .values(state=final_state, error_code=error, updated_at=utc_now())
-                )
+                self._finish_claim(conn, row, state, error)
 
             self._write_with_backpressure(finish, finish=True)
 

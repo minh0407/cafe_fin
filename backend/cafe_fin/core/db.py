@@ -115,6 +115,9 @@ class Database:
         @event.listens_for(self.engine, "connect")
         def configure(connection, _):
             connection.execute("PRAGMA foreign_keys=ON")
+            # REPLACE deletes conflicting rows; recursive triggers must protect those
+            # implicit deletes just like explicit DELETE on immutable snapshots.
+            connection.execute("PRAGMA recursive_triggers=ON")
             connection.execute("PRAGMA busy_timeout=10000")
             connection.execute("PRAGMA synchronous=FULL")
 
@@ -209,6 +212,8 @@ class Database:
             closing(sqlite3.connect(self._source_uri, uri=True)) as source,
             closing(sqlite3.connect(destination)) as target,
         ):
+            source.execute("PRAGMA recursive_triggers=ON")
+            target.execute("PRAGMA recursive_triggers=ON")
             source.backup(target, pages=256)
             if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise CoreError("BACKUP_INVALID", "Snapshot cơ sở dữ liệu không hợp lệ.", 500)
@@ -272,12 +277,18 @@ class WriteCoordinator:
         request_key: str,
         payload,
         operation: Callable[[Connection], T],
+        *,
+        authorize: Callable[[Connection], None] | None = None,
     ) -> T:
         if not isinstance(request_key, str) or not 1 <= len(request_key) <= 128:
             raise CoreError("INVALID_REQUEST_KEY", "Thiếu khóa chống ghi lặp hợp lệ.")
         digest = hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
         def command(conn):
+            # Permission/version checks occur in the same serialized transaction,
+            # including retries that could otherwise expose a revoked actor's result.
+            if authorize is not None:
+                authorize(conn)
             existing = (
                 conn.execute(
                     select(REQUESTS).where(

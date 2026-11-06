@@ -50,6 +50,7 @@ OPERATOR_PERMISSIONS = (
     "accounting.read",
     "accounting.write",
     "reporting.read",
+    "reporting.write",
 )
 
 
@@ -59,6 +60,7 @@ class Principal:
     username: str
     role: str
     permissions: tuple[str, ...]
+    version: int = 1
 
     def public(self):
         return {
@@ -66,6 +68,7 @@ class Principal:
             "username": self.username,
             "role": self.role,
             "permissions": list(self.permissions),
+            "version": self.version,
         }
 
     def require(self, permission: str):
@@ -104,7 +107,25 @@ class AuthService:
             row["username"],
             row["role"],
             ("*",) if row["role"] == "admin" else OPERATOR_PERMISSIONS,
+            row["version"],
         )
+
+    @staticmethod
+    def authorize(conn, actor: Principal, permission: str) -> Principal:
+        """Revalidate a captured principal inside the actual writer transaction.
+
+        Public module mutations should pass this as writer.execute(authorize=...) or
+        call it first inside writer.run; request-entry principal.require is only a
+        fast rejection, not a substitute for checking after queue/CPU delays.
+        """
+        row = conn.execute(select(USERS).where(USERS.c.id == actor.id)).mappings().first()
+        if not row or not row.active or row.version != actor.version or row.role != actor.role:
+            raise CoreError(
+                "SESSION_EXPIRED", "Quyền tài khoản đã thay đổi; vui lòng đăng nhập lại.", 401
+            )
+        current = AuthService._principal(row)
+        current.require(permission)
+        return current
 
     def _issue(self, principal: Principal):
         token = secrets.token_urlsafe(32)
@@ -256,7 +277,14 @@ class AuthService:
             type=Type.ID,
         ).hex()
         payload = {"username": username, "role": role, "credential_binding": credential_binding}
-        return self.writer.execute(actor.id, "users.create", request_key, payload, operation)
+        return self.writer.execute(
+            actor.id,
+            "users.create",
+            request_key,
+            payload,
+            operation,
+            authorize=lambda conn: self.authorize(conn, actor, "core.manage"),
+        )
 
     def update_user(
         self,
@@ -316,6 +344,7 @@ class AuthService:
             request_key,
             {"id": user_id, "role": role, "active": active, "expected_version": expected_version},
             operation,
+            authorize=lambda conn: self.authorize(conn, actor, "core.manage"),
         )
         with self._lock:
             self._sessions = {
