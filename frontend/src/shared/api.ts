@@ -14,6 +14,7 @@ export class ApiError extends Error {
     message: string,
     public requestId?: string,
     public fields: ErrorEnvelope["error"]["field_errors"] = [],
+    public details: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -93,6 +94,7 @@ export async function api<T>(
       envelope?.error?.message ?? "Không thể hoàn thành thao tác.",
       envelope?.request_id,
       envelope?.error?.field_errors,
+      envelope?.error?.details ?? {},
     );
   }
   if (response.status === 204) {
