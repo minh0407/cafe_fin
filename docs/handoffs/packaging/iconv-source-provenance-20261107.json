@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-11-07",
+  "timezone": "Asia/Bangkok",
+  "baseline_commit": "ae82d009e162f2b1c356474ee7104768e41140cf",
+  "status": "FACTUAL_AUDIT_ONLY_RELEASE_GATE_OPEN",
+  "legal_clearance": false,
+  "scope": {
+    "persistence": "only this Markdown/JSON pair",
+    "new_downloads_for_persistence": false,
+    "new_builds_or_test_executables": false,
+    "source_or_environment_changes": false,
+    "security_policy_changes": false,
+    "uploads_or_publication": false,
+    "credentials_or_application_data_included": false,
+    "commit_or_push": false
+  },
+  "wheel": {
+    "filename": "lxml-6.1.1-cp312-cp312-win_amd64.whl",
+    "version": "6.1.1",
+    "bytes": 3997255,
+    "sha256": "26e6eda8d38c1fcab1090dd196ee87cbd13788e531937610e2589085de074e77",
+    "url": "https://files.pythonhosted.org/packages/1b/89/45198e9624762af2dfd2cb8782598477ceb29f6e59caab560388ae1f4ec1/lxml-6.1.1-cp312-cp312-win_amd64.whl",
+    "pypi_upload_time_utc": "2026-05-18T19:17:56.781Z",
+    "verification": "in-memory wheel hash matched uv.lock; etree member byte-identical to inspected installed file and matching tracked inventory",
+    "etree_sha256": "b5cef7d22ab972de3fee18e3787730ba74ecd12d5896eaa3660ebde418219669",
+    "objectify_sha256": "ad4d1aabe85561cc06f503fb5758a45c3850a12f8719f1d66af06bd74553cf83",
+    "libxml_compiled_version": "2.11.9",
+    "libxslt_compiled_version": "1.1.45",
+    "iconv_feature_enabled": true,
+    "etree_pe_observation": "no separately imported iconv DLL; sole named export PyInit_etree; consistent with static linkage, not an independently readable iconv version",
+    "wheel_material_observation": "BSD LICENSE.txt and old LICENSES.txt; no named iconv header/source/archive/relink object or native-build manifest found",
+    "artifact_attestation": {
+      "status": "NOT_ESTABLISHED",
+      "pypi_provenance_http_status": 404,
+      "url": "https://pypi.org/integrity/lxml/6.1.1/lxml-6.1.1-cp312-cp312-win_amd64.whl/provenance"
+    }
+  },
+  "lxml_source": {
+    "tag": "lxml-6.1.1",
+    "resolved_commit": "b4a4c595fb875d6f50ae113449834209a364643a",
+    "sdist_url": "https://files.pythonhosted.org/packages/05/3b/aab6728cae887456f409b4d75e8a01856e4f04bd510de38052a47768b680/lxml-6.1.1.tar.gz",
+    "sdist_bytes": 4197430,
+    "sdist_sha256": "ba96ae44888e0185281e937633a743ea90d5a196c6000f82565ebb0580012d40",
+    "source_verification": "exact sdist fetched in memory, hash verified; sdist includes generated C and packaging files, not a byte-identical git archive",
+    "build_helper_url": "https://github.com/lxml/lxml/blob/b4a4c595fb875d6f50ae113449834209a364643a/buildlibxml.py",
+    "workflow_url": "https://github.com/lxml/lxml/blob/b4a4c595fb875d6f50ae113449834209a364643a/.github/workflows/wheels.yml",
+    "windows_dependency_selection": [
+      "select lexicographically greatest tag among latest five public native releases",
+      "select highest versioned win64 assets for libxml2, libxslt, zlib, iconv",
+      "reuse an existing cached ZIP only when size and SHA256 equal release asset metadata",
+      "otherwise download by HTTPS with urlretrieve; this helper does not separately assert fresh payload digest immediately after that download",
+      "unpack native include/lib directories; Windows selection is not pinned by generic LIBICONV_VERSION=1.18 environment setting"
+    ],
+    "historical_ci_logs": {
+      "run_id": 26032085562,
+      "windows_cache_job_id": 76520411743,
+      "url": "https://github.com/lxml/lxml/actions/runs/26032085562",
+      "logs_http_status": 410,
+      "meaning": "logs unavailable; no artifact-specific native input manifest was recovered"
+    }
+  },
+  "native_source_candidate": {
+    "classification": "STRONG_HISTORICAL_INFERENCE_NOT_WHEEL_HASH_ATTESTATION",
+    "release_tag": "2026.05.17",
+    "release_metadata_url": "https://api.github.com/repos/lxml/libxml2-win-binaries/releases/tags/2026.05.17",
+    "release_published_utc": "2026-05-17T19:07:49Z",
+    "source_archives": [
+      {
+        "component": "native-build",
+        "repository": "lxml/libxml2-win-binaries",
+        "commit": "4e8ae01f61145dc823ce2ae1d79f06241b7b46de",
+        "tree_url": "https://github.com/lxml/libxml2-win-binaries/tree/4e8ae01f61145dc823ce2ae1d79f06241b7b46de",
+        "archive_url": "https://codeload.github.com/lxml/libxml2-win-binaries/tar.gz/4e8ae01f61145dc823ce2ae1d79f06241b7b46de",
+        "bytes": 4262,
+        "sha256": "cd155987f5269d04acb549d8664b50b1ea0bf3580e1ab709587a03e4bda4396e",
+        "verification": "archive bytes fetched into memory and SHA256 calculated during prior read-only audit; not downloaded again while persisting this report",
+        "submodule_sources_included": false
+      },
+      {
+        "component": "libiconv",
+        "repository": "winlibs/libiconv",
+        "commit": "880a1fa8b5581e37e136a7b051947d3ea39097b6",
+        "tree_url": "https://github.com/winlibs/libiconv/tree/880a1fa8b5581e37e136a7b051947d3ea39097b6",
+        "archive_url": "https://codeload.github.com/winlibs/libiconv/tar.gz/880a1fa8b5581e37e136a7b051947d3ea39097b6",
+        "bytes": 5313881,
+        "sha256": "89dd45d7f074ddae04dcd25cc4ceace3432c04b72dc36a6508854aac713f3eb6",
+        "verification": "archive bytes fetched into memory and SHA256 calculated during prior read-only audit; not downloaded again while persisting this report",
+        "submodule_sources_included": null
+      },
+      {
+        "component": "libxml2",
+        "repository": "winlibs/libxml2",
+        "commit": "bb84678855e3407fc88180295c992f9c984e28e0",
+        "tree_url": "https://github.com/winlibs/libxml2/tree/bb84678855e3407fc88180295c992f9c984e28e0",
+        "archive_url": "https://codeload.github.com/winlibs/libxml2/tar.gz/bb84678855e3407fc88180295c992f9c984e28e0",
+        "bytes": 4225102,
+        "sha256": "5182396205f97b183d34ab8dadd7693523c7d4e2137394aec02514a5a9a9dcf0",
+        "verification": "archive bytes fetched into memory and SHA256 calculated during prior read-only audit; not downloaded again while persisting this report",
+        "submodule_sources_included": null
+      },
+      {
+        "component": "libxslt",
+        "repository": "winlibs/libxslt",
+        "commit": "c0076eaa6e0d1f99e01107e8db225a308eb1e543",
+        "tree_url": "https://github.com/winlibs/libxslt/tree/c0076eaa6e0d1f99e01107e8db225a308eb1e543",
+        "archive_url": "https://codeload.github.com/winlibs/libxslt/tar.gz/c0076eaa6e0d1f99e01107e8db225a308eb1e543",
+        "bytes": 2705214,
+        "sha256": "d687aaf48527e042d942dccbc74fbcd150588522305e63d3e91785d9b6590677",
+        "verification": "archive bytes fetched into memory and SHA256 calculated during prior read-only audit; not downloaded again while persisting this report",
+        "submodule_sources_included": null
+      },
+      {
+        "component": "zlib",
+        "repository": "winlibs/zlib",
+        "commit": "0089522e62e6b5d4950e62bd20f0cb06a9288413",
+        "tree_url": "https://github.com/winlibs/zlib/tree/0089522e62e6b5d4950e62bd20f0cb06a9288413",
+        "archive_url": "https://codeload.github.com/winlibs/zlib/tar.gz/0089522e62e6b5d4950e62bd20f0cb06a9288413",
+        "bytes": 1559272,
+        "sha256": "e2af9f28fcdf723e464b40af73fdeed07ce3e581a9ea110702c1ba733983f8a0",
+        "verification": "archive bytes fetched into memory and SHA256 calculated during prior read-only audit; not downloaded again while persisting this report",
+        "submodule_sources_included": null
+      }
+    ],
+    "archive_hash_note": "hashes identify bytes observed during audit; archive the exact bytes if later preparing materials; GitHub-generated tarballs are not promised immutable byte encodings",
+    "parent_archive_warning": "parent archive is 4262 bytes and contains gitlinks/directories, not the four submodule source trees",
+    "native_release_assets": [
+      {
+        "name": "iconv-1.17.1.win64.zip",
+        "url": "https://github.com/lxml/libxml2-win-binaries/releases/download/2026.05.17/iconv-1.17.1.win64.zip",
+        "bytes": 992481,
+        "sha256": "090225898fc0b37fe1f0d3ecc3938c926de77cd7f8c3636a5c9712b61e7af849",
+        "verification": "body hash verified in memory and matches public release digest"
+      },
+      {
+        "name": "libxml2-2.11.9.win64.zip",
+        "url": "https://github.com/lxml/libxml2-win-binaries/releases/download/2026.05.17/libxml2-2.11.9.win64.zip",
+        "bytes": 3455109,
+        "sha256": "ff23c75d4b3991042f9bbe7fd38ccc50616349a3c1b583c328d996be22e52b64",
+        "verification": "public release metadata digest; body not independently hashed in this audit"
+      },
+      {
+        "name": "libxslt-1.1.45.win64.zip",
+        "url": "https://github.com/lxml/libxml2-win-binaries/releases/download/2026.05.17/libxslt-1.1.45.win64.zip",
+        "bytes": 461024,
+        "sha256": "e6fcfa1cf6719630e83c39a5448687db65084b0a375af366c9a857b62c3e4bf7",
+        "verification": "public release metadata digest; body not independently hashed in this audit"
+      },
+      {
+        "name": "zlib-1.3.2.win64.zip",
+        "url": "https://github.com/lxml/libxml2-win-binaries/releases/download/2026.05.17/zlib-1.3.2.win64.zip",
+        "bytes": 206914,
+        "sha256": "e1c1bcaa1dea202057f96614565c5773ee9c9be7033b470f2b746ab8a9070f01",
+        "verification": "public release metadata digest; body not independently hashed in this audit"
+      }
+    ],
+    "build_recipe_url": "https://github.com/lxml/libxml2-win-binaries/blob/4e8ae01f61145dc823ce2ae1d79f06241b7b46de/build.ps1",
+    "workflow_url": "https://github.com/lxml/libxml2-win-binaries/blob/4e8ae01f61145dc823ce2ae1d79f06241b7b46de/.github/workflows/main.yml",
+    "patch_url": "https://github.com/lxml/libxml2-win-binaries/blob/4e8ae01f61145dc823ce2ae1d79f06241b7b46de/libiconv.patch",
+    "source_recipe_facts": [
+      "workflow checks out submodules and applies libiconv.patch",
+      "build.ps1 compiles libiconv static MSVC project",
+      "script packages native libraries/headers as iconv1.17.1, libxml2 2.11.9, libxslt1.1.45, zlib1.3.2",
+      "iconv ZIP contains iconv_a.lib, iconv_a.pdb and headers; not the complete corresponding source"
+    ],
+    "iconv_version_distinction": {
+      "windows_bundle": "1.17.1",
+      "source_header_constant": "0x0111",
+      "gnu_api_version": "1.17",
+      "header_url": "https://github.com/winlibs/libiconv/blob/880a1fa8b5581e37e136a7b051947d3ea39097b6/source/include/iconv.h"
+    },
+    "chronology": [
+      {
+        "tag": "2026.03.25",
+        "published_utc": "2026-03-25T07:14:06Z",
+        "iconv": "1.17.1",
+        "libxslt": "1.1.39",
+        "relation": "preceding observed release"
+      },
+      {
+        "tag": "2026.05.17",
+        "published_utc": "2026-05-17T19:07:49Z",
+        "iconv": "1.17.1",
+        "libxslt": "1.1.45",
+        "relation": "strong candidate preceding May18 wheel"
+      },
+      {
+        "tag": "2026.10.05",
+        "published_utc": "2026-10-06T19:34:01Z",
+        "iconv": "1.19",
+        "libxslt": "1.1.45",
+        "relation": "after wheel, cannot retroactively identify its native inputs"
+      },
+      {
+        "tag": "2026.10.31-1",
+        "published_utc": "2026-10-31T14:41:46Z",
+        "iconv": "1.19",
+        "libxslt": "1.1.45",
+        "relation": "after wheel, cannot retroactively identify its native inputs"
+      }
+    ],
+    "chronology_caveat": "current public release metadata and hash-aware recipe strongly support the candidate; they do not reconstruct an immutable historical API response or prove which native object bytes were linked into the exact PyPI wheel"
+  },
+  "distribution_evidence": {
+    "license_url": "https://github.com/winlibs/libiconv/blob/880a1fa8b5581e37e136a7b051947d3ea39097b6/source/COPYING.LIB",
+    "license_text": "LGPL2.1; principal library source identifies LGPL2.1-or-later; no new license election or legal clearance made by this audit",
+    "license_section_6_summary": "requires prominent notices/license and suitable terms for user modification/debugging; static-link routes include corresponding library source including changes and linked-work source/object/build materials sufficient to relink; other alternatives have their own conditions",
+    "current_notices_observation": "inspected backend.txt contains LGPL3 text for another dependency; iconv appears as OPEN DISTRIBUTION GATE, not a verified iconv corresponding-source/relink package",
+    "application_terms_observation": "no root LICENSE/COPYING/EULA file found by scoped filename inspection; no conclusion about all contracts or ownership rights",
+    "packaging_observation": "onefile sidecar embeds lxml PYDs; replacing a DLL beside the executable is not an established replacement path",
+    "pyinstaller_reference": "https://pyinstaller.org/en/v6.22.3/advanced-topics.html",
+    "unresolved": [
+      "artifact-specific native provenance/relink package not established",
+      "verified recipient procedure to rebuild modified iconv and relink etree/objectify absent",
+      "recipient ability to run a resulting sidecar with unchanged core semantics not demonstrated",
+      "app distribution terms and source/object material rights not reviewed or granted by this report",
+      "newer compiler use would require corresponding CRT compatibility/provenance/notices review",
+      "hash-specific frozen/installer/clean-Windows release acceptance remains separate"
+    ]
+  },
+  "minimal_next_actions": [
+    "Prepare a separate source/relink kit for the existing static-wheel approach: exact lxml sdist, native parent, all four pinned submodules, patch, headers/config/build scripts and hashes.",
+    "Specify applicable notices and application terms permitting the required modification/debugging; do not treat the top-level BSD label or another dependency LGPL text as clearance.",
+    "Provide sufficient source/object/build material and a recipient recipe to modify libiconv, relink etree/objectify and package/run with unchanged business-core source; no core redesign or no-iconv switch is inherently required.",
+    "Before release, demonstrate that recipe in a separate authorized environment and record exact hashes/results; no build is run by this audit. Full sidecar packaging may be needed even though business source stays unchanged.",
+    "If project gate requires stronger wheel-specific provenance, a maintainer confirmation naming exact wheel/native-asset hashes is a bounded next evidence request; no contact is sent. Do not substitute PE integer guesses or later-release metadata.",
+    "Only close the relevant gate after owners assess the actual delivered material and proof; this report does not approve a legal conclusion or release."
+  ],
+  "no_iconv_alternative": {
+    "proposal_location": "main checkout ignored .local-runtime/licensing/lxml-noiconv-proposal/",
+    "status": "NOT_BUILT_NOT_APPROVED",
+    "why_not_minimal": [
+      "requires private static link/macro patch",
+      "link-only build loses non-BMP Python str parsing unless a separate uncompiled Cython UTF8 fallback is accepted",
+      "legacy/UTF32 byte codecs not restored by that fallback",
+      "VS2026v145 rebuild introduces CRT version/provenance work beyond current PBS14.44.35211.0 inventory"
+    ],
+    "current_recorded_crt": "14.44.35211.0",
+    "new_compiler_crt_rule": "runtime must be at least as recent as newest build tools in any component",
+    "crt_reference": "https://learn.microsoft.com/en-us/cpp/porting/binary-compat-2015-2017",
+    "old_artifact_obligations": "unchanged"
+  },
+  "tracked_inventory_reference": {
+    "path": "desktop/notices/sidecar-native-inventory.json",
+    "recorded_exe_sha256": "b9377e8a173a92eac8827a4a73bdf503d185cdb8cc40151f498babfe98384ecb",
+    "recorded_exe_bytes": 33017856,
+    "scope": "historical tracked foundation inventory only; not a runtime acceptance claim for business baseline ae82d00 or a newly built installer"
+  },
+  "persistence_validation": {
+    "json_parse": "PASS",
+    "whitespace": "PASS",
+    "builds": "NOT_RUN",
+    "runtime_or_installer_tests": "NOT_RUN",
+    "backend_notices_and_open_gate": "UNCHANGED"
+  }
+}
