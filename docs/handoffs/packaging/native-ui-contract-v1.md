@@ -74,6 +74,12 @@ require target login. Candidate activation requires that fresh target login.
 Any recovered source Runtime also gets a new generation/session and starts
 dormant while its transition is reconciled. A new returned BootSession must be
 treated as a session boundary even if api_base happens to use the same port.
+Successful `maintenance_activate` on the SAME child/generation returns
+`boot_session: null`, operation.runtime_state=ACTIVE, can_activate=false and
+recovery_required=false. UI updates that generation's bounded boot metadata to
+ACTIVE/pending_transition=null and retains target login. Do not call setBoot as a
+new boundary merely for this same-child activation. Same-child status also returns
+boot_session=null. A genuinely NEW child always supplies a new BootSession.
 `ready` is selection readiness, never proof of permission/prepared copy.
 `can_activate` is false unless native has verified target binding and the current
 child's DORMANT response. UI role checks cannot turn it true.

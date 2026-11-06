@@ -217,6 +217,10 @@ impl CloseProof {
     pub fn is_clean(&self) -> bool {
         self.acknowledged && self.exited_zero && !self.failed
     }
+
+    pub fn matches_operation(&self, operation_id: &str) -> bool {
+        self.operation_id == operation_id
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

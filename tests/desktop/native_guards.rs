@@ -228,6 +228,8 @@ fn clean_close_requires_both_matching_ack_and_zero_exit_in_either_order() {
     assert!(!first.is_clean());
     first.observe_exit(Some(0));
     assert!(first.is_clean());
+    assert!(first.matches_operation("operation-a"));
+    assert!(!first.matches_operation("operation-b"));
     let mut second = proof();
     second.observe_exit(Some(0));
     assert!(!second.is_clean());

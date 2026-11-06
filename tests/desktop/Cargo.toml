@@ -1,0 +1,26 @@
+[package]
+name = "cafe-fin-native-checks"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+[lib]
+path = "../../desktop/src/lib.rs"
+
+# Exact existing product pins; this harness adds no runtime dependency.
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+
+[[test]]
+name = "native_guards"
+path = "native_guards.rs"
+
+[[test]]
+name = "maintenance"
+path = "maintenance.rs"
+
+[[bin]]
+name = "control-peer"
+path = "fixtures/control_peer.rs"
