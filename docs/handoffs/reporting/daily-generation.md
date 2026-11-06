@@ -7,8 +7,8 @@ Actor factory and independent-QA fixes are in `82e6913` and `82cd941` separately
 
 ## Public wiring
 
-Use `module_manifest(actor_source_factory=..., secret_store=..., transport=...,
-heartbeat_bound=...)`. The factory receives `(runtime, current_principal)` on
+Use `module_manifest(actor_source_factory=..., secret_store=..., transport=...)`.
+The factory receives `(runtime, current_principal)` on
 each actual capture and returns a ReportSource, normally AtomicSources callbacks
 bound to public records/accounting providers and that principal. Source/static
 source_factory modes remain mutually exclusive fixture alternatives. Never bind
@@ -16,19 +16,13 @@ one global Admin or retain the principal from an earlier HTTP request.
 
 `ReportingService.tick(now=None)` is a finite public call: at most 100 gap records,
 one generation/resume with at most three selected exports, then one delivery.
-The registered `reporting.dispatch` job invokes it. Root owns the lifecycle timer,
-shutdown/drain and native tray behavior; no extra backend runner/thread, tray or
-Codex automation is installed. UI heartbeat still only works while Reporting is
-mounted unless root has actually wired the runtime timer.
-
-Root has announced the pending public `PeriodicTask(run, interval_seconds)` /
-`ModuleManifest.periodic_tasks` interface. After the exact shared commit is
-approved and applied, the lane integration is
-`periodic_tasks={'reporting.tick': PeriodicTask(lambda runtime: service(runtime).tick(), 60)}`.
-Keep `heartbeat_bound=False` until that real registration is present and tested.
-Do not add a lane-owned thread or require the not-yet-present core type. The
-core-owned timer must stop before writer/database shutdown and remain separate
-from long import execution. This pending interface is not in the current build.
+The registered `reporting.dispatch` job invokes it. The manifest also binds the
+approved core lifecycle `PeriodicTask` at 60 seconds, independently of JobRunner
+and the screen. See [timer integration and current validation](periodic-binding.md).
+Root owns shutdown/drain and native tray behavior; reporting adds no runner/thread,
+tray or Codex automation. Timer status is derived from real registration/running
+state, never from the legacy `heartbeat_bound` compatibility keyword. UI polls
+read-only status and offers an explicit manual check; it no longer drives ticks.
 
 ## Admin configuration and authority
 
@@ -140,8 +134,8 @@ logout, config change/pin immutability and a genuine v1-to-v2 migration preservi
 old snapshot/hash. No real Zalo send was made. Shared OS adapter tests still use
 only scoped synthetic keys and clean them up.
 
-NOT RUN in this lane: root registry/lifecycle timer and real records/accounting
-provider integration, actual OA/app/group/live permissions, clean Windows,
+NOT RUN in this lane: root production registry and real records/accounting
+provider integration, native tray/parent termination integration, actual OA/app/group/live permissions, clean Windows,
 installer/native license and million-row release gates. Existing official sender,
 no-exactly-once and unresolved UNKNOWN limits remain unchanged. Root integrates
 and reviews these changes before push; this lane creates no READY tag.

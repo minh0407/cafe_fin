@@ -92,6 +92,13 @@ draft. Settings screenshot was visually inspected; synthetic evidence stays in
 `%TEMP%\cafe-fin-reporting-qa` outside Git. Frontend typecheck/build passed with
 the existing Vite chunk-size warning.
 
+Initial UI runs had intermittent exact accessible-name lookup timeouts around
+busy button transitions, with no page JavaScript errors. Explicit stable ARIA
+labels now cover the manual and existing busy buttons; the final harness passed
+three consecutive runs. Failure diagnostics save a synthetic screenshot and
+accessible button snapshots outside Git. Manual requests retain their request
+key after ambiguous network failure; out-of-order status reads are discarded.
+
 Full-suite PASS: **240 tests (78 reporting + 162 core), 158.46s**, no skips,
 one baseline Starlette/httpx deprecation warning. Scoped Ruff check/format and
 whitespace checks pass. No migration or dependency is added by this binding.

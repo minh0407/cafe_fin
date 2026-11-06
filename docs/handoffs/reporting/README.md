@@ -5,6 +5,9 @@ merge or READY tag has been made by this lane.
 
 Latest integration follow-ups:
 
+- [Core lifecycle timer binding and live status](periodic-binding.md): actual
+  60-second background callback, no screen heartbeat, sanitized status/errors.
+  **240 tests (78 reporting + 162 core), 14 synthetic browser cases PASS**.
 - [Daily local generation, durable recovery and delegated Admin](daily-generation.md)
   adds opt-in capture/save/export/queue and migration reporting v2. **210 tests
   (74 reporting + 136 core), 12 synthetic browser cases PASS**.
@@ -15,8 +18,8 @@ Latest integration follow-ups:
   legacy ranges are preserved without reinterpretation.
 
 The 168 combined tests and export hashes below describe the earlier candidate.
-Root's lifecycle periodic-task interface is pending an approved shared commit;
-the lane currently exposes a finite tick and does not claim native timer binding.
+Core periodic interface `e4f35947d086c6d892f03fe8b9a852c3cb9a28f5` is approved
+and applied unchanged as `8ed4f77`. Native tray/parent lifecycle acceptance remains pending.
 
 ## Checkout and baseline
 
@@ -37,7 +40,7 @@ the lane currently exposes a finite tick and does not claim native timer binding
   in the chat handoff.
 
 Lane-owned changes only touch reporting backend/frontend/tests/handoff paths;
-the ten shared files in `64ae735`/`84abda4`/`60c7ba8` are exactly the
+the fifteen shared files in `64ae735`/`84abda4`/`60c7ba8`/`8ed4f77` are exactly the
 coordinator-approved cherry-picks.
 No production
 data, DB, real Excel, token, account information, images or generated binaries are
@@ -92,7 +95,6 @@ module_manifest(
     ),
     secret_store=foundation_os_secret_store,
     transport=OfficialGMF(),
-    heartbeat_bound=False,  # True only after runtime timer is actually integrated
 )
 ```
 
@@ -106,13 +108,13 @@ owner's ORM/tables. `BridgeSources(records,accounting)` remains a convenience fo
 existing public bridge protocols but marks cutoff-only consistency as a warning.
 Default source raises `REPORT_SOURCES_UNCONFIGURED`; it never creates fake zeros.
 
-Module manifest includes migration, router, finite `reporting.dispatch` core job
-and startup recovery/catch-up. It installs no new job runner. Coordinator binds
-`ReportingService(...).tick()` to the core/native lifecycle timer and stops the
-timer before closing writer/root. Default current heartbeat is one request/minute
-while Reporting screen is mounted. Status text states this limit. Startup also
-performs one catch-up/dispatch. Native tray/background timer is an integration
-gate, not claimed complete by browser tests.
+Module manifest includes migrations, router, finite `reporting.dispatch` core job,
+startup recovery/catch-up and `reporting.tick` as a core PeriodicTask every 60
+seconds. It installs no new job runner/thread. Core stops its timer before
+closing writer/root. The timer is independent of Reporting screen and JobRunner;
+UI polls real status and exposes explicit manual requests. Startup also performs
+one catch-up/dispatch. Native tray/parent process behavior remains an integration
+gate; the real-Runtime timer evidence is in the timer handoff above.
 
 Files: backend `models.py` (commands), `migrations.py` (schema v1),
 `schedule_migrations.py` (append-only v2), `schedule.py` (daily orchestration), `sources.py`
@@ -259,7 +261,8 @@ chunk >500KB. No dependency/config changes or warning suppression were made.
 2. Bind real records/accounting helpers, run full pending/publish/resume/corrected
    import and simultaneous-edit integration through those providers.
 3. The OS adapter and reporting integration are tested; bind the adapter and
-   lifecycle heartbeat in the coordinator registry/runtime. Native tray/close/sleep/reopen,
+   reporting manifest in the coordinator registry. Its core timer is bound/tested;
+   native tray/close/sleep/reopen,
    data-root move/backup/recovery integration remains coordinator-owned.
 4. Verify official upload capability and live OA/app/group access, then run a
    specifically authorized synthetic live send; no real send has been attempted.

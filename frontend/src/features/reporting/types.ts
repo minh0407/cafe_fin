@@ -130,6 +130,18 @@ export interface Settings {
   credential_configured?: boolean;
   sender_status?: string;
   scheduler_limit?: string;
+  scheduler_mode?: "APP_RUNTIME" | "MANUAL";
+  scheduler_status?: {
+    registered: boolean;
+    state: string;
+    running: boolean;
+    active: boolean;
+    error_code: string | null;
+    last_error_code: string | null;
+    task_error_code: string | null;
+    runs: number;
+    failures: number;
+  };
 }
 export interface DailyRun {
   id: string;

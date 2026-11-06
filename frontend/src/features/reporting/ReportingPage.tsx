@@ -17,6 +17,7 @@ import {
 import { api, messageOf } from "../../shared/api";
 import { useSession } from "../../shared/session";
 import { DailyScheduleHistory } from "./DailyScheduleHistory";
+import { RuntimeScheduleStatus } from "./RuntimeScheduleStatus";
 import type { Page } from "../../shared/types";
 import type {
   Attempt,
@@ -216,24 +217,6 @@ function ReportingView() {
     history.replaceState(null, "", url);
     void reload();
   }, [tab, page, search, sort, filter, reload]);
-  useEffect(() => {
-    // Core job runner owns execution. This heartbeat runs only while app UI is
-    // mounted; native lifecycle timer/tray binding is a separate integration gate.
-    const timer = setInterval(() => {
-      if (!live()) return;
-      void api("/reporting/scheduler/tick", {
-        method: "POST",
-        body: JSON.stringify({
-          request_key: `ui-minute-${Math.floor(Date.now() / 60000)}`,
-        }),
-      })
-        .then(() => reload())
-        .catch((cause) => {
-          if (live()) setError(messageOf(cause));
-        });
-    }, 60000);
-    return () => clearInterval(timer);
-  }, [reload, live]);
   useEffect(() => {
     if (!isAdmin) return;
     void api<Settings>("/reporting/settings")
@@ -551,7 +534,12 @@ function ReportingView() {
           >
             <Input.TextArea maxLength={1000} rows={2} />
           </Form.Item>
-          <Button htmlType="submit" type="primary" loading={busy}>
+          <Button
+            aria-label="Xem trước báo cáo"
+            htmlType="submit"
+            type="primary"
+            loading={busy}
+          >
             Xem trước báo cáo
           </Button>
         </Form>
@@ -623,11 +611,8 @@ function ReportingView() {
                       <Alert
                         type="info"
                         title={settings?.sender_status ?? "UNCONFIGURED"}
-                        description={
-                          settings?.scheduler_limit ??
-                          "Hiện lịch cập nhật khi màn hình Báo cáo đang mở. Máy ngủ/tắt hoặc app đóng không gửi; mở lại xử lý các bản đã lưu còn chờ."
-                        }
                       />
+                      <RuntimeScheduleStatus settings={settings} />
                       <Form
                         form={settingsForm}
                         layout="vertical"
@@ -752,7 +737,12 @@ function ReportingView() {
                         >
                           <Switch />
                         </Form.Item>
-                        <Button htmlType="submit" type="primary" loading={busy}>
+                        <Button
+                          aria-label="Lưu cấu hình"
+                          htmlType="submit"
+                          type="primary"
+                          loading={busy}
+                        >
                           Lưu cấu hình
                         </Button>
                       </Form>
@@ -809,6 +799,7 @@ function ReportingView() {
                         </Form.Item>
                         <Space wrap>
                           <Button
+                            aria-label="Lưu credential"
                             htmlType="submit"
                             loading={busy}
                             disabled={!settings?.credential_store_available}
@@ -951,6 +942,7 @@ function ReportingView() {
             <Space wrap>
               {detail.state === "PREVIEW" && (
                 <Button
+                  aria-label="Lưu snapshot"
                   type="primary"
                   loading={busy}
                   onClick={() =>

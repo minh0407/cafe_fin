@@ -14,6 +14,11 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 1080 } });
 const failures = [];
 page.on("pageerror", (error) => failures.push(error.message));
 const calls = [];
+const output =
+  process.env.REPORTING_QA_OUTPUT ||
+  path.join(process.env.TEMP, "cafe-fin-reporting-qa");
+await fs.mkdir(output, { recursive: true });
+let timerFailed = false;
 const row = {
   id: "demo-report",
   version: 1,
@@ -101,11 +106,27 @@ await page.route("**/api/v1/**", async (route) => {
       daily_export_formats: ["pdf", "xlsx", "txt"],
       scheduled_actor_id: "server-owned-synthetic-id",
       schedule_actor_status: "ACTIVE",
+      scheduler_mode: "APP_RUNTIME",
+      scheduler_limit: "Lịch backend không cần mở màn hình Báo cáo.",
+      scheduler_status: {
+        registered: true,
+        state: "RUNNING",
+        running: true,
+        active: false,
+        error_code: timerFailed ? "PERIODIC_TASK_FAILED" : null,
+        last_error_code: "PERIODIC_TASK_FAILED",
+        task_error_code: timerFailed ? "PERIODIC_TASK_FAILED" : null,
+        runs: 5,
+        failures: 1,
+      },
       credential_store_available: false,
       credential_configured: false,
       sender_status: "UNCONFIGURED",
     };
-  else if (resource === "/reporting/scheduler/daily-runs")
+  else if (resource === "/reporting/scheduler/tick") {
+    timerFailed = !timerFailed;
+    result = { job_id: "synthetic-manual-check" };
+  } else if (resource === "/reporting/scheduler/daily-runs")
     result = {
       items: [
         {
@@ -169,10 +190,6 @@ try {
   await page.getByText("Chưa đủ dữ liệu tiền", { exact: true }).waitFor();
   await page.getByText("25,250", { exact: true }).waitFor();
   assert(await page.getByRole("button", { name: "Xuất PDF" }).isVisible());
-  const output =
-    process.env.REPORTING_QA_OUTPUT ||
-    path.join(process.env.TEMP, "cafe-fin-reporting-qa");
-  await fs.mkdir(output, { recursive: true });
   await page.waitForFunction(
     () =>
       getComputedStyle(document.querySelector(".ant-modal")).opacity === "1",
@@ -254,6 +271,9 @@ try {
   await page.getByRole("tab", { name: "Cấu hình Admin", exact: true }).click();
   await page.getByText("UNCONFIGURED", { exact: true }).waitFor();
   await page.getByText("Bỏ lỡ; cần tạo thủ công", { exact: true }).waitFor();
+  await page.getByText("Lịch nền: Đang chạy", { exact: true }).waitFor();
+  await page.getByText(/Mã lỗi gần nhất: PERIODIC_TASK_FAILED/).waitFor();
+  assert(!calls.some((x) => x.resource === "/reporting/scheduler/tick"));
   assert.equal(
     await page
       .getByLabel("Tự tạo và lưu báo cáo cuối ngày", { exact: true })
@@ -270,6 +290,24 @@ try {
     )
     .fill("cash, missing");
   await page.getByLabel("Giờ gửi", { exact: true }).fill("18:00");
+  await page
+    .getByRole("button", { name: "Yêu cầu kiểm tra lịch ngay", exact: true })
+    .click();
+  await page.getByText(/Lỗi hiện tại: PERIODIC_TASK_FAILED/).waitFor();
+  assert.equal(
+    await page.getByLabel("Giờ gửi", { exact: true }).inputValue(),
+    "18:00",
+  );
+  await page
+    .getByRole("button", { name: "Yêu cầu kiểm tra lịch ngay", exact: true })
+    .click();
+  await page
+    .getByText(/Lỗi hiện tại: PERIODIC_TASK_FAILED/)
+    .waitFor({ state: "hidden" });
+  assert.equal(
+    calls.filter((x) => x.resource === "/reporting/scheduler/tick").length,
+    2,
+  );
   await page.getByRole("button", { name: "Lưu cấu hình", exact: true }).click();
   await page.getByText("Đã lưu cấu hình.", { exact: true }).waitFor();
   const configWrite = calls.findLast(
@@ -334,11 +372,36 @@ try {
         "connection check no send",
         "daily generation explicit opt-in, selected books/formats, no actor spoof",
         "missed day status visible",
+        "actual timer status and sanitized current/last errors",
+        "explicit manual check preserves configuration draft",
         "actor draft reset",
       ],
       screenshots: output,
     }),
   );
+} catch (cause) {
+  const failurePath = path.join(output, "reporting-ui-failure.png");
+  await page.screenshot({
+    path: failurePath,
+    fullPage: true,
+    animations: "disabled",
+  });
+  console.error(
+    JSON.stringify({
+      pageErrors: failures,
+      buttons: await page.getByRole("button").allTextContents(),
+      manualButton: await page
+        .getByRole("button")
+        .filter({ hasText: "Yêu cầu kiểm tra lịch ngay" })
+        .ariaSnapshot(),
+      credentialButton: await page
+        .getByRole("button")
+        .filter({ hasText: "Lưu credential" })
+        .ariaSnapshot(),
+      screenshot: failurePath,
+    }),
+  );
+  throw cause;
 } finally {
   await browser.close();
 }
