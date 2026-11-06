@@ -22,6 +22,7 @@ from .audit import AuditService
 from .auth import Principal
 from .db import AUDIT
 from .errors import CoreError
+from .local_paths import is_reparse, local_path, resolved_local_path
 from .modules import Migration, schema_checksum
 
 LAYOUT = ("database", "documents", "workbooks", "imports", "reports", "backups", "logs")
@@ -87,37 +88,34 @@ class DataRootService:
     """Created only by trusted native selection, never from a public file-path API."""
 
     def __init__(self, path: Path | str):
-        self.path = Path(path).absolute()
+        self.path = local_path(path)
         self._lock = None
 
     def preflight_location(self) -> Path:
         """Validate a trusted native local location, including nonexistent leaf paths."""
-        self._validate_local()
-        return self.path.resolve()
+        return self._validate_local()
 
-    def _validate_local(self) -> None:
-        candidate = self.path.resolve()
-        if str(candidate).startswith(("\\\\", "//")):
-            raise CoreError("DATA_ROOT_REMOTE", "Chọn thư mục trên ổ đĩa local.")
+    def _validate_local(self) -> Path:
+        if os.name == "nt" and ctypes.windll.kernel32.GetDriveTypeW(self.path.anchor) not in (2, 3):
+            raise CoreError("DATA_ROOT_UNAVAILABLE", "Ổ đĩa local chưa sẵn sàng.", status=409)
+        # Inspect the selected spelling before resolve can hide a junction/symlink.
+        for component in (self.path, *self.path.parents):
+            if is_reparse(component):
+                raise CoreError(
+                    "DATA_ROOT_LINK", "Không dùng đường dẫn liên kết cho thư mục dữ liệu."
+                )
+        candidate = resolved_local_path(self.path)
         if os.name == "nt":
             drive = candidate.anchor
             if ctypes.windll.kernel32.GetDriveTypeW(str(drive)) not in (2, 3):
                 raise CoreError("DATA_ROOT_UNAVAILABLE", "Ổ đĩa local chưa sẵn sàng.", status=409)
         for key in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial"):
             cloud = os.environ.get(key)
-            if cloud and candidate.is_relative_to(Path(cloud).resolve()):
+            if cloud and candidate.is_relative_to(resolved_local_path(cloud)):
                 raise CoreError(
                     "DATA_ROOT_SYNCED", "Không đặt DB đang chạy trong thư mục đồng bộ cloud."
                 )
-        # Reparse points can redirect a previously verified local root or its parents.
-        for component in (self.path, *self.path.parents):
-            if component.exists() and (
-                component.is_symlink()
-                or (hasattr(component, "is_junction") and component.is_junction())
-            ):
-                raise CoreError(
-                    "DATA_ROOT_LINK", "Không dùng đường dẫn liên kết cho thư mục dữ liệu."
-                )
+        return candidate
 
     def check_writable(self, required_bytes: int = 256 * 1024 * 1024) -> None:
         if required_bytes < 0:
@@ -206,17 +204,18 @@ class DataRootService:
             or any(p in ("", ".", "..") for p in key.split("/"))
         ):
             raise CoreError("FILE_KEY_INVALID", "Mã tệp không hợp lệ.")
-        candidate = self.path.joinpath(*parts.parts)
-        if not candidate.resolve().is_relative_to(self.path.resolve()):
-            raise CoreError("FILE_KEY_INVALID", "Mã tệp nằm ngoài thư mục dữ liệu.")
+        try:
+            candidate = local_path(self.path.joinpath(*parts.parts))
+        except CoreError:
+            raise CoreError("FILE_KEY_INVALID", "Thành phần mã tệp không hợp lệ.") from None
+        # Reject known reparse components before resolve could follow their target.
         for component in (candidate, *candidate.parents):
             if component == self.path.parent:
                 break
-            if component.exists() and (
-                component.is_symlink()
-                or (hasattr(component, "is_junction") and component.is_junction())
-            ):
+            if is_reparse(component):
                 raise CoreError("FILE_KEY_INVALID", "Không truy cập tệp qua liên kết.")
+        if not resolved_local_path(candidate).is_relative_to(resolved_local_path(self.path)):
+            raise CoreError("FILE_KEY_INVALID", "Mã tệp nằm ngoài thư mục dữ liệu.")
         return candidate
 
     def acquire_lock(self) -> None:
@@ -425,7 +424,7 @@ class FileStore:
 
     def export(self, file_id: str, trusted_native_destination: Path) -> dict:
         """Destination comes from a scoped native save dialog, not a renderer path."""
-        destination = Path(trusted_native_destination)
+        destination = local_path(trusted_native_destination)
         if destination.exists():
             raise CoreError("EXPORT_EXISTS", "Tệp đích đã tồn tại. Chọn tên mới.", status=409)
         temporary = destination.with_name(destination.name + "." + uuid.uuid4().hex + ".part")

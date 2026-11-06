@@ -59,14 +59,13 @@ class BackupService:
         inside_barrier: bool,
         operation_metadata: dict | None = None,
     ) -> dict:
-        destination = Path(trusted_native_destination).absolute()
-        self.root.preflight_location()
-        DataRootService(destination).preflight_location()
+        destination = DataRootService(trusted_native_destination).preflight_location()
+        source = self.root.preflight_location()
         if destination.exists():
             raise CoreError(
                 "BACKUP_EXISTS", "Thư mục sao lưu đã tồn tại. Chọn thư mục mới.", status=409
             )
-        if destination == self.root.path or self.root.path.is_relative_to(destination):
+        if destination == source or source.is_relative_to(destination):
             raise CoreError("BACKUP_LOCATION_INVALID", "Vị trí sao lưu không hợp lệ.")
         partial = destination.with_name(destination.name + ".partial-" + uuid.uuid4().hex)
 
@@ -129,7 +128,7 @@ class BackupService:
 
     @staticmethod
     def verify(backup: Path) -> dict:
-        backup = Path(backup).absolute()
+        backup = DataRootService(backup).preflight_location()
         try:
             manifest = json.loads((backup / "backup-manifest.json").read_text(encoding="utf-8"))
             if manifest.get("format") != 1 or not isinstance(manifest.get("files"), list):
@@ -185,9 +184,8 @@ class BackupService:
         *,
         operation_metadata: dict | None = None,
     ) -> DataRootService:
-        backup, destination = Path(backup).absolute(), Path(trusted_native_destination).absolute()
-        DataRootService(backup).preflight_location()
-        DataRootService(destination).preflight_location()
+        backup = DataRootService(backup).preflight_location()
+        destination = DataRootService(trusted_native_destination).preflight_location()
         if destination.exists():
             raise CoreError(
                 "RESTORE_DESTINATION_EXISTS", "Khôi phục cần thư mục mới chưa tồn tại.", status=409
@@ -225,14 +223,15 @@ class BackupService:
         The existing root is retained. No module may update its absolute root while
         readers/writers still use it. Callers close the app's services then relaunch.
         """
-        destination = Path(trusted_native_destination).absolute()
+        destination = DataRootService(trusted_native_destination).preflight_location()
+        source = self.root.preflight_location()
         if destination.exists():
             raise CoreError(
                 "MOVE_DESTINATION_EXISTS",
                 "Chuyển dữ liệu cần thư mục mới chưa tồn tại.",
                 status=409,
             )
-        if destination.is_relative_to(self.root.path) or self.root.path.is_relative_to(destination):
+        if destination.is_relative_to(source) or source.is_relative_to(destination):
             raise CoreError(
                 "MOVE_LOCATION_INVALID", "Thư mục mới phải độc lập với thư mục dữ liệu cũ."
             )

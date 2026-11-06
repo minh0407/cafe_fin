@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from .audit import AuditService
 from .db import REQUESTS
 from .errors import CoreError
+from .local_paths import local_path
 from .maintenance import operation_identity
 from .storage import MARKER, DataRootService, sha256_file
 
@@ -27,8 +28,8 @@ ACTIVATION_COMPLETED = "maintenance.activation_completed"
 
 def canonical_location(path: Path | str) -> Path:
     try:
-        candidate = Path(path)
-        if not candidate.is_absolute():
+        candidate = local_path(path)
+        if not Path(path).is_absolute():
             raise ValueError()
         return DataRootService(candidate).preflight_location()
     except (OSError, TypeError, ValueError):
