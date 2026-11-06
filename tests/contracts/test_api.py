@@ -551,6 +551,70 @@ def test_download_verifies_bytes_before_success_headers(api, damage, code):
     assert "x-content-sha256" not in response.headers
 
 
+@pytest.mark.parametrize(
+    "damage,code", [("missing", "FILE_MISSING"), ("modified", "FILE_HASH_MISMATCH")]
+)
+@pytest.mark.parametrize("recovery", ["same_key", "add_formats"])
+def test_export_retry_never_regenerates_damaged_history_and_exact_restore_recovers(
+    api, monkeypatch, damage, code, recovery
+):
+    contract = create(api)
+    version = export(api, contract, formats=["docx"])
+    original = download(api, contract, version, "docx")
+    saved_state = version["files"]["docx"]
+    stored = api.runtime.files.get(saved_state["file_id"])
+    path = api.runtime.root.resolve_key(stored.relative_key)
+    if damage == "missing":
+        path.unlink()
+    else:
+        corrupted = bytes([original[0] ^ 1]) + original[1:]
+        path.write_bytes(corrupted)
+
+    def forbidden_regeneration(*args, **kwargs):
+        raise AssertionError("Historical bytes must be restored, never regenerated or re-stored")
+
+    monkeypatch.setattr(DocumentRenderer, "docx", forbidden_regeneration)
+    monkeypatch.setattr(api.runtime.files, "put", forbidden_regeneration)
+    failed = export(api, contract, formats=["docx"])
+    state = failed["files"]["docx"]
+    assert state["status"] == "failed"
+    assert state["error_code"] == code
+    assert {k: v for k, v in failed.items() if k != "files"} == {
+        k: v for k, v in version.items() if k != "files"
+    }
+    for field in ("file_id", "sha256", "size"):
+        assert state[field] == saved_state[field]
+    if damage == "missing":
+        assert not path.exists()
+    else:
+        assert path.read_bytes() == corrupted
+
+    path.write_bytes(original)
+    if recovery == "same_key":
+        recovered = export(api, contract, formats=["docx"])
+    else:
+        recovered = ok(
+            api.client.post(
+                f"{PREFIX}/{contract['id']}/versions/{version['id']}/files",
+                json={"request_key": "restored-file", "formats": ["docx"]},
+            )
+        )
+    restored_state = recovered["files"]["docx"]
+    assert restored_state["status"] == "succeeded"
+    assert restored_state["error_code"] is restored_state["error_message"] is None
+    for field in ("file_id", "sha256", "size"):
+        assert restored_state[field] == saved_state[field]
+    assert {k: v for k, v in recovered.items() if k != "files"} == {
+        k: v for k, v in version.items() if k != "files"
+    }
+    assert download(api, contract, recovered, "docx") == original
+    assert ok(api.client.get(f"{PREFIX}/{contract['id']}/versions"))["total"] == 1
+    with api.runtime.reader() as conn:
+        assert len(conn.execute(select(FILES)).all()) == 1
+        assert len(conn.execute(select(OUTPUTS)).all()) == 1
+        assert conn.execute(select(OUTPUTS.c.rendered_bytes)).scalar_one() is None
+
+
 @pytest.mark.parametrize("failure", ["file_store", "finalization"])
 def test_file_or_db_failure_recovers_exact_staged_bytes_after_runtime_restart(
     tmp_path, monkeypatch, failure
