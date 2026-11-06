@@ -13,12 +13,13 @@ from sqlalchemy import func, select
 from cafe_fin.core.amounts import parse_kg, parse_money
 from cafe_fin.core.audit import AuditService, require_version
 from cafe_fin.core.contracts import RecordsReadBridge
-from cafe_fin.core.db import canonical_json
+from cafe_fin.core.db import REQUESTS, canonical_json
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.renderers import DocumentRenderer, DocumentSnapshot
 from cafe_fin.core.time import utc_now
 
 from .migrations.v001 import ATTACHMENTS, DRAFTS, LINES, OUTPUTS, TEMPLATES, VERSIONS
+from .migrations.v002 import OUTPUT_STORAGE
 from .rendering import DEFAULT_TEMPLATES, build_document, template_hash, totals, validate_template
 from .schemas import ContractData, computed_units
 
@@ -285,6 +286,7 @@ class ContractService:
             return {"items": [self._template(conn, x["id"]) for x in DEFAULT_TEMPLATES]}
 
     def edit_template(self, actor, key, identity, expected_version, title, body):
+        identity = _identity(identity)
         payload = {
             "id": identity,
             "expected_version": expected_version,
@@ -482,8 +484,9 @@ class ContractService:
         return dict(row)
 
     def version(self, identity, version_id):
+        identity, version_id = _identity(identity), _identity(version_id)
         with self.runtime.reader() as conn:
-            row = self._version(conn, _identity(identity), _identity(version_id))
+            row = self._version(conn, identity, version_id)
             files = conn.execute(select(OUTPUTS).where(OUTPUTS.c.version_id == version_id))
             result = {k: v for k, v in row.items() if k != "snapshot_json"}
             result["snapshot"] = json.loads(row["snapshot_json"])
@@ -517,7 +520,75 @@ class ContractService:
             "page_size": page_size,
         }
 
+    def _output_storage_owner(
+        self, actor, version_id, format, file_key, original_name, staged, recover_existing
+    ):
+        """Reserve one FileStore receipt namespace independently of the recovering user.
+
+        v1 could have committed FileStore.put before recording its domain file ID.
+        Recover only a receipt matching the exact staged content/name/type payload;
+        the subsequent public FileStore call checks its receipt and stored bytes.
+        Core receipts are read only. No receipt or core file metadata is fabricated.
+        """
+
+        payload_hash = None
+        if recover_existing:
+            payload = {
+                "sha256": hashlib.sha256(staged).hexdigest(),
+                "size": len(staged),
+                "category": "documents",
+                "original_name": original_name,
+                "media_type": MEDIA[format],
+            }
+            payload_hash = hashlib.sha256(canonical_json(payload).encode()).hexdigest()
+
+        def pin(conn):
+            self._authorize(actor)(conn)
+            existing = conn.execute(
+                select(OUTPUT_STORAGE.c.owner_actor).where(
+                    OUTPUT_STORAGE.c.version_id == version_id, OUTPUT_STORAGE.c.format == format
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing
+            owner = None
+            if payload_hash is not None:
+                owner = conn.execute(
+                    select(REQUESTS.c.actor)
+                    .where(
+                        REQUESTS.c.action == "files.put",
+                        REQUESTS.c.request_key == file_key,
+                        REQUESTS.c.payload_hash == payload_hash,
+                    )
+                    .order_by(REQUESTS.c.created_at, REQUESTS.c.actor)
+                    .limit(1)
+                ).scalar_one_or_none()
+            recovered_receipt = owner is not None
+            owner = owner if owner is not None else actor.id
+            conn.execute(
+                OUTPUT_STORAGE.insert().values(
+                    version_id=version_id, format=format, owner_actor=owner, created_at=utc_now()
+                )
+            )
+            AuditService.record(
+                conn,
+                actor=actor.id,
+                entity="contracts.export",
+                entity_id=version_id,
+                action="storage_owner_reserved",
+                after={
+                    "format": format,
+                    "storage_owner": owner,
+                    "recovered_existing_receipt": recovered_receipt,
+                },
+            )
+            return owner
+
+        return self.runtime.writer.run(pin)
+
     def _render(self, actor, identity, version_id, formats):
+        identity, version_id = _identity(identity), _identity(version_id)
+        self.runtime.writer.run(self._authorize(actor))
         version = self.version(identity, version_id)
         document = restore_document(version["snapshot"]["document"])
         for format in formats:
@@ -589,15 +660,27 @@ class ContractService:
                 else:
                     content = row["rendered_bytes"]
                 file_key = hashlib.sha256(f"contracts:{version_id}:{format}".encode()).hexdigest()
+                original_name = f"contract-{identity}-v{version['sequence']}.{format}"
+                storage_owner = self._output_storage_owner(
+                    actor,
+                    version_id,
+                    format,
+                    file_key,
+                    original_name,
+                    content,
+                    row["rendered_bytes"] is not None,
+                )
                 stored = self.runtime.files.put(
                     io.BytesIO(content),
                     category="documents",
-                    original_name=f"contract-{identity}-v{version['sequence']}.{format}",
-                    actor=actor.id,
+                    original_name=original_name,
+                    actor=storage_owner,
                     request_key=file_key,
                     media_type=MEDIA[format],
                     authorize=self._authorize(actor),
                 )
+                with self.runtime.files.read(stored.id):
+                    pass
 
                 def finish(conn):
                     self._authorize(actor)(conn)
@@ -659,6 +742,7 @@ class ContractService:
                     )
 
                 self.runtime.writer.run(fail)
+        self.runtime.writer.run(self._authorize(actor))
         return self.version(identity, version_id)
 
     def file_for_version(self, identity, version_id, format):
