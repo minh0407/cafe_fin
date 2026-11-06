@@ -840,10 +840,6 @@ class AccountingService:
                 ):
                     raise CoreError("FILTER_INVALID", "Cột hoặc toán tử lọc không được hỗ trợ.")
                 col, op, val = columns[f["column_id"]], f["op"], f.get("value")
-                cell_conditions = [
-                    s.cells.c.row_id == s.entries.c.id,
-                    s.cells.c.column_id == col["id"],
-                ]
                 if op == "empty":
                     condition = or_(s.cells.c.text_value.is_(None), s.cells.c.text_value == "")
                 elif col["kind"] in ("integer", "decimal", "money", "formula") and op != "contains":
@@ -879,7 +875,15 @@ class AccountingService:
                         "lte": s.cells.c.text_value <= text,
                         "contains": s.cells.c.text_value.contains(text, autoescape=True),
                     }[op]
-                predicates.append(exists(select(1).where(*cell_conditions, condition)))
+                predicates.append(
+                    s.entries.c.id.in_(
+                        select(s.cells.c.row_id).where(
+                            s.cells.c.book_id == book_id,
+                            s.cells.c.column_id == col["id"],
+                            condition,
+                        )
+                    )
+                )
             ordering = [s.entries.c.logical_row, s.entries.c.id]
             if sort:
                 key, _, direction = sort.partition(":")
