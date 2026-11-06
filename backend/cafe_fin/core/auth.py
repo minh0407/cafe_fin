@@ -239,6 +239,57 @@ class AuthService:
         with self._lock:
             self._sessions.pop(hashlib.sha256(token.encode()).hexdigest(), None)
 
+    def list_users(
+        self,
+        actor: Principal,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        search: str = "",
+        role: str | None = None,
+        active: bool | None = None,
+    ) -> dict:
+        """Read only public account fields after current Admin authorization."""
+        actor.require("core.manage")
+        if (
+            type(page) is not int
+            or page < 1
+            or type(page_size) is not int
+            or not 1 <= page_size <= 500
+        ):
+            raise CoreError("INVALID_PAGE", "Phân trang phải từ 1, tối đa 500 tài khoản.", 422)
+        if not isinstance(search, str) or len(search) > 128:
+            raise CoreError("INVALID_SEARCH", "Từ khóa tìm tài khoản tối đa 128 ký tự.", 422)
+        if role not in (None, "admin", "operator") or (
+            active is not None and type(active) is not bool
+        ):
+            raise CoreError("INVALID_USER_FILTER", "Bộ lọc tài khoản không hợp lệ.", 422)
+        query = select(USERS.c.id, USERS.c.username, USERS.c.role, USERS.c.version, USERS.c.active)
+        if search:
+            escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            query = query.where(USERS.c.username.ilike(f"%{escaped}%", escape="\\"))
+        if role is not None:
+            query = query.where(USERS.c.role == role)
+        if active is not None:
+            query = query.where(USERS.c.active == active)
+        with self.database.read() as conn:
+            conn.exec_driver_sql("BEGIN")
+            self.authorize(conn, actor, "core.manage")
+            total = conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+            offset = (page - 1) * page_size
+            items = []
+            if offset < total:
+                rows = conn.execute(
+                    query.order_by(USERS.c.username, USERS.c.id).offset(offset).limit(page_size)
+                ).mappings()
+                items = [dict(row) for row in rows]
+            return {
+                "items": items,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+
     def create_user(
         self, actor: Principal, *, username: str, password: str, role: str, request_key: str
     ):

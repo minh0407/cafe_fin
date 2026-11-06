@@ -36,6 +36,7 @@ from .http_types import (
     LogoutDTO,
     UserDetailDTO,
     UserDTO,
+    UserPageDTO,
 )
 from .renderers import DocumentRenderer, DocumentSnapshot, synthetic_snapshot
 from .runtime import Runtime
@@ -316,6 +317,24 @@ def create_app(
     @app.get("/api/v1/auth/me", response_model=UserDTO)
     def me(request: Request):
         return request.state.principal.public()
+
+    @app.get("/api/v1/users", response_model=UserPageDTO)
+    def list_users(
+        request: Request,
+        page: int = Query(1, ge=1),
+        page_size: int = Query(50, ge=1, le=500),
+        search: str = Query("", max_length=128),
+        role: Literal["admin", "operator"] | None = None,
+        active: bool | None = None,
+    ):
+        return runtime.auth.list_users(
+            require(request, "core.manage"),
+            page=page,
+            page_size=page_size,
+            search=search,
+            role=role,
+            active=active,
+        )
 
     @app.post("/api/v1/users", response_model=UserDetailDTO)
     def create_user(request: Request, payload: CreateUser):

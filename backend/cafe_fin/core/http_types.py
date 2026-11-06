@@ -54,6 +54,13 @@ class UserDetailDTO(ResponseDTO):
     active: bool
 
 
+class UserPageDTO(ResponseDTO):
+    items: list[UserDetailDTO]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=500)
+
+
 class LogoutDTO(ResponseDTO):
     logged_out: bool
 
