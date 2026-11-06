@@ -8,6 +8,8 @@ Repo đã ghép core/API local, ghi nhận với ledger chặn tồn âm, hợp 
 
 Baseline phát triển `cafe-fin-foundation-ready-v1` và [baseline tích hợp](docs/reviews/INTEGRATION_BASELINE_V1.md) `cafe-fin-integration-ready-v1` đã được điều phối chốt. Bản tích hợp qua CI Windows với 1.029 backend tests, các bộ browser, frozen sidecar và build NSIS. Lane đóng gói tiếp tục hoàn thiện và nghiệm thu desktop; chưa gọi production-ready. Windows sạch, native GUI/offline và các bước phát hành vẫn phải qua [gate phát hành](docs/adr/20261106_COORDINATION_GATES.md).
 
+[Tích hợp quản lý dữ liệu 06](docs/reviews/DESKTOP_MAINTENANCE_INCREMENT_06.md) bổ sung core/protocol sao lưu, chuyển/khôi phục, giao diện đối soát và native library. Lượt backend tích hợp đạt 1.116 tests; phần nối lệnh native đang tiếp tục, chỉ bật giao diện khi tiến trình desktop xác nhận hỗ trợ. Khôi phục giữ các lượt gửi chưa rõ và tạm dừng lịch đến khi Admin kiểm tra.
+
 - [Yêu cầu sản phẩm](docs/SPEC.md)
 - [Kiến trúc và quyết định kỹ thuật](docs/ARCHITECTURE.md)
 - [Hợp đồng tích hợp giữa các module](docs/API_CONTRACT.md)
