@@ -363,10 +363,6 @@ def test_other_actor_cannot_read_accounting_core_job_status(api):
     response = api["client"].get(
         f"/api/v1/jobs/{batch['job_id']}", headers=api["headers"]["operator"]
     )
-    if response.status_code == 200:
-        pytest.xfail(
-            "SHARED_CORE_JOB_ACTOR_SCOPE: core job status checks module permission but not owning actor; coordinator-owned fix required"
-        )
     assert response.status_code == 403
 
 
@@ -376,10 +372,6 @@ def test_personal_source_file_actor_boundary_requires_shared_core_policy(api, su
     response = api["client"].get(
         f"/api/v1/files/{stored['id']}{suffix}", headers=api["headers"]["operator"]
     )
-    if response.status_code == 200:
-        pytest.xfail(
-            "SHARED_CORE_FILE_ACTOR_SCOPE: baseline FileStore metadata/content use global files.read; personal-source ownership and admin exception require coordinator policy/migration"
-        )
     assert response.status_code == 403
 
 

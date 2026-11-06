@@ -42,11 +42,11 @@ dates, literal text and an explicit fidelity notice sheet. Originals are separat
 ## Integration and migration
 
 See [shared-change-request.md](shared-change-request.md) and the reviewable
-[shared-integration.patch](shared-integration.patch); patch applies to the unchanged
-foundation shared files (`git apply --check` PASS). Coordinator owns applying it.
-It wires module/feature, preserves API error details, and proposes closing core
-cross-actor job/file read routes. The scope regressions conditionally XFAIL while
-those shared routes return200; module endpoints themselves return403.
+[shared-integration.patch](shared-integration.patch). The refreshed patch only
+wires the module/feature and expands test discovery; `git apply --check` PASS.
+Coordinator owns applying it and preserving other lane registrations. Approved
+root22ca543/48858654 are already cherry-picked as59d94da/1be5a0f; scope checks now
+assert403 directly without XFAIL, and structured cell errors reach the UI.
 
 `accounting.module.module_manifest()` exports namespace migration `accounting:1`,
 router, permissions, four resumable job handlers and startup recovery/outbox hook.

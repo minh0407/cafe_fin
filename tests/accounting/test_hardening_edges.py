@@ -21,6 +21,7 @@ from cafe_fin.accounting.module import module_manifest
 from cafe_fin.accounting.service import AccountingService
 from cafe_fin.core.db import canonical_json
 from cafe_fin.core.errors import CoreError
+from cafe_fin.core.jobs import JobInterrupted
 from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.core.runtime import Runtime
 from sqlalchemy import event, func, select
@@ -521,3 +522,187 @@ def test_actual_parse_insert_payloads_are_bounded_to_four_mib(account, tmp_path)
     assert len(payloads) > 1
     assert sum(count for count, _ in payloads) == 500
     assert max(size for _, size in payloads) <= CHUNK_BYTES
+
+
+def cancellable_workbook(*, row_count=10_000, shared_count=0, hidden=False):
+    source = io.BytesIO(xlsx_bytes({}))
+    rewritten = io.BytesIO()
+    row_xml = "".join(
+        f'<row r="{index + 2}" hidden="{int(hidden)}"><c r="A{index + 2}" t="inlineStr"><is><t>synthetic-{index:07d}</t></is></c></row>'
+        for index in range(row_count)
+    )
+    with (
+        zipfile.ZipFile(source) as original,
+        zipfile.ZipFile(rewritten, "w", zipfile.ZIP_STORED) as output,
+    ):
+        for entry in original.infolist():
+            content = original.read(entry)
+            if entry.filename == "xl/worksheets/sheet1.xml":
+                content = f'<worksheet xmlns="{MAIN}"><sheetData>{row_xml}</sheetData></worksheet>'.encode()
+            output.writestr(entry.filename, content)
+        if shared_count:
+            strings = "".join(
+                f"<si><t>synthetic-shared-{index:07d}</t></si>" for index in range(shared_count)
+            )
+            output.writestr("xl/sharedStrings.xml", f'<sst xmlns="{MAIN}">{strings}</sst>')
+    return rewritten.getvalue()
+
+
+def track_zip_reads(monkeypatch):
+    original = zipfile.ZipFile.open
+    reads, streams, archives = [], [], []
+
+    def tracked(archive, name, *args, **kwargs):
+        stream = original(archive, name, *args, **kwargs)
+        part = name.filename if isinstance(name, zipfile.ZipInfo) else name
+        state = {"part": part, "bytes": 0}
+        reads.append(state)
+        streams.append(stream)
+        archives.append(archive)
+        original_read = stream.read
+
+        def read(*read_args, **read_kwargs):
+            value = original_read(*read_args, **read_kwargs)
+            state["bytes"] += len(value)
+            return value
+
+        stream.read = read
+        return stream
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", tracked)
+    return reads, streams, archives
+
+
+@pytest.mark.parametrize("entrypoint", ["manifest", "iter_rows_upfront_scan"])
+def test_cancellation_interrupts_structural_scan_before_reading_full_worksheet(
+    tmp_path, monkeypatch, entrypoint
+):
+    path = tmp_path / "cancel-scan.xlsx"
+    path.write_bytes(cancellable_workbook())
+    before = hashlib.sha256(path.read_bytes()).digest()
+    with zipfile.ZipFile(path) as archive:
+        full_bytes = archive.getinfo("xl/worksheets/sheet1.xml").file_size
+    reads, streams, archives = track_zip_reads(monkeypatch)
+    interrupted = JobInterrupted()
+
+    def cancel_during_sheet():
+        if any(state["part"] == "xl/worksheets/sheet1.xml" and state["bytes"] for state in reads):
+            raise interrupted
+
+    with pytest.raises(JobInterrupted) as error:
+        if entrypoint == "manifest":
+            parsers.manifest(path, path.name, check_cancelled=cancel_during_sheet)
+        else:
+            next(parsers.iter_rows(path, path.name, {}, check_cancelled=cancel_during_sheet))
+    assert error.value is interrupted
+    sheet_reads = [state for state in reads if state["part"] == "xl/worksheets/sheet1.xml"]
+    assert len(sheet_reads) == 1 and 0 < sheet_reads[0]["bytes"] < full_bytes
+    assert all(stream.closed for stream in streams)
+    assert all(archive.fp is None for archive in archives)
+    assert hashlib.sha256(path.read_bytes()).digest() == before
+
+
+def test_cancellation_interrupts_shared_string_spooling_and_cleans_cache(tmp_path, monkeypatch):
+    path = tmp_path / "cancel-strings.xlsx"
+    path.write_bytes(cancellable_workbook(row_count=1, shared_count=10_000))
+    before = hashlib.sha256(path.read_bytes()).digest()
+    trusted = tmp_path / "app-imports"
+    trusted.mkdir()
+    with zipfile.ZipFile(path) as archive:
+        full_bytes = archive.getinfo("xl/sharedStrings.xml").file_size
+    directories = track_temporary_directories(monkeypatch)
+    reads, streams, archives = track_zip_reads(monkeypatch)
+    interrupted = JobInterrupted()
+
+    def cancel_during_strings():
+        if any(state["part"] == "xl/sharedStrings.xml" and state["bytes"] for state in reads):
+            raise interrupted
+
+    with pytest.raises(JobInterrupted) as error:
+        next(
+            parsers.iter_rows(
+                path, path.name, {}, temp_dir=trusted, check_cancelled=cancel_during_strings
+            )
+        )
+    assert error.value is interrupted
+    assert directories and all(not directory.exists() for _, directory in directories)
+    assert not list(trusted.iterdir())
+    assert (
+        0
+        < next(state["bytes"] for state in reads if state["part"] == "xl/sharedStrings.xml")
+        < full_bytes
+    )
+    assert all(stream.closed for stream in streams)
+    assert all(archive.fp is None for archive in archives)
+    assert hashlib.sha256(path.read_bytes()).digest() == before
+
+
+@pytest.mark.parametrize("skip_policy", ["before_start", "hidden"])
+def test_cancellation_interrupts_xlsx_reread_while_all_rows_are_skipped(
+    tmp_path, monkeypatch, skip_policy
+):
+    path = tmp_path / "cancel-skipped.xlsx"
+    path.write_bytes(cancellable_workbook(hidden=skip_policy == "hidden"))
+    before = hashlib.sha256(path.read_bytes()).digest()
+    trusted = tmp_path / "app-imports"
+    trusted.mkdir()
+    directories = track_temporary_directories(monkeypatch)
+    reads, streams, archives = track_zip_reads(monkeypatch)
+    interrupted = JobInterrupted()
+
+    def cancel_during_reread():
+        worksheet = [state for state in reads if state["part"] == "xl/worksheets/sheet1.xml"]
+        if len(worksheet) == 2 and worksheet[-1]["bytes"]:
+            raise interrupted
+
+    profile = {"start_row": 20_000} if skip_policy == "before_start" else {"hidden_rows": "exclude"}
+    with pytest.raises(JobInterrupted) as error:
+        next(
+            parsers.iter_rows(
+                path, path.name, profile, temp_dir=trusted, check_cancelled=cancel_during_reread
+            )
+        )
+    assert error.value is interrupted
+    worksheet = [state for state in reads if state["part"] == "xl/worksheets/sheet1.xml"]
+    assert len(worksheet) == 2
+    assert 0 < worksheet[1]["bytes"] < worksheet[0]["bytes"]
+    assert directories and all(not directory.exists() for _, directory in directories)
+    assert all(stream.closed for stream in streams)
+    assert all(archive.fp is None for archive in archives)
+    assert hashlib.sha256(path.read_bytes()).digest() == before
+
+
+def test_cancellation_interrupts_csv_records_skipped_before_start_and_ignores_profile_callback(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "cancel-skipped.csv"
+    path.write_text("value\n" + "synthetic\n" * 10_000, encoding="utf-8")
+    before = hashlib.sha256(path.read_bytes()).digest()
+    original_reader = csv.reader
+    consumed = 0
+
+    def observed_reader(*args, **kwargs):
+        nonlocal consumed
+        for row in original_reader(*args, **kwargs):
+            consumed += 1
+            yield row
+
+    monkeypatch.setattr(csv, "reader", observed_reader)
+    interrupted = JobInterrupted()
+
+    def cancel_after_records():
+        if consumed:
+            raise interrupted
+
+    with pytest.raises(JobInterrupted) as error:
+        next(
+            parsers.iter_rows(
+                path,
+                path.name,
+                {"start_row": 20_000, "check_cancelled": "untrusted ignored value"},
+                check_cancelled=cancel_after_records,
+            )
+        )
+    assert error.value is interrupted
+    assert 0 < consumed <= 1024
+    assert hashlib.sha256(path.read_bytes()).digest() == before

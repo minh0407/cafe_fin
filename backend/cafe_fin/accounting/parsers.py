@@ -14,8 +14,9 @@ import tempfile
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from itertools import islice
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 from xml.etree.ElementTree import TreeBuilder
 
 from defusedxml import ElementTree as SafeXML
@@ -37,6 +38,7 @@ MAX_XML_DEPTH = 64
 MAX_CELL_XML_NODES = 4096
 MAX_ROW_XML_NODES = 16_384
 MAX_MERGED_RANGES = 65_536
+CANCEL_CHECK_INTERVAL = 1024
 _MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _NUMBER = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[Ee][+-]?[0-9]+)?\Z")
@@ -163,14 +165,19 @@ def _xml_parser():
     )
 
 
-def _xml_events(stream):
+def _checkpoint(check_cancelled):
+    if check_cancelled is not None:
+        check_cancelled()
+
+
+def _xml_events(stream, *, check_cancelled=None):
+    _checkpoint(check_cancelled)
     try:
         stack = []
-        for event, element in SafeXML.iterparse(
-            stream,
-            events=("start", "end"),
-            parser=_xml_parser(),
-        ):
+        events = SafeXML.iterparse(stream, events=("start", "end"), parser=_xml_parser())
+        for count, (event, element) in enumerate(events, 1):
+            if count % CANCEL_CHECK_INTERVAL == 0:
+                _checkpoint(check_cancelled)
             if event == "start":
                 stack.append(element)
             yield event, element
@@ -185,6 +192,7 @@ def _xml_events(stream):
                             stack[-1].remove(element)
                         except ValueError:
                             pass  # The row consumer may already have cleared its parent.
+        _checkpoint(check_cancelled)
     except (DefusedXmlException, SafeXML.ParseError) as exc:
         raise ParserError("UNSAFE_XML", "XML không hợp lệ hoặc có nội dung bị cấm.") from exc
 
@@ -274,13 +282,13 @@ def _book(archive):
     return sheets
 
 
-def _scan_sheet(archive, sheet, *, include_merges=False):
+def _scan_sheet(archive, sheet, *, include_merges=False, check_cancelled=None):
     max_row = max_column = merged_count = row_count = 0
     last_row = 0
     sheet_data = merge_cells = None
     merges = []
     with archive.open(sheet["path"]) as stream:
-        for event, element in _xml_events(stream):
+        for event, element in _xml_events(stream, check_cancelled=check_cancelled):
             if event == "start" and element.tag == f"{{{_MAIN}}}sheetData":
                 sheet_data = element
             if event == "start" and element.tag == f"{{{_MAIN}}}mergeCells":
@@ -346,10 +354,12 @@ def _file_type(filename):
     return extension[1:]
 
 
-def manifest(path, filename) -> dict:
+def manifest(path, filename, *, check_cancelled: Callable[[], None] | None = None) -> dict:
     """Inspect actual worksheet positions, never trusting a cached dimension attribute."""
+    _checkpoint(check_cancelled)
     file_type = _file_type(filename)
     if file_type == "csv":
+        _checkpoint(check_cancelled)
         return {
             "file_type": "csv",
             "sheets": [
@@ -365,10 +375,15 @@ def manifest(path, filename) -> dict:
             "csv_defaults": {"encoding": "utf-8-sig", "delimiter": ","},
         }
     with _archive(path) as archive:
-        return {
+        result = {
             "file_type": file_type,
-            "sheets": [_scan_sheet(archive, sheet) for sheet in _book(archive)],
+            "sheets": [
+                _scan_sheet(archive, sheet, check_cancelled=check_cancelled)
+                for sheet in _book(archive)
+            ],
         }
+    _checkpoint(check_cancelled)
+    return result
 
 
 def _profile(profile):
@@ -396,14 +411,19 @@ def _profile(profile):
 class _CSVLines:
     """Bound physical line allocation and the total record consumed by csv.reader."""
 
-    def __init__(self, stream):
+    def __init__(self, stream, *, check_cancelled=None):
         self.stream = stream
         self.record_chars = 0
+        self.physical_lines = 0
+        self.check_cancelled = check_cancelled
 
     def __iter__(self):
         return self
 
     def __next__(self):
+        self.physical_lines += 1
+        if self.physical_lines % CANCEL_CHECK_INTERVAL == 0:
+            _checkpoint(self.check_cancelled)
         line = self.stream.readline(MAX_CSV_RECORD_CHARS + 1)
         if not line:
             raise StopIteration
@@ -413,7 +433,8 @@ class _CSVLines:
         return line
 
 
-def _csv_rows(path, profile, settings):
+def _csv_rows(path, profile, settings, *, check_cancelled=None):
+    _checkpoint(check_cancelled)
     start, end, _, _, skip_blank = settings
     encoding = profile.get("encoding", "utf-8-sig")
     delimiter = profile.get("delimiter", ",")
@@ -425,9 +446,12 @@ def _csv_rows(path, profile, settings):
         _fail("SHEET_NOT_FOUND", "Không tìm thấy sheet CSV.")
     try:
         with open(path, "r", encoding=encoding, errors="strict", newline="") as stream:
-            lines = _CSVLines(stream)
+            lines = _CSVLines(stream, check_cancelled=check_cancelled)
             reader = csv.reader(lines, delimiter=delimiter, strict=True)
-            for row_number, row in enumerate(reader, 1):
+            selected_records = reader if end is None else islice(reader, end)
+            for row_number, row in enumerate(selected_records, 1):
+                if row_number % CANCEL_CHECK_INTERVAL == 0:
+                    _checkpoint(check_cancelled)
                 lines.record_chars = 0
                 if len(row) > MAX_COLUMNS:
                     _fail("WORKSHEET_LIMIT", "CSV vượt giới hạn 256 cột.")
@@ -444,6 +468,7 @@ def _csv_rows(path, profile, settings):
                     values,
                     metadata={"encoding": encoding, "delimiter": delimiter},
                 )
+        _checkpoint(check_cancelled)
     except (UnicodeError, LookupError) as exc:
         raise ParserError(
             "CSV_ENCODING_REQUIRED", "Chọn encoding CSV phù hợp; không tự đoán mã hóa."
@@ -455,7 +480,8 @@ def _csv_rows(path, profile, settings):
 
 
 @contextmanager
-def _shared_strings(archive, *, temp_dir=None):
+def _shared_strings(archive, *, temp_dir=None, check_cancelled=None):
+    _checkpoint(check_cancelled)
     # A disk-backed index keeps millions of unique shared strings out of process memory.
     with tempfile.TemporaryDirectory(dir=temp_dir, prefix="accounting-xlsx-strings-") as directory:
         connection = sqlite3.connect(str(Path(directory) / "strings.sqlite"))
@@ -466,7 +492,7 @@ def _shared_strings(archive, *, temp_dir=None):
                 index = 0
                 with archive.open("xl/sharedStrings.xml") as stream:
                     root = None
-                    for event, element in _xml_events(stream):
+                    for event, element in _xml_events(stream, check_cancelled=check_cancelled):
                         if root is None:
                             root = element
                         if event == "end" and element.tag == f"{{{_MAIN}}}si":
@@ -474,10 +500,13 @@ def _shared_strings(archive, *, temp_dir=None):
                             connection.execute("INSERT INTO strings VALUES (?, ?)", (index, value))
                             index += 1
                             root.clear()
+                _checkpoint(check_cancelled)
                 connection.commit()
+                _checkpoint(check_cancelled)
             yield connection
         finally:
             connection.close()
+    _checkpoint(check_cancelled)
 
 
 def _rich_text(element):
@@ -548,9 +577,12 @@ def _cell_value(cell, strings):
     return raw
 
 
-def _xlsx_rows(archive, sheet, profile, settings, *, temp_dir=None):
+def _xlsx_rows(archive, sheet, profile, settings, *, temp_dir=None, check_cancelled=None):
+    _checkpoint(check_cancelled)
     start, end, hidden, merged, skip_blank = settings
-    info = _scan_sheet(archive, sheet, include_merges=merged == "top_left")
+    info = _scan_sheet(
+        archive, sheet, include_merges=merged == "top_left", check_cancelled=check_cancelled
+    )
     if merged == "reject" and info["merged_cell_ranges"]:
         _fail("MERGED_CELLS", "Sheet có ô gộp; chọn chính sách chỉ lấy ô góc trên trái.")
     date_styles = _date_styles(archive)
@@ -558,11 +590,11 @@ def _xlsx_rows(archive, sheet, profile, settings, *, temp_dir=None):
     next_merge = next(merges, None)
     active_merges = []
     with (
-        _shared_strings(archive, temp_dir=temp_dir) as strings,
+        _shared_strings(archive, temp_dir=temp_dir, check_cancelled=check_cancelled) as strings,
         archive.open(sheet["path"]) as stream,
     ):
         sheet_data = None
-        for event, element in _xml_events(stream):
+        for event, element in _xml_events(stream, check_cancelled=check_cancelled):
             if event == "start" and element.tag == f"{{{_MAIN}}}sheetData":
                 sheet_data = element
             if event != "end" or element.tag != f"{{{_MAIN}}}row":
@@ -647,17 +679,28 @@ def _xlsx_rows(archive, sheet, profile, settings, *, temp_dir=None):
                 )
 
 
-def iter_rows(path, filename, profile: dict, *, temp_dir=None) -> Iterator[SourceRow]:
+def iter_rows(
+    path,
+    filename,
+    profile: dict,
+    *,
+    temp_dir=None,
+    check_cancelled: Callable[[], None] | None = None,
+) -> Iterator[SourceRow]:
     """Yield selected stored rows. Header is excluded by default; text dates stay raw.
 
     Profile date_format is carried by the caller to schema validation: parsing never
     guesses day/month order. OOXML sparse absent rows are not synthesized.
     temp_dir is a trusted internal temporary-storage location, never taken from
     the user-supplied profile. The application passes its imports directory.
+    check_cancelled is a trusted cooperative callback. Its exceptions propagate
+    unchanged; neither trusted argument is ever read from the user profile.
     """
+    _checkpoint(check_cancelled)
     settings = _profile(profile)
     if _file_type(filename) == "csv":
-        yield from _csv_rows(path, profile, settings)
+        yield from _csv_rows(path, profile, settings, check_cancelled=check_cancelled)
+        _checkpoint(check_cancelled)
         return
     with _archive(path) as archive:
         sheets = _book(archive)
@@ -665,4 +708,7 @@ def iter_rows(path, filename, profile: dict, *, temp_dir=None) -> Iterator[Sourc
         selected = next((sheet for sheet in sheets if sheet["id"] == identifier), None)
         if selected is None:
             _fail("SHEET_NOT_FOUND", "Không tìm thấy worksheet đã chọn.")
-        yield from _xlsx_rows(archive, selected, profile, settings, temp_dir=temp_dir)
+        yield from _xlsx_rows(
+            archive, selected, profile, settings, temp_dir=temp_dir, check_cancelled=check_cancelled
+        )
+    _checkpoint(check_cancelled)

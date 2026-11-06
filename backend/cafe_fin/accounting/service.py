@@ -14,7 +14,7 @@ from sqlalchemy import case, delete, exists, func, insert, or_, select, update
 from cafe_fin.core.audit import AuditService, require_version
 from cafe_fin.core.auth import Principal
 from cafe_fin.core.contracts import BookSummaryDTO, MappedBookMetricDTO
-from cafe_fin.core.db import AUDIT, canonical_json
+from cafe_fin.core.db import canonical_json
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.imports import (
     ImportAttemptService,
@@ -160,6 +160,22 @@ def _idle(batch, conn=None):
             )
 
 
+def _require_parse_complete(conn, batch_id):
+    latest = conn.execute(
+        select(JOBS.c.state)
+        .select_from(s.tasks.outerjoin(JOBS, JOBS.c.id == s.tasks.c.job_id))
+        .where(s.tasks.c.entity_id == batch_id, s.tasks.c.kind == "accounting.parse")
+        .order_by(s.tasks.c.created_at.desc(), s.tasks.c.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if latest != "COMPLETED":
+        raise CoreError(
+            "PARSE_INCOMPLETE",
+            "Nguồn chưa parse hoàn tất. Tiếp tục hoặc sửa profile parser trước khi validate/xác nhận; không coi phần chưa đọc là trống.",
+            409,
+        )
+
+
 def _audit(conn, actor, entity, entity_id, action, before=None, after=None):
     return AuditService.record(
         conn,
@@ -228,14 +244,29 @@ class AccountingService:
     def authorize(self, actor, permission="accounting.write"):
         return lambda conn: self.rt.auth.authorize(conn, actor, permission)
 
-    def write(self, actor, action, key, payload, operation, permission="accounting.write"):
+    def write(
+        self,
+        actor,
+        action,
+        key,
+        payload,
+        operation,
+        permission="accounting.write",
+        *,
+        referenced_file_id=None,
+    ):
+        def authorize(conn):
+            current = self.rt.auth.authorize(conn, actor, permission)
+            if referenced_file_id is not None:
+                self.rt.files.require_owner_or_admin(conn, current, referenced_file_id)
+
         return self.rt.writer.execute(
             actor.id,
             "accounting." + action,
             key,
             payload,
             operation,
-            authorize=self.authorize(actor, permission),
+            authorize=authorize,
         )
 
     def dispatch(self):
@@ -892,29 +923,11 @@ class AccountingService:
     def create_batch(
         self, actor, book_id, file_id, profile, request_key, allow_duplicate_file=False
     ):
-        stored = self.rt.files.get(file_id)
-        if stored.category not in ("workbooks", "imports"):
-            raise CoreError("SOURCE_FILE_INVALID", "Chọn tệp nguồn workbook hoặc import.")
-
         def op(conn):
             book = _book(conn, book_id)
-            if actor.role != "admin":
-                actor.require("files.read")
-                owner = conn.execute(
-                    select(AUDIT.c.actor)
-                    .where(
-                        AUDIT.c.entity == "core_file",
-                        AUDIT.c.entity_id == file_id,
-                        AUDIT.c.action == "CREATE",
-                    )
-                    .limit(1)
-                ).scalar_one_or_none()
-                if owner != actor.id:
-                    raise CoreError(
-                        "PERMISSION_DENIED",
-                        "Tệp nguồn thuộc tài khoản khác hoặc chưa có quyền chia sẻ rõ ràng.",
-                        403,
-                    )
+            stored = self.rt.files.get(file_id, connection=conn)
+            if stored.category not in ("workbooks", "imports"):
+                raise CoreError("SOURCE_FILE_INVALID", "Chọn tệp nguồn workbook hoặc import.")
             existing = conn.execute(
                 select(s.batches.c.id)
                 .where(
@@ -976,6 +989,7 @@ class AccountingService:
                 allow_duplicate_file=allow_duplicate_file,
             ),
             op,
+            referenced_file_id=file_id,
         )
         self.dispatch()
         return self.get_batch(actor, result["id"])
@@ -1305,6 +1319,7 @@ class AccountingService:
         def op(conn):
             batch = _batch(conn, batch_id, actor)
             _idle(batch, conn)
+            _require_parse_complete(conn, batch_id)
             version = require_version(batch["version"], expected_version)
             book = _book(conn, batch["book_id"])
             if book["schema_revision"] != batch["schema_revision"]:
@@ -1341,6 +1356,7 @@ class AccountingService:
         def op(conn):
             batch = _batch(conn, batch_id, actor)
             _idle(batch, conn)
+            _require_parse_complete(conn, batch_id)
             version = require_version(batch["version"], command["expected_version"])
             book = _book(conn, batch["book_id"])
             for key, expected in (

@@ -56,6 +56,9 @@ def _chunked(iterator, size=CHUNK):
             rows, used = [], 2
         rows.append(row)
         used += cost
+        if len(rows) == size:
+            yield rows
+            rows, used = [], 2
     if rows:
         yield rows
 
@@ -137,7 +140,9 @@ class AccountingJobs:
         with self.rt.files.read(file.id):
             path = self.rt.root.resolve_key(file.relative_key)
             self.rt.root.check_writable(max(256 * 1024**2, file.size * 12))
-            source_manifest = parsers.manifest(path, file.original_name)
+            source_manifest = parsers.manifest(
+                path, file.original_name, check_cancelled=context.check_cancelled
+            )
             checkpoint = context.checkpoint()
             skip = checkpoint.get("parsed", 0)
             profile = json.loads(batch["profile_json"])
@@ -145,7 +150,11 @@ class AccountingJobs:
 
             def records_iter():
                 for r in parsers.iter_rows(
-                    path, file.original_name, profile, temp_dir=self.rt.root.resolve_key("imports")
+                    path,
+                    file.original_name,
+                    profile,
+                    temp_dir=self.rt.root.resolve_key("imports"),
+                    check_cancelled=context.check_cancelled,
                 ):
                     yield dict(
                         batch_id=batch_id,
