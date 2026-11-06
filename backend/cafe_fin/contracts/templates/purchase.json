@@ -1,0 +1,4 @@
+{
+  "title": "HỢP ĐỒNG MUA HÀNG",
+  "body": "Số: {{number}}\nNgày: {{occurred_on}}\nNơi lập: {{place}}\n\n{{company}}\n\n{{counterparty}}\n\n1. HÀNG HÓA VÀ GIÁ TRỊ\n{{goods}}\n\n{{totals}}\n\n2. GIAO NHẬN\n{{delivery}}\nBao bì:\n{{packaging}}\nChất lượng:\n{{quality}}\nThời hạn:\n{{deadline}}\n\n3. THANH TOÁN\n{{payment}}\n\n4. TRÁCH NHIỆM VÀ NỘI DUNG BỔ SUNG\n{{responsibilities}}\n{{additional}}\n\n5. ĐẠI DIỆN CÁC BÊN\n{{signatures}}"
+}
