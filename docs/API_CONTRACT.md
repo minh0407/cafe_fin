@@ -10,6 +10,7 @@
 - Entity: `id` UUID string, `version` integer, `created_at`/`updated_at` UTC ISO, `created_by`/`updated_by`, `deleted_at` nullable khi áp dụng. `occurred_on` là ngày nghiệp vụ `YYYY-MM-DD`, `recorded_at` là thời điểm nhập; `physical_actor` là dữ liệu mô tả riêng.
 - Sửa/xóa gửi `expected_version`. Lệnh tạo/ghi/import confirm gửi `request_key`; server gắn key với canonical payload và actor/action phù hợp. Conflict không dùng 200 giả thành công.
 - Tiền và kg JSON là Decimal string, đọc/ghi qua core Amount helpers; scale/miengia theo ARCHITECTURE. Empty, zero và thiếu dữ liệu khác nhau.
+- Khoảng ngày nghiệp vụ `from_on`/`through_on` bao gồm cả hai đầu; một ngày có `from_on == through_on`. Query timestamp UTC tương ứng dùng `[00:00 ngày đầu Việt Nam, 00:00 sau ngày cuối Việt Nam)`. Producer và báo cáo dùng cùng nghĩa này; không truyền ngày cuối exclusive dưới tên `through_on`.
 - Danh sách: `page`, `page_size` tối đa 500, `search`, `sort`, `filters` có schema validate. Trả `items`, `total`, `page`, `page_size`; truy vấn lớn có cursor/range endpoint riêng. Lọc/sort thực hiện trên toàn bộ tập ở server.
 - Lỗi: `error.code`, `error.message`, `error.field_errors[]`, `error.details`, `request_id`. Mỗi field error có `field`, `code`, `message`; không trả stack trace hoặc secret.
 - Audit đổi dữ liệu ở cùng transaction, có before/after, actor, entity, action và thời điểm. Soft delete không làm biến mất các tệp xuất hoặc lineage import.
