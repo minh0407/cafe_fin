@@ -4,7 +4,7 @@
 
 1. Điều phối publish bộ yêu cầu `cafe-fin-spec-v1`.
 2. Prompt 00 tạo nền tảng trên branch riêng từ tag trên; bàn giao commit, chưa push.
-3. Điều phối review/test/tích hợp và tạo `cafe-fin-foundation-ready-v1` bất biến.
+3. Điều phối review/test/tích hợp và tạo `cafe-fin-foundation-ready-v1` bất biến theo [gate phát triển](adr/20261106_COORDINATION_GATES.md); đây không phải nghiệm thu bộ cài hoặc production.
 4. Prompt 01, 02, 03 chạy song song từ chính tag foundation. Prompt 04 có thể làm sau khi type contract của records/accounting được freeze; kiểm tích hợp sau các module.
 5. Điều phối ghép module, chạy liên luồng, tạo mốc `cafe-fin-integration-ready-v1` khi đủ điều kiện.
 6. Prompt 05 đóng gói và nghiệm thu trên mốc integration; điều phối xử lý findings, push và thông báo kết quả thực tế.

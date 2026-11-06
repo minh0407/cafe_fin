@@ -2,6 +2,8 @@
 
 Bạn phụ trách lane `foundation` của dự án **Cafe Fin**. Hãy xây dựng nền tảng dùng được và kiểm chứng được để các lane nghiệp vụ triển khai sau. Chỉ làm nền tảng, giao diện module mẫu tối thiểu và các bản thử kỹ thuật được nêu dưới đây; không triển khai thay các lane nhập Excel, nghiệp vụ cà phê, hợp đồng hoặc báo cáo.
 
+Điều phối cập nhật phân kỳ tại `docs/adr/20261106_COORDINATION_GATES.md`: foundation READY là baseline interface cho phát triển; native install trên Windows sạch vẫn bắt buộc trước phát hành. Các phép thử native dưới đây cần làm sớm, ghi PASS/FAIL/NOT RUN đúng thực tế; thiếu môi trường không cho phép bỏ test, nhưng có thể chuyển phần nghiệm thu native cuối sang release gate. Lỗi chức năng core/API vẫn phải sửa trước baseline.
+
 ## 1. Đọc trước và xác nhận điểm xuất phát
 
 Đọc đầy đủ `README.md`, `AGENTS.md`, `docs/SPEC.md`, `docs/ARCHITECTURE.md`, `docs/API_CONTRACT.md`, `docs/OWNERSHIP.md` và prompt này. Bắt đầu đúng tag `cafe-fin-spec-v1`, xác minh SHA của tag; không thay bằng HEAD khác. Bộ tài liệu chính thức do Điều phối cung cấp là nguồn quyết định. Nếu tài liệu hoặc tag xuất phát chưa có, báo chính xác phần thiếu cho Điều phối; không tự dựng một bộ yêu cầu khác và không lấy CRM cũ làm đặc tả thay thế.
@@ -93,7 +95,7 @@ Ngoài lint/typecheck/build, kiểm trực tiếp các rủi ro thật của n�
 3. Tắt tiến trình giữa job rồi mở lại: tiến độ/trạng thái phục hồi đúng, không lặp phần đã commit. Backend tạm mất kết nối và Internet mất không làm UI báo lưu thành công giả.
 4. Data root Unicode/khoảng trắng, không có quyền ghi, đầy đĩa, ổ không sẵn sàng, DB đã tồn tại, schema mới hơn app và chạy instance thứ hai đều được xử lý rõ, không ghi đè dữ liệu.
 5. Snapshot backup khôi phục vào thư mục mới, kiểm DB và hash file; move data root không mất liên kết. Tệp import gốc giữ nguyên hash.
-6. Tạo bộ cài thử `.exe` hoặc `.msi`, thử cài và chạy hai bản thử Word/PDF/grid trên Windows sạch, không chỉ qua server dev hoặc executable trên máy đã có dependency. Chưa cần bộ cài release hoàn chỉnh trong lane này.
+6. Thử tạo bộ cài `.exe` hoặc `.msi` và chạy Word/PDF/grid trên Windows sạch khi môi trường cho phép. Nếu bị policy/môi trường chặn, ghi bằng chứng và chuyển kiểm cài sạch sang release gate theo ADR; không ghi PASS từ server dev hoặc máy đầy dependency. Không thay đổi policy hoặc đường dẫn để né enforcement.
 
 Không viết test chỉ lặp lại implementation hoặc dùng mock để tuyên bố Windows/native packaging đã pass. Ghi PASS/FAIL/NOT RUN/SKIP cùng lệnh, máy, phiên bản và lý do; số lượng test không thay bằng chứng hành vi.
 

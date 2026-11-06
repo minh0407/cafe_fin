@@ -60,7 +60,7 @@ SQLite commit theo chunk với marker, counts và source-row identity trong cùn
 
 Không trả toàn bộ issue/duplicate IDs của triệu dòng trong một response; dùng paging và selection manifest phía server. Checkpoint XLSX không mặc định seek O(1): có thể phải đọc lại và skip trước mốc hoặc hoàn tất staging rồi resume phase sau. Kiểm dung lượng raw+staging+pending+indexes+WAL trước import, và dùng Decimal/check khi SUM integer có thể vượt int64.
 
-Grid miễn phí ứng viên là Glide Data Grid (MIT) hoặc thay thế tương đương sau spike React compatibility. Grid không phải workbook engine; cần service công thức giới hạn, có dependencies, cycle detection và range limits. Có thể đánh giá parser MIT như fast-formula-parser; việc chọn/pin sau kiểm giấy phép, phụ thuộc và tính chính xác, không chạy eval. Không tự chọn HyperFormula GPL/commercial hoặc Handsontable/AG Enterprise mà chưa giải quyết điều kiện license. [Glide source/license](https://github.com/glideapps/glide-data-grid), [Parser source/license](https://github.com/LesterLyu/fast-formula-parser).
+Sau spike React 19, foundation chọn `react-data-grid` 7.0.0-beta.64 (MIT), có prototype phân trang và virtualization; dependency được pin trong frontend lockfile và notices. Grid không phải workbook engine; cần service công thức giới hạn, có dependencies, cycle detection và range limits. Có thể đánh giá parser MIT như fast-formula-parser; việc chọn/pin sau kiểm giấy phép, phụ thuộc và tính chính xác, không chạy eval. Chưa có evaluator production trong baseline foundation. Không tự chọn HyperFormula GPL/commercial hoặc Handsontable/AG Enterprise mà chưa giải quyết điều kiện license. [Grid source/license](https://github.com/adazzle/react-data-grid), [Parser source/license](https://github.com/LesterLyu/fast-formula-parser).
 
 Không tuyên bố giữ VBA hoặc mọi Excel feature sau parse/resave: chỉ bản gốc được bảo toàn byte. Export projection có nhãn tệp dẫn xuất, xử lý text bắt đầu bằng ký tự công thức mà không làm sai số âm numeric. Không tự thực thi formula ngoài danh sách hoặc external reference. [VBA web](https://support.microsoft.com/en-us/excel/work-with-vba-macros-in-excel-for-the-web), [openpyxl optimized](https://openpyxl.readthedocs.io/en/stable/optimized.html).
 
@@ -74,6 +74,8 @@ Không dựng webhook public hoặc mở cổng DB/MinIO/CRM. Lịch vận hành
 
 ## Gate foundation
 
-Foundation bàn giao đủ cấu trúc và interfaces, migrations mới, app launch, chọn data root, local auth, job test ngắt/tiếp tục, API paging/error/version/idempotency, grid spike, Word/PDF spike và smoke bộ cài Windows. Điều phối review rồi tạo tag `cafe-fin-foundation-ready-v1`; chưa có tag thì các module chưa bắt đầu.
+Foundation bàn giao đủ cấu trúc/interfaces, migrations mới, local auth, job test ngắt/tiếp tục, API paging/error/version/idempotency, grid và Word/PDF spikes, frontend build, sidecar thực và browser integration. Điều phối review các lỗi và freeze interface trước tag `cafe-fin-foundation-ready-v1`; chưa có tag thì các module chưa bắt đầu.
+
+Theo [quyết định tách gate phát triển và phát hành](adr/20261106_COORDINATION_GATES.md), tag này là baseline phát triển. Native compile/build/install và các hạn chế môi trường phải có trạng thái rõ; smoke bộ cài trên Windows client sạch vẫn bắt buộc ở release gate. Không lấy browser hoặc máy dev thay bằng chứng đó.
 
 Bộ cài hoàn chỉnh chỉ nghiệm thu sau các module được tích hợp; tag foundation không có nghĩa tính năng nghiệp vụ hoặc benchmark một triệu dòng đã hoàn tất.

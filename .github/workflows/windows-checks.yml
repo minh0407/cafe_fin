@@ -1,0 +1,100 @@
+name: Windows source checks and candidate build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-checks.yml'
+      - 'backend/**'
+      - 'desktop/**'
+      - 'frontend/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: '1'
+      CARGO_TERM_COLOR: never
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - name: Install locked Python environment
+        run: |
+          uv python install 3.12.16
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv sync --frozen --python 3.12.16
+      - name: Backend regression tests
+        run: uv run --frozen python -m pytest tests/core -q
+      - name: Lint and compile backend
+        run: |
+          uv run --frozen python -m ruff check backend/cafe_fin tests/core scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --frozen python -m compileall -q backend/cafe_fin scripts
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Install locked frontend packages
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend production build
+        working-directory: frontend
+        run: npm run build
+      - name: Install test browser
+        working-directory: frontend
+        run: npx playwright install chromium
+      - name: Browser and real sidecar tests
+        working-directory: frontend
+        env:
+          CAFE_FIN_REAL_API: '1'
+        run: npm test
+      - name: Pin Rust build toolchain
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup default 1.99.1
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path desktop/Cargo.toml -- --check
+      - name: Build Python sidecar and notices
+        run: ./desktop/scripts/build-sidecar.ps1
+      - name: Build native installer candidate
+        working-directory: desktop
+        run: ../frontend/node_modules/.bin/tauri.cmd build --bundles nsis --ci -- --locked
+      - name: Record candidate hashes
+        run: |
+          $candidateFiles = @(Get-ChildItem -LiteralPath 'desktop/target/release/bundle/nsis' -Filter '*.exe' -File)
+          if ($candidateFiles.Count -eq 0) { throw 'No installer candidate was produced.' }
+          "## Native build candidate" >> $env:GITHUB_STEP_SUMMARY
+          "Source commit: $env:GITHUB_SHA" >> $env:GITHUB_STEP_SUMMARY
+          "This runner is a build environment, not clean Windows client acceptance. No release was published." >> $env:GITHUB_STEP_SUMMARY
+          foreach ($candidate in $candidateFiles) {
+            $digest = Get-FileHash -LiteralPath $candidate.FullName -Algorithm SHA256
+            "$($candidate.Name) | $($candidate.Length) bytes | SHA256 $($digest.Hash)" >> $env:GITHUB_STEP_SUMMARY
+          }
+
+# Only source and synthetic fixtures run here. No application data, credentials,
+# production release, persistent runner, artifact upload, or larger paid runner.
