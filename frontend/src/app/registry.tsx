@@ -1,7 +1,8 @@
 import type { ComponentType } from "react";
-import { Empty } from "antd";
+import { accountingFeature } from "../features/accounting";
 import { contractsModule } from "../features/contracts";
 import { recordsModule } from "../features/records";
+import { reportingFeature } from "../features/reporting";
 
 export interface FeatureRoute {
   path: string;
@@ -29,23 +30,9 @@ export function defineModules(
   }
   return Object.freeze([...modules]);
 }
-const Pending = () => (
-  <Empty description="Module chưa được triển khai trên foundation candidate." />
-);
-// Coordinator adds feature-owned index.ts exports here after the foundation gate.
 export const modules = defineModules([
   recordsModule,
   contractsModule,
-  {
-    id: "accounting",
-    title: "Sổ kế toán",
-    permission: "accounting.read",
-    routes: [{ path: "/accounting", component: Pending }],
-  },
-  {
-    id: "reporting",
-    title: "Báo cáo",
-    permission: "reporting.read",
-    routes: [{ path: "/reporting", component: Pending }],
-  },
+  accountingFeature,
+  reportingFeature,
 ]);
