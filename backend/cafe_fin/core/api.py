@@ -339,8 +339,13 @@ def create_app(
     def job_status(job_id: str, request: Request):
         actor = require(request, "jobs.read")
         result = runtime.jobs.status(job_id)
-        if result["kind"] != "foundation.sample":
-            actor.require(f"{result['kind'].split('.', 1)[0]}.read")
+        with runtime.reader() as conn:
+            conn.exec_driver_sql("BEGIN")
+            actor = runtime.auth.authorize(conn, actor, "jobs.read")
+            if result["kind"] != "foundation.sample":
+                runtime.auth.authorize(conn, actor, f"{result['kind'].split('.', 1)[0]}.read")
+                if actor.role != "admin" and result["actor"] != actor.id:
+                    raise CoreError("PERMISSION_DENIED", "Bạn không có quyền đọc tác vụ này.", 403)
         return result
 
     def require_core_demo_job(kind: str):
@@ -514,6 +519,14 @@ def create_app(
     def file_dto(stored):
         return {name: getattr(stored, name) for name in FileDTO.model_fields}
 
+    def authorized_file(file_id: str, request: Request):
+        actor = require(request, "files.read")
+        with runtime.reader() as conn:
+            conn.exec_driver_sql("BEGIN")
+            actor = runtime.auth.authorize(conn, actor, "files.read")
+            runtime.files.require_owner_or_admin(conn, actor, file_id)
+            return runtime.files.get(file_id, connection=conn)
+
     @app.post(
         "/api/v1/files",
         response_model=FileDTO,
@@ -604,8 +617,7 @@ def create_app(
 
     @app.get("/api/v1/files/{file_id}", response_model=FileDTO)
     def file_metadata(file_id: str, request: Request):
-        require(request, "files.read")
-        return file_dto(runtime.files.get(file_id))
+        return file_dto(authorized_file(file_id, request))
 
     @app.get(
         "/api/v1/files/{file_id}/content",
@@ -619,12 +631,15 @@ def create_app(
         },
     )
     def file_content(file_id: str, request: Request):
-        require(request, "files.read")
-        stored = runtime.files.get(file_id)
+        stored = authorized_file(file_id, request)
         resources = ExitStack()
         try:
             # Opening and hash verification must finish before HTTP response-start.
             source = resources.enter_context(runtime.files.read(file_id))
+            # Hashing a large original takes time. Revalidate in a fresh snapshot
+            # before headers, without holding a read transaction while hashing.
+            if authorized_file(file_id, request) != stored:
+                raise CoreError("FILE_CHANGED", "Thông tin tệp đã thay đổi; hãy thử tải lại.", 409)
         except BaseException:
             resources.close()
             raise
