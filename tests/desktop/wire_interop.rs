@@ -27,6 +27,19 @@ const OP: &str = "00000000-0000-4000-8000-000000000001";
 const APP: &str = "synthetic-rust-python-app-session-0123456789";
 const PASSWORD: &str = "synthetic-rust-python-password";
 
+fn sanitized_boot_code(boot: &Value) -> &str {
+    boot.get("code")
+        .and_then(Value::as_str)
+        .filter(|code| {
+            !code.is_empty()
+                && code.len() <= 64
+                && code
+                    .bytes()
+                    .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+        .unwrap_or("BOOT_CODE_UNAVAILABLE")
+}
+
 struct Fixture {
     root: PathBuf,
     temp: PathBuf,
@@ -93,7 +106,11 @@ impl Peer {
             .boot_frame(Duration::from_secs(30))
             .expect("production boot frame");
         let boot: Value = serde_json::from_slice(&raw).unwrap();
-        assert_eq!(boot["status"], "ready");
+        assert!(
+            boot["status"] == "ready",
+            "production boot failed ({})",
+            sanitized_boot_code(&boot)
+        );
         assert_eq!(boot["generation"], generation);
         assert_eq!(boot["maintenance_protocol"], 1);
         assert_eq!(

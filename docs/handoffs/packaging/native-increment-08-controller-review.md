@@ -77,3 +77,14 @@ do not replace these actual-adapter checks.
 No migration, dependency, DTO, frontend or core change. No new sidecar build,
 installer, push, release or upload in this increment. Existing immutable-origin
 recovery seam and release/license gates remain unchanged; not production-ready.
+
+## CI follow-up diagnostic
+
+Coordinator subsequently reported 47 ordinary native cases PASS on permitted CI,
+but explicit wire_interop failed at boot. The confirmed core Windows-path policy
+rejects Rust canonical verbatim disk paths as remote; foundation owns that fix.
+The wire test now includes only a bounded uppercase/digit/underscore boot.code in
+its failure message, or BOOT_CODE_UNAVAILABLE. It never dumps the boot frame,
+message, path or token. No test-only path stripping or product policy change is
+made here. Host harness cargo check/fmt remain PASS; native execution here remains
+NOT RUN. Await the approved core SHA and a fresh actual CI run.
