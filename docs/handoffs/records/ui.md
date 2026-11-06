@@ -189,3 +189,49 @@ Actual settings imports in independent Node subprocesses reject7 invalid port
 inputs and accept1/1421/65535. The browser keeps all v2 classification, stock,
 weighing history and retry proofs; it additionally verifies the page's actual
 origin. CI recovery is still for root after cherry-pick; this is local evidence.
+
+## Vietnamese business date adoption
+
+Prerequisite: root-approved shared DateInput commit
+6098a1111432995ed5b6be96fd0650af382a15e2, applied unchanged as local999b2a6.
+The shared five-file cherry-pick includes the direct Day.js1.11.23 pin; the same
+version was already installed transitively. The lane did not modify shared code,
+package/lockfiles or the approved widget tests after cherry-pick.
+
+Records now uses DateInput for the required weighing/entry occurred_on Form date,
+optional list filters, required inventory/movement ranges and required receivable
+as-of date. Form integration includes both required and dateInputRule. Non-Form
+parents retain invalid/partial draft text, gate enabled/refetch and revalidate in
+queryFn before calling api. A clear optional filter removes that filter; a clear
+required report date blocks its query. Invalid filter drafts are removed from
+the URL while retained visibly in state. Date-only readback uses DD/MM/YYYY
+without Date/UTC conversions. occurred_at remains its explicit timestamp Input.
+
+The real browser harness now submits the ambiguous display06/11/2026 and checks
+saved/request ISO2026-11-06 and DD/MM detail/copy readback. Before saving, it types
+31/02/2026 over a valid date, tries Ctrl+Enter, verifies the raw draft/error and
+zero actual POSTs/zero saved weighings, then corrects and saves. It also checks
+that invalid dates in optional list filters, inventory, movement and receivable
+views retain raw text/aria-invalid and create no new GETs. List reload is disabled;
+clearing optional dates and correcting dates issue only valid ISO queries. The
+same-day inventory range still includes both receipt and issue (through_on inclusive).
+
+Validation after the feature and harness were frozen:
+
+```powershell
+npm --prefix frontend run build
+# PASS: typecheck+shell build, existing932.79KB/gzip305.06KB chunk warning.
+node tests/records/browser/build-feature.mjs
+# PASS: actualfeature28 modules79.58KB/gzip21.59KB,305ms.
+frontend/node_modules/.bin/playwright.cmd test --config tests/records/browser/playwright.config.mts
+# PASS:1 realbrowser/API/WAL test19.1s /20.6s total on loopback1421.
+git diff --check
+# PASS
+```
+
+The final screenshot was opened and visually checked: both range controls show
+06/11/2026, the known closing90.124kg and v2 component table remain correct. A
+read-only source review found no missing date guard or stale-date path. The shared
+widget's independent11 cases are root's prior evidence, not claimed as rerun by
+this lane. Backend tests are not rerun for this UI-only adoption; no backend/API/
+migration semantics changed. CI recovery and native acceptance remain root gates.
