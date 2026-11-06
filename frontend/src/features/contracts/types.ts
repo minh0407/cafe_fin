@@ -42,7 +42,7 @@ export interface ContractLine extends WeightLine {
     version: number;
     line_index: number;
     code: string;
-    occurred_on: string;
+    occurred_on: string | null;
   } | null;
   source_snapshot: WeightLine | null;
 }
