@@ -93,7 +93,6 @@ class TemplateDTO(ResponseDTO):
     title: str
     body: str
     sha256: str
-    hash: str | None = None
 
 
 class TemplatesDTO(ResponseDTO):

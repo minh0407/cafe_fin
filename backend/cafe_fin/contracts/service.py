@@ -275,7 +275,7 @@ class ContractService:
         default = next((dict(x) for x in DEFAULT_TEMPLATES if x["id"] == identity), None)
         if default is None:
             raise CoreError("TEMPLATE_NOT_FOUND", "Không tìm thấy mẫu hợp đồng.", 404)
-        return default | {
+        return {k: default[k] for k in ("id", "kind", "title", "body")} | {
             "version": 1,
             "sha256": template_hash({k: default[k] for k in ("title", "body")}),
         }
@@ -334,11 +334,18 @@ class ContractService:
         with self.runtime.reader() as conn:
             template = self._template(conn, data.template_id)
         document = build_document(data, computed, {k: template[k] for k in ("title", "body")})
-        return {
-            "document": json.loads(document.canonical_bytes()),
+        document_json = json.loads(document.canonical_bytes())
+        snapshot = {
+            "data": data.model_dump(mode="json"),
             "totals": computed,
             "template": template,
-            "snapshot_sha256": document.sha256,
+            "document": document_json,
+        }
+        return {
+            "document": document_json,
+            "totals": computed,
+            "template": template,
+            "snapshot_sha256": hashlib.sha256(canonical_json(snapshot).encode()).hexdigest(),
         }
 
     def export(self, actor, key, identity, expected_version, formats):

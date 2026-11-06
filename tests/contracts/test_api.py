@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -71,6 +72,36 @@ def data(kind="purchase"):
             "schedule": [{"due_on": "2026-12-01", "amount": "200.00"}],
         },
     }
+
+
+@pytest.mark.parametrize("kind", ["purchase", "sale"])
+@pytest.mark.parametrize("revised_template", [False, True])
+def test_preview_export_and_returned_snapshot_share_canonical_hash(api, kind, revised_template):
+    payload = data(kind)
+    if revised_template:
+        template = next(
+            row for row in ok(api.client.get(PREFIX + "/templates"))["items"] if row["kind"] == kind
+        )
+        ok(
+            api.client.patch(
+                PREFIX + "/templates/" + template["id"],
+                json={
+                    "request_key": "hash-template",
+                    "expected_version": template["version"],
+                    "title": template["title"],
+                    "body": template["body"] + "\nNội dung mẫu sửa thử.",
+                },
+            )
+        )
+    preview = ok(api.client.post(PREFIX + "/preview", json={"data": payload}))
+    saved = ok(api.client.post(PREFIX, json={"request_key": "hash-save", "data": payload}))
+    version = export(api, saved)
+    canonical = json.dumps(
+        version["snapshot"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    assert hashlib.sha256(canonical.encode()).hexdigest() == version["snapshot_sha256"]
+    assert preview["snapshot_sha256"] == version["snapshot_sha256"]
+    assert preview["document"] == version["snapshot"]["document"]
 
 
 @contextmanager
