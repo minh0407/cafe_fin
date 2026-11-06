@@ -15,13 +15,14 @@ import {
   Typography,
 } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, desktop, messageOf } from "../shared/api";
+import { api, ApiError, desktop, isMaintenanceBoot, messageOf } from "../shared/api";
 import { useSession } from "../shared/session";
-import type { AuthResponse, Health } from "../shared/types";
+import { maintenanceHeld, type AuthResponse, type DesktopStatus, type Health } from "../shared/types";
 import { GridSpike } from "../shared/GridSpike";
 import { DocumentSpike } from "../shared/DocumentSpike";
 import { modules } from "./registry";
 import { LocalAccountsPage } from "./LocalAccountsPage";
+import { DataManagementPanel } from "./DataManagementPanel";
 
 // Technical proofs are opt-in development fixtures, never product navigation.
 const showProofs = import.meta.env.DEV && import.meta.env.VITE_CAFE_FIN_PROOFS === "1";
@@ -32,11 +33,21 @@ export function App() {
   const cache = useQueryClient();
   const [authForm] = Form.useForm();
   const [path, setPath] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [initialize, setInitialize] = useState(false);
   const [route, setRoute] = useState(location.hash.slice(1) || initialRoute);
   const initialized = useRef(false);
+  const mounted = useRef(false);
+  const [desktopState, setDesktopState] = useState<DesktopStatus | null>(null);
+  const held = maintenanceHeld(session.boot);
+  const setupHeld = !desktopState || desktopState.running || !!desktopState.pending_transition || (!!desktopState.runtime_state && desktopState.runtime_state !== "ACTIVE");
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    if (!held) return;
+    void cache.cancelQueries({ predicate: (query) => query.queryKey[0] !== "health" });
+    cache.removeQueries({ predicate: (query) => query.queryKey[0] !== "health" });
+  }, [held, cache]);
   useEffect(
     () =>
       useSession.subscribe((current, previous) => {
@@ -61,33 +72,39 @@ export function App() {
     void desktop
       .status()
       .then(async (status) => {
-        if (useSession.getState().generation !== generation) return;
+        if (!mounted.current || useSession.getState().generation !== generation) return;
+        setDesktopState(status);
         setPath(status.data_root);
         if (status.data_root) {
           setBusy(true);
           try {
             const boot = await desktop.start(false);
-            if (useSession.getState().generation !== generation) return;
+            if (!mounted.current || useSession.getState().generation !== generation) return;
             useSession.getState().setBoot(boot);
             generation += 1;
           } finally {
-            if (useSession.getState().generation === generation) setBusy(false);
+            if (mounted.current && useSession.getState().generation === generation) setBusy(false);
           }
-        }
+        } else setBusy(false);
       })
       .catch((err) => {
-        if (useSession.getState().generation === generation)
+        if (mounted.current && useSession.getState().generation === generation) {
           setError(messageOf(err));
+          setBusy(false);
+        }
       });
   }, []);
   const health = useQuery({
     queryKey: ["health", session.generation, session.boot?.api_base],
     queryFn: () => api<Health>("/health", {}, false),
+    // Core's maintenance admission allowlist keeps health/login/logout safe in
+    // every held state, so an expired actor can authenticate for status again.
     enabled: !!session.boot,
-    refetchInterval: 5000,
+    refetchInterval: held ? false : 5000,
     retry: false,
   });
   async function start(restart = false) {
+    if (held || (!session.boot && setupHeld)) return;
     let generation = useSession.getState().generation + 1;
     useSession.getState().logout();
     if (useSession.getState().generation !== generation) return;
@@ -98,17 +115,18 @@ export function App() {
       const boot = restart
         ? await desktop.restart()
         : await desktop.start(initialize);
-      if (useSession.getState().generation !== generation) return;
+      if (!mounted.current || useSession.getState().generation !== generation) return;
       useSession.getState().setBoot(boot);
       generation += 1;
     } catch (err) {
-      if (useSession.getState().generation === generation)
+      if (mounted.current && useSession.getState().generation === generation)
         setError(messageOf(err));
     } finally {
-      if (useSession.getState().generation === generation) setBusy(false);
+      if (mounted.current && useSession.getState().generation === generation) setBusy(false);
     }
   }
   async function authenticate(values: { username: string; password: string }) {
+    if (held && health.data?.setup_required) return;
     let generation = useSession.getState().generation;
     setBusy(true);
     setError("");
@@ -166,6 +184,46 @@ export function App() {
       (item) =>
         item.path === routePath || routePath.startsWith(`${item.path}/`),
     );
+  async function chooseRoot() {
+    if (busy || held || setupHeld) return;
+    const generation = useSession.getState().generation;
+    setBusy(true);
+    try {
+      const value = await desktop.chooseDataRoot();
+      if (!mounted.current || useSession.getState().generation !== generation) return;
+      if (value) { setPath(value); setInitialize(false); setError(""); }
+    } catch (err) {
+      if (mounted.current && useSession.getState().generation === generation) setError(messageOf(err));
+    } finally { if (mounted.current && useSession.getState().generation === generation) setBusy(false); }
+  }
+  async function refreshDesktop() {
+    const generation = useSession.getState().generation;
+    setBusy(true);
+    try {
+      const status = await desktop.status();
+      if (!mounted.current || useSession.getState().generation !== generation) return;
+      // A missing summary is not an authorization to abandon a held recovery.
+      if (status.pending_transition || status.running || desktopState === null) setDesktopState(status);
+    } catch { if (mounted.current && useSession.getState().generation === generation) setError("Chưa đọc được trạng thái desktop. Dữ liệu vẫn được giữ an toàn."); }
+    finally { if (mounted.current && useSession.getState().generation === generation) setBusy(false); }
+  }
+  async function attachDesktop() {
+    const generation = useSession.getState().generation;
+    const current = () => mounted.current && useSession.getState().generation === generation;
+    setBusy(true); setError("");
+    try {
+      const status = await desktop.status();
+      if (!current()) return;
+      if (!status.running || (status.pending_transition && status.maintenance_protocol !== 1))
+        throw new ApiError("MAINTENANCE_RECOVERY_HELD", "Chưa xác minh được phiên desktop đang chạy. Dữ liệu vẫn được giữ.");
+      const boot = await desktop.attach();
+      if (!current()) return;
+      if (status.maintenance_protocol === 1 ? !isMaintenanceBoot(boot) : boot.protocol_version !== 1 || boot.maintenance_protocol != null)
+        throw new ApiError("MAINTENANCE_RECOVERY_HELD", "Chưa xác minh được phiên dữ liệu desktop. Trạng thái hiện tại vẫn được giữ.");
+      useSession.getState().setBoot(boot);
+    } catch (err) { if (current()) setError(messageOf(err)); }
+    finally { if (current()) setBusy(false); }
+  }
   return (
     <Layout className="shell">
       <Layout.Header className="header">
@@ -174,8 +232,8 @@ export function App() {
           <span>Dữ liệu trên máy của bạn</span>
         </div>
         <Space>
-          <Tag color={session.connected && !health.error ? "green" : "orange"}>
-            {session.connected && !health.error
+          <Tag color={!held && session.connected && !health.error ? "green" : "orange"}>
+            {held ? "Dữ liệu đang tạm giữ" : session.connected && !health.error
               ? "Local đã kết nối"
               : "Chưa kết nối local"}
           </Tag>
@@ -198,21 +256,14 @@ export function App() {
               cấu hình bị mất sẽ không tự tạo dữ liệu rỗng.
             </Typography.Paragraph>
             {path && <Typography.Paragraph code>{path}</Typography.Paragraph>}
-            <Space orientation="vertical" className="full">
+            {setupHeld ? <Space orientation="vertical">
+              <Alert type="warning" title={!desktopState ? "Chưa xác nhận được trạng thái desktop" : desktopState.pending_transition ? "Chuyển dữ liệu đang chờ phục hồi" : "Phiên dữ liệu desktop đang chờ kết nối"} description="Giữ nguyên dữ liệu và cấu hình hiện tại. Không chọn lại, khởi tạo hoặc khởi động lại để hủy thao tác." />
+              <Button loading={busy} onClick={() => void refreshDesktop()}>Kiểm tra trạng thái desktop</Button>
+              {desktopState?.running && <Button disabled={busy} onClick={() => void attachDesktop()}>Kết nối phiên desktop hiện tại</Button>}
+            </Space> : <Space orientation="vertical" className="full">
               <Button
                 disabled={busy}
-                onClick={() =>
-                  void desktop
-                    .chooseDataRoot()
-                    .then((value) => {
-                      if (value) {
-                        setPath(value);
-                        setInitialize(false);
-                        setError("");
-                      }
-                    })
-                    .catch((err) => setError(messageOf(err)))
-                }
+                onClick={() => void chooseRoot()}
               >
                 Chọn thư mục dữ liệu
               </Button>
@@ -231,7 +282,7 @@ export function App() {
               >
                 Mở dữ liệu local
               </Button>
-            </Space>
+            </Space>}
             {error && (
               <Alert className="toolbar" type="error" title={error} showIcon />
             )}
@@ -242,14 +293,15 @@ export function App() {
           <Card
             className="setup-card"
             title={
-              health.data?.setup_required
+              health.data?.setup_required && !held
                 ? "Tạo tài khoản quản trị đầu tiên"
                 : "Đăng nhập local"
             }
           >
             {(health.isPending || busy) && <Spin />}
+            {held && <Alert type="warning" title="Đăng nhập vào dữ liệu hiện tại để kiểm tra phục hồi" description="Cần tài khoản Admin của dữ liệu đích để kích hoạt. Đăng nhập chưa tự chạy nghiệp vụ." />}
             {error && <Alert type="error" title={error} showIcon />}
-            {health.error && (
+            {health.error && !held && (
               <Alert
                 type="error"
                 title={messageOf(health.error)}
@@ -259,7 +311,7 @@ export function App() {
                 showIcon
               />
             )}
-            <Form
+            {held && health.data?.setup_required ? <Alert type="warning" title="Không khởi tạo tài khoản trong khi dữ liệu đang chờ phục hồi." /> : <Form
               form={authForm}
               layout="vertical"
               onFinish={(values) => void authenticate(values)}
@@ -294,12 +346,13 @@ export function App() {
                   ? "Tạo quản trị và đăng nhập"
                   : "Đăng nhập"}
               </Button>
-            </Form>
+            </Form>}
+            {held && <DataManagementPanel />}
           </Card>
         </Layout.Content>
       ) : (
         <Layout key={session.generation}>
-          <Layout.Sider theme="light" width={220}>
+          {!held && <Layout.Sider theme="light" width={220}>
             <Menu
               selectedKeys={[selected?.path ?? routePath]}
               items={[
@@ -317,9 +370,11 @@ export function App() {
                 location.hash = key;
               }}
             />
-          </Layout.Sider>
+          </Layout.Sider>}
           <Layout.Content className="content">
-            {(error || health.error || !session.connected) && (
+            {held && <Typography.Title level={2}>Phục hồi dữ liệu trên máy</Typography.Title>}
+            {(held || routePath === "/settings") && <DataManagementPanel />}
+            {!held && (error || health.error || !session.connected) && (
               <Alert
                 className="toolbar"
                 type="error"
@@ -337,7 +392,7 @@ export function App() {
                 showIcon
               />
             )}
-            {showProofs && routePath === "/grid-spike" ? (
+            {held ? null : showProofs && routePath === "/grid-spike" ? (
               <GridSpike />
             ) : selected ? (
               <selected.component />

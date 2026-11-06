@@ -45,10 +45,50 @@ export interface BootSession {
   api_base: string;
   session_token: string;
   data_root: string;
+  maintenance_protocol?: 1 | null;
+  generation?: string | null;
+  runtime_state?: RuntimeState | null;
+  pending_transition?: PendingTransition | null;
 }
 export interface DesktopStatus {
   data_root: string | null;
   running: boolean;
+  maintenance_protocol?: 1 | null;
+  generation?: string | null;
+  runtime_state?: RuntimeState | null;
+  pending_transition?: PendingTransition | null;
+}
+export type MaintenanceKind = "backup" | "move" | "restore";
+export type RuntimeState = "ACTIVE" | "QUIESCING" | "QUIESCED" | "PREPARING"
+  | "PREPARED" | "CLOSING" | "CLOSED" | "DORMANT" | "ACTIVATING" | "FAILED_HELD";
+export type MaintenancePhase = "SELECTING" | "INTENT" | "QUIESCED" | "PREPARED"
+  | "OLD_CLOSED" | "CONFIG_SWITCHED" | "CANDIDATE_DORMANT" | "ACTIVATION_DISPATCHED" | "ACTIVE";
+export interface PendingTransition {
+  operation_id: string;
+  kind: MaintenanceKind;
+  phase: MaintenancePhase;
+  recovery_required: boolean;
+}
+export interface MaintenanceView extends PendingTransition {
+  generation: string;
+  runtime_state: RuntimeState | null;
+  destination_display: string | null;
+  backup_source_display: string | null;
+  ready: boolean;
+  can_activate: boolean;
+}
+export interface MaintenanceResult {
+  operation: MaintenanceView;
+  boot_session: BootSession | null;
+}
+
+export function maintenanceHeld(boot: BootSession | null): boolean {
+  const pending = boot?.pending_transition;
+  return !!boot && (
+    (!!boot.runtime_state && boot.runtime_state !== "ACTIVE") ||
+    !!pending?.recovery_required ||
+    (!!pending && !["SELECTING", "ACTIVE"].includes(pending.phase))
+  );
 }
 export interface Health {
   status: "ok";

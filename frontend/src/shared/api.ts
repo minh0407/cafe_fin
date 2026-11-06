@@ -6,6 +6,9 @@ import type {
   ErrorEnvelope,
   FileCategory,
   FileDTO,
+  MaintenanceKind,
+  MaintenanceResult,
+  MaintenanceView,
 } from "./types";
 
 export class ApiError extends Error {
@@ -25,7 +28,54 @@ export const desktop = {
   start: (initialize: boolean) =>
     invoke<BootSession>("start_backend", { initialize }),
   restart: () => invoke<BootSession>("restart_backend"),
+  // Contract v1: while a transition is pending native may ONLY attach to an
+  // existing verified child here; no spawn/restart/config fallback is allowed.
+  attach: () => nativeMaintenance<BootSession>("start_backend", { initialize: false }),
+  maintenanceBegin: (kind: MaintenanceKind) => nativeMaintenance<MaintenanceView>("maintenance_begin", { kind }),
+  maintenanceSelect: (operationId: string, purpose: "destination" | "backup_source") =>
+    nativeMaintenance<MaintenanceView | null>("maintenance_select", { operationId, purpose }),
+  maintenanceRun: (operationId: string, userToken: string) =>
+    nativeMaintenance<MaintenanceResult>("maintenance_run", { operationId, userToken }),
+  maintenanceStatus: (operationId: string, userToken: string) =>
+    nativeMaintenance<MaintenanceResult>("maintenance_status", { operationId, userToken }),
+  maintenanceActivate: (operationId: string, userToken: string) =>
+    nativeMaintenance<MaintenanceResult>("maintenance_activate", { operationId, userToken }),
+  openReports: (userToken: string) => nativeMaintenance<null>("open_reports", { userToken }),
 };
+
+const nativeMessages: Record<string, string> = {
+  PERMISSION_DENIED: "Tài khoản hiện tại không có quyền thực hiện thao tác này.",
+  LOGIN_REQUIRED: "Vui lòng đăng nhập lại.",
+  SESSION_EXPIRED: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+  MAINTENANCE_BUSY: "Một thao tác dữ liệu đang diễn ra. Hãy kiểm tra trạng thái hiện tại.",
+  MAINTENANCE_UNSUPPORTED: "Phiên desktop hiện tại chưa hỗ trợ quản lý dữ liệu.",
+  MAINTENANCE_HELD: "Chuyển dữ liệu đang được giữ để phục hồi an toàn. Hãy kiểm tra trạng thái.",
+  MAINTENANCE_RECOVERY_HELD: "Chưa xác minh được phiên dữ liệu đang giữ. Không khởi động lại hoặc chuyển về dữ liệu cũ.",
+  GENERATION_MISMATCH: "Phiên dữ liệu đã thay đổi. Hãy kiểm tra trạng thái hiện tại.",
+  BACKUP_EXISTS: "Thư mục sao lưu đã tồn tại; ứng dụng không ghi đè.",
+  MOVE_DESTINATION_EXISTS: "Thư mục đích đã tồn tại; ứng dụng không ghi đè.",
+  RESTORE_DESTINATION_EXISTS: "Thư mục đích đã tồn tại; ứng dụng không ghi đè.",
+  SHUTDOWN_FAILED: "Dịch vụ chưa xác nhận dừng an toàn. Chưa thể hoàn tất chuyển dữ liệu.",
+};
+export function isMaintenanceBoot(boot: BootSession | null | undefined): boot is BootSession & { generation: string } {
+  return !!boot && boot.protocol_version === 1 && boot.maintenance_protocol === 1 &&
+    typeof boot.generation === "string" && !!boot.generation && boot.generation.length <= 256 &&
+    typeof boot.session_token === "string" && !!boot.session_token && boot.session_token.length <= 128 &&
+    typeof boot.data_root === "string" && !!boot.data_root && boot.data_root.length <= 32768 &&
+    typeof boot.api_base === "string" && /^http:\/\/127\.0\.0\.1:\d{1,5}\/api\/v1$/.test(boot.api_base) &&
+    typeof boot.runtime_state === "string" && ["ACTIVE", "QUIESCING", "QUIESCED", "PREPARING", "PREPARED", "CLOSING", "CLOSED", "DORMANT", "ACTIVATING", "FAILED_HELD"].includes(boot.runtime_state);
+}
+async function nativeMaintenance<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  try { return await invoke<T>(command, args); }
+  catch (error) {
+    // Native may reject with CODE: message. Never echo the remaining text: it
+    // can include paths, tokens or arbitrary exception data.
+    const code = typeof error === "string" ? /^([A-Z][A-Z0-9_]*)(?::|$)/.exec(error)?.[1] : undefined;
+    throw new ApiError(code && nativeMessages[code] ? code : "NATIVE_RESULT_UNKNOWN",
+      code && nativeMessages[code] ? nativeMessages[code] :
+        "Chưa xác nhận được kết quả desktop. Kiểm tra trạng thái trước khi thử lại cùng thao tác.");
+  }
+}
 
 export async function api<T>(
   path: string,
