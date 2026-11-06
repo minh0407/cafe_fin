@@ -54,8 +54,21 @@ const settings = {
   credential_configured: false,
   sender_status: "UNCONFIGURED",
 };
-async function scenario(unavailable = false, resolvedSelection = false) {
+async function scenario(
+  unavailable = false,
+  resolvedSelection = false,
+  restored = false,
+) {
   let currentSettings = structuredClone(settings);
+  if (restored)
+    Object.assign(currentSettings, {
+      oa_id: "demo-oa",
+      group_id: "demo-group",
+      send_at: "18:00",
+      restore_review_required: true,
+      credential_configured: null,
+      sender_status: "RESTORE_SUSPENDED",
+    });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1300 },
   });
@@ -126,18 +139,34 @@ async function scenario(unavailable = false, resolvedSelection = false) {
         name: resolvedSelection ? "Sổ đã lưu ngoài trang" : "STALE_SAVED_NAME",
       };
     } else if (resource === "/reporting/settings") {
-      if (request.method() === "PUT")
+      if (request.method() === "PUT") {
         currentSettings = {
           ...currentSettings,
           ...JSON.parse(request.postData()),
           version: currentSettings.version + 1,
         };
+        if (currentSettings.enabled)
+          currentSettings.restore_review_required = false;
+      }
       result = currentSettings;
     } else if (resource === "/reporting/reports/preview") result = row;
     else if (resource === "/reporting/reports/picker-report")
       result = { ...row, snapshot, short_message: "Bản tổng hợp", exports: [] };
     else if (resource === "/reporting/reports")
       result = { items: [row], total: 1, page: 1, page_size: 25 };
+    else if (resource === "/reporting/deliveries")
+      result = {
+        items: ["UNKNOWN", "FAILED"].map((state) => ({
+          id: "restore-" + state,
+          report_id: row.id,
+          version: 2,
+          destination: "demo-group",
+          state,
+          attempts: 0,
+          error_code: "RESTORE_REVIEW_REQUIRED",
+        })),
+        total: 2, page: 1, page_size: 25,
+      };
     else if (resource.endsWith("/daily-runs"))
       result = { items: [], total: 0, page: 1, page_size: 25 };
     try {
@@ -204,6 +233,43 @@ async function scenario(unavailable = false, resolvedSelection = false) {
         .book_ids,
       [],
     );
+    if (restored) {
+      const banner = page.getByText(
+        "Đã khôi phục dữ liệu — lịch và gửi Zalo đang tạm dừng",
+        { exact: true },
+      );
+      await banner.waitFor();
+      assert(await page.getByRole("button", {
+        name: "Xếp gửi bản tổng hợp này", exact: true,
+      }).isDisabled());
+      await page.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("tab", { name: "Lượt gửi", exact: true }).click();
+      for (const name of ["Thử lại", "Đối chiếu"])
+        assert(await page.getByRole("button", { name, exact: true }).isDisabled());
+      await page.getByRole("tab", { name: "Cấu hình Admin", exact: true }).click();
+      assert(await page.getByRole("button", {
+        name: "Kiểm tra kết nối", exact: true,
+      }).isDisabled());
+      if (process.env.REPORTING_QA_OUTPUT)
+        await page.screenshot({
+          path: path.join(process.env.REPORTING_QA_OUTPUT, "reporting-restore-review.png"),
+          fullPage: true,
+        });
+      const enabled = page.locator("#enabled");
+      assert.equal(await enabled.getAttribute("aria-checked"), "false");
+      await enabled.click();
+      await page.getByRole("button", { name: "Lưu cấu hình", exact: true }).click();
+      await banner.waitFor({ state: "hidden" });
+      const saved = JSON.parse(calls.find(
+        (call) => call.resource === "/reporting/settings" && call.method === "PUT",
+      ).body);
+      assert.equal(saved.enabled, true);
+      assert(!("restore_review_required" in saved) && !("restore_review" in saved));
+      assert(!calls.some((call) =>
+        /credentials|connection-check|scheduler\/tick|\/deliveries$/.test(call.resource)
+        && call.method !== "GET",
+      ));
+    }
   } else {
     await combo.click();
     await page
@@ -319,6 +385,7 @@ try {
   await scenario();
   await scenario(true);
   await scenario(false, true);
+  await scenario(true, false, true);
   console.log(
     JSON.stringify({
       status: "PASS",
@@ -333,6 +400,10 @@ try {
         "actor switch discards stale page/names",
         "accounting unavailable still permits inventory-only preview",
         "restored off-page selection resolves name and retains ID across page change",
+        "restore banner preserves inventory-only local preview",
+        "restore hold disables enqueue, retry, reconcile and connection check",
+        "explicit settings enable clears banner without client-authored guard metadata",
+        "restore review makes no credential, transport or scheduler request",
       ],
     }),
   );

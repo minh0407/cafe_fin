@@ -139,7 +139,18 @@ export interface Settings {
   scheduled_actor_id?: string | null;
   schedule_actor_status?: "ACTIVE" | "BLOCKED";
   credential_store_available?: boolean;
-  credential_configured?: boolean;
+  credential_configured?: boolean | null;
+  restore_review_required?: boolean;
+  restore_review?: {
+    activation_id: string;
+    required: boolean;
+    quarantined_count: number;
+    confirmed_count: number;
+    daily_runs_held: number;
+    quarantined_at: string;
+    reviewed_at: string | null;
+    reviewed_by: string | null;
+  } | null;
   sender_status?: string;
   scheduler_limit?: string;
   scheduler_mode?: "APP_RUNTIME" | "MANUAL";

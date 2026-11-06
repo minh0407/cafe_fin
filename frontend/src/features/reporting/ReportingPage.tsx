@@ -152,6 +152,7 @@ function ReportingView() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const restoreHeld = settings?.restore_review_required === true;
   const [periodForm] = Form.useForm();
   const [settingsForm] = Form.useForm();
   const [secretForm] = Form.useForm();
@@ -328,7 +329,7 @@ function ReportingView() {
           </Button>
           {["FAILED", "UNCONFIGURED"].includes(row.state) && (
             <Button
-              disabled={busy}
+              disabled={busy || restoreHeld}
               onClick={() =>
                 void action(async () => {
                   await mutate(`/reporting/deliveries/${row.id}/retry`, {
@@ -343,7 +344,7 @@ function ReportingView() {
           )}
           {isAdmin && row.state === "UNKNOWN" && (
             <Button
-              disabled={busy}
+              disabled={busy || restoreHeld}
               onClick={() =>
                 void action(async () => {
                   await mutate(`/reporting/deliveries/${row.id}/reconcile`, {
@@ -482,6 +483,13 @@ function ReportingView() {
       <Typography.Title level={2}>
         Báo cáo local &amp; gửi tổng hợp
       </Typography.Title>
+      {restoreHeld && (
+        <Alert
+          type="warning"
+          title="Đã khôi phục dữ liệu — lịch và gửi Zalo đang tạm dừng"
+          description="Báo cáo local vẫn xem, tạo và xuất được. Admin cần kiểm tra OA, nhóm đích, giờ gửi trong Cấu hình Admin, sau đó bật lịch và lưu cấu hình để tiếp tục. Lượt cũ Chưa rõ giữ nguyên và không tự gửi lại khi bật lịch hoặc đổi credential."
+        />
+      )}
       <Alert
         type="info"
         showIcon
@@ -828,7 +836,7 @@ function ReportingView() {
                             Lưu credential
                           </Button>
                           <Button
-                            disabled={busy}
+                            disabled={busy || restoreHeld}
                             onClick={() =>
                               void action(async () => {
                                 const result = await mutate<{
@@ -1057,6 +1065,7 @@ function ReportingView() {
                 <Button
                   disabled={
                     busy ||
+                    restoreHeld ||
                     detail.snapshot.period.date_range_contract !==
                       "inclusive_business_dates_v1"
                   }

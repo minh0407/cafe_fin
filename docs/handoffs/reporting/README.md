@@ -5,6 +5,11 @@ merge or READY tag has been made by this lane.
 
 Latest integration follow-ups:
 
+- [Restore guard before activation startup](restore-guard.md): quarantines old
+  delivery work, preserves receipt/snapshot/export evidence, suspends until Admin
+  explicitly saves enabled settings, and leaves move unchanged. **117 reporting
+  PASS + 1 browser wrapper PASS**. Shared core: 40 PASS / 1 FAIL (missing GET users
+  in this lane); activation/operations files cannot collect without accounting.
 - [Named book picker and snapshot-name UI](book-picker.md): public page_size50
   metadata, ID-array commands, retained labels, stale/actor guards and empty-book
   fallback. [V3 consumer](read-bridge-v3-consumer.md): frozen typed names in real

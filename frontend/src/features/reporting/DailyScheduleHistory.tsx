@@ -18,6 +18,7 @@ const policies: Record<string, string> = {
   REUSED_SAVED_MANUAL: "Dùng bản thủ công đã lưu",
   REUSED_ALREADY_QUEUED_MANUAL: "Giữ bản thủ công đã xếp gửi",
   MISSED_NO_SNAPSHOT: "Không có snapshot kỳ đã xác định",
+  RESTORE_REQUIRES_MANUAL: "Lượt khôi phục chưa rõ; cần xử lý thủ công",
 };
 
 export function DailyScheduleHistory({
