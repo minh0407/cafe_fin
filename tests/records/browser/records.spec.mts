@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { origin, port } from "./settings.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 async function select(page: Page, label: string, option: string) {
@@ -33,8 +34,13 @@ test("desktop real-API records flow, immutable weighing history and stock reject
       child!.once("error", (error) => { clearTimeout(timer); reject(error); });
       child!.once("exit", () => { clearTimeout(timer); reject(new Error("Records server exited before startup")); });
     });
-    child.stdin.write(JSON.stringify({ data_root: root, session_token: randomBytes(32).toString("hex") }) + "\n");
+    child.stdin.write(JSON.stringify({ data_root: root, session_token: randomBytes(32).toString("hex"), web_port: port }) + "\n");
     const boot = await handshake;
+    const deniedOrigin = await fetch(`${boot.api_base}/health`, { headers: { "X-App-Session": boot.session_token, Origin: "http://192.0.2.1" } });
+    expect(deniedOrigin.status).toBe(403);
+    const allowedOrigin = await fetch(`${boot.api_base}/health`, { headers: { "X-App-Session": boot.session_token, Origin: origin } });
+    expect(allowedOrigin.status).toBe(200);
+    expect(allowedOrigin.headers.get("access-control-allow-origin")).toBe(origin);
     const setup = await fetch(`${boot.api_base}/auth/setup`, { method: "POST", headers: { "X-App-Session": boot.session_token, "Content-Type": "application/json" }, body: JSON.stringify({ username: "records-browser", password: "records-synthetic-browser-password" }) });
     expect(setup.status).toBe(200);
     const auth = await setup.json();
@@ -46,6 +52,7 @@ test("desktop real-API records flow, immutable weighing history and stock reject
     };
     await page.addInitScript((context) => { Object.assign(window, { recordsTest: context }); }, { boot, auth });
     await page.goto("/records-test#/records");
+    expect(new URL(page.url()).origin).toBe(origin);
     await expect(page.getByRole("heading", { name: "Ghi nhận cà phê" })).toBeVisible();
 
     // All business mutations use the actual React controls and actual HTTP handlers.

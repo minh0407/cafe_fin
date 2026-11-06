@@ -71,7 +71,7 @@ git diff --check
   records router and a fresh file-backed SQLite WAL database. No domain response
   is mocked, intercepted, replaced or proxied.
 
-The test-only Vite host binds **127.0.0.1:80**, serves actual HTTP at
+At the original v1/v2 evidence point, the test-only Vite host bound **127.0.0.1:80**, served actual HTTP at
 `http://tauri.localhost/records-test` and disables HMR. The backend uses the
 existing allowed origin `http://tauri.localhost`; no core allowlist or browser
 security setting is changed. Port 80 must be available. The test does not stop
@@ -152,3 +152,40 @@ The runtime-generated unknown-classification and opening-entry flag branches
 were reviewed in source; this browser fixture does not manufacture unknown
 legacy ledger data. Provider classification/cutoff coverage remains the parent
 lane's API tests. Native and registry integration limits above still apply.
+
+## CI harness port recovery
+
+Windows CI run42260894313 passed backend279 and regular UI11, then failed this
+feature harness setup because runner IIS/service already owned port80. The
+fixture now uses dedicated Vite loopback1421, strictPort=true, HMR=false,
+baseURL=http://127.0.0.1:1421, readiness URL=/records-test and
+reuseExistingServer=false. It neither stops an existing process nor silently
+chooses another port. CAFE_FIN_RECORDS_TEST_PORT optionally overrides the port;
+settings.mjs accepts integer digits1..65535 and always builds a127.0.0.1 origin.
+The Python child validates the numeric port independently before initialization.
+
+The production factory's startup allowlist remains unchanged. In the isolated
+test child only, a narrow unittest.mock.patch supplies the exact fixture origin
+while constructing the test app, then restores the production constant by
+identity before serving requests. The actual ScopeGuard/CORS/auth and domain
+handlers still run; no API response or browser request is mocked/proxied. The
+browser test checks the real matching CORS header and a non-fixture origin403.
+No app source, production Origin/CSP policy or native acceptance claim changes.
+
+Local port-recovery validation:
+
+```powershell
+frontend/node_modules/.bin/playwright.cmd test --config tests/records/browser/playwright.config.mts
+# PASS:1 test17.7s /19.7s total, real browser/API/file-backed SQLite WAL.
+.venv/Scripts/ruff.exe check tests/records/browser/server.py
+# PASS
+.venv/Scripts/python.exe -m compileall -q tests/records/browser/server.py
+# PASS
+git diff --check
+# PASS
+```
+
+Actual settings imports in independent Node subprocesses reject7 invalid port
+inputs and accept1/1421/65535. The browser keeps all v2 classification, stock,
+weighing history and retry proofs; it additionally verifies the page's actual
+origin. CI recovery is still for root after cherry-pick; this is local evidence.
