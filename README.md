@@ -4,9 +4,9 @@
 
 ## Trạng thái
 
-Repo đã có core, API local, ghi nhận và hợp đồng được điều phối review: đối tác/hàng/cân tay, phiếu nhập/xuất/sản xuất/chuyển kho, ledger chặn tồn âm; hợp đồng mua/bán tự điền, điều khoản/thanh toán, snapshot Word/PDF và chứng từ đính kèm. App mở phần nghiệp vụ và có quản lý tài khoản local trong cài đặt. [Core 01](docs/reviews/CORE_INCREMENT_01.md), [API/UI 02](docs/reviews/FOUNDATION_INCREMENT_02.md), [ghi nhận 03](docs/reviews/RECORDS_INCREMENT_03.md), [hợp đồng và app 04](docs/reviews/CONTRACTS_INCREMENT_04.md).
+Repo đã ghép core/API local, ghi nhận với ledger chặn tồn âm, hợp đồng mua/bán tự điền và Word/PDF, kế toán độc lập dạng bảng/import có phục hồi, cùng báo cáo snapshot PDF/XLSX/TXT lưu trên máy. App có quản lý tài khoản local và chọn sổ theo tên; không có Google OAuth hoặc chuỗi phê duyệt. [Core 01](docs/reviews/CORE_INCREMENT_01.md), [API/UI 02](docs/reviews/FOUNDATION_INCREMENT_02.md), [ghi nhận 03](docs/reviews/RECORDS_INCREMENT_03.md), [hợp đồng và app 04](docs/reviews/CONTRACTS_INCREMENT_04.md), [kế toán và báo cáo 05](docs/reviews/ACCOUNTING_REPORTING_INCREMENT_05.md).
 
-Baseline phát triển được điều phối chốt tại tag `cafe-fin-foundation-ready-v1` để các module bắt đầu. [Biên bản freeze](docs/reviews/FOUNDATION_BASELINE_V1.md) ghi bằng chứng và phần còn thiếu. Kế toán và báo cáo đang được kiểm tích hợp riêng; chưa có bộ cài hoàn chỉnh hoặc nghiệm thu production. Native/Windows sạch vẫn phải qua [gate phát hành](docs/adr/20261106_COORDINATION_GATES.md).
+Baseline phát triển được điều phối chốt tại tag `cafe-fin-foundation-ready-v1` để các module bắt đầu. [Biên bản freeze](docs/reviews/FOUNDATION_BASELINE_V1.md) và các review increment ghi bằng chứng cùng giới hạn. Bộ tích hợp đang qua CI và chuẩn bị nghiệm thu đóng gói; chưa gọi production-ready. Windows sạch, native GUI/offline và các bước phát hành vẫn phải qua [gate phát hành](docs/adr/20261106_COORDINATION_GATES.md).
 
 - [Yêu cầu sản phẩm](docs/SPEC.md)
 - [Kiến trúc và quyết định kỹ thuật](docs/ARCHITECTURE.md)
