@@ -21,8 +21,9 @@ from cafe_fin.reporting.restore import GUARD_ACTION, GUARD_ACTOR, REVIEW_CODE
 from cafe_fin.reporting.schedule import insert_run, manual_report
 from cafe_fin.reporting.schedule_migrations import DAILY_RUNS
 from cafe_fin.reporting.service import ReportingService
-from conftest import FakeTransport, MemorySecrets, TypedSyntheticSource
 from sqlalchemy import func, select
+
+from tests.reporting.conftest import FakeTransport, MemorySecrets, TypedSyntheticSource
 
 PASSWORD = "synthetic-restore-password"
 
