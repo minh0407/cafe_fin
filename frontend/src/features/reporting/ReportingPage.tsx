@@ -16,6 +16,7 @@ import {
 } from "antd";
 import { api, messageOf } from "../../shared/api";
 import { useSession } from "../../shared/session";
+import { DateInput, dateInputRule } from "../../shared/DateInput";
 import { DailyScheduleHistory } from "./DailyScheduleHistory";
 import { RuntimeScheduleStatus } from "./RuntimeScheduleStatus";
 import type { Page } from "../../shared/types";
@@ -510,16 +511,22 @@ function ReportingView() {
             <Form.Item
               name="from_on"
               label="Từ ngày (VN)"
-              rules={[{ required: true }]}
+              rules={[
+                { required: true, message: "Nhập ngày bắt đầu." },
+                dateInputRule,
+              ]}
             >
-              <Input type="date" />
+              <DateInput aria-label="Từ ngày (VN)" />
             </Form.Item>
             <Form.Item
               name="through_on"
               label="Đến hết ngày (VN)"
-              rules={[{ required: true }]}
+              rules={[
+                { required: true, message: "Nhập ngày cuối." },
+                dateInputRule,
+              ]}
             >
-              <Input type="date" />
+              <DateInput aria-label="Đến hết ngày (VN)" />
             </Form.Item>
             <Form.Item name="books" label="Mã sổ (cách bằng dấu phẩy)">
               <Input

@@ -153,6 +153,7 @@ await page.route("**/api/v1/**", async (route) => {
       page: Number(url.searchParams.get("page")),
       page_size: 25,
     };
+  else if (resource === "/reporting/reports/preview") result = row;
   else if (resource === "/reporting/reports/demo-report")
     result = {
       ...row,
@@ -179,6 +180,60 @@ try {
     await page.getByLabel("Từ ngày (VN)", { exact: true }).inputValue(),
     await page.getByLabel("Đến hết ngày (VN)", { exact: true }).inputValue(),
   );
+  const firstDate = page.getByLabel("Từ ngày (VN)", { exact: true });
+  const lastDate = page.getByLabel("Đến hết ngày (VN)", { exact: true });
+  assert.match(await firstDate.inputValue(), /^\d{2}\/\d{2}\/\d{4}$/);
+  await firstDate.fill("06/11/2026");
+  await lastDate.fill("06/11/2026");
+  const previewCount = () =>
+    calls.filter((x) => x.resource === "/reporting/reports/preview").length;
+  await page
+    .getByRole("button", { name: "Mở lịch chọn ngày", exact: true })
+    .first()
+    .click();
+  await page.getByText("Chọn ngày", { exact: true }).waitFor();
+  assert.equal(previewCount(), 0);
+  assert.equal(await firstDate.inputValue(), "06/11/2026");
+  await lastDate.click();
+  await firstDate.fill("31/02/2026");
+  await page
+    .getByRole("button", { name: "Xem trước báo cáo", exact: true })
+    .click();
+  await page
+    .locator("#from_on_help")
+    .getByText("Ngày không hợp lệ. Nhập DD/MM/YYYY.", { exact: true })
+    .waitFor();
+  assert.equal(await firstDate.inputValue(), "31/02/2026");
+  assert.equal(previewCount(), 0);
+  await firstDate.fill("05/11/2026");
+  await lastDate.fill("07/");
+  await page
+    .getByRole("button", { name: "Xem trước báo cáo", exact: true })
+    .click();
+  await page
+    .locator("#through_on_help")
+    .getByText("Ngày không hợp lệ. Nhập DD/MM/YYYY.", { exact: true })
+    .waitFor();
+  assert.equal(await lastDate.inputValue(), "07/");
+  assert.equal(previewCount(), 0);
+  await lastDate.fill("");
+  await page
+    .getByRole("button", { name: "Xem trước báo cáo", exact: true })
+    .click();
+  await page.getByText("Nhập ngày cuối.", { exact: true }).waitFor();
+  assert.equal(previewCount(), 0);
+  await lastDate.fill("06/11/2026");
+  await page
+    .getByRole("button", { name: "Xem trước báo cáo", exact: true })
+    .click();
+  await page.getByText("Snapshot báo cáo", { exact: true }).waitFor();
+  assert.equal(previewCount(), 1);
+  const previewBody = JSON.parse(
+    calls.findLast((x) => x.resource === "/reporting/reports/preview").body,
+  );
+  assert.equal(previewBody.from_on, "2026-11-05");
+  assert.equal(previewBody.through_on, "2026-11-06");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByTitle("2", { exact: true }).click();
   await page.waitForFunction(() =>
     location.search.includes("reporting_page=2"),
@@ -362,7 +417,10 @@ try {
       status: "PASS",
       cases: [
         "paging URL+server",
-        "single-day defaults and inclusive end label",
+        "DD/MM/YYYY single-day defaults and inclusive end label",
+        "calendar opens without submitting or changing the selected period",
+        "invalid, partial and empty required dates block preview API",
+        "corrected date posts new ISO inclusive bounds rather than stale date",
         "unmarked legacy cannot enqueue",
         "snapshot exact kg/missing mapping",
         "v2 components and deposit subset labels",
@@ -393,11 +451,13 @@ try {
       manualButton: await page
         .getByRole("button")
         .filter({ hasText: "Yêu cầu kiểm tra lịch ngay" })
-        .ariaSnapshot(),
+        .ariaSnapshot({ timeout: 1000 })
+        .catch(() => null),
       credentialButton: await page
         .getByRole("button")
         .filter({ hasText: "Lưu credential" })
-        .ariaSnapshot(),
+        .ariaSnapshot({ timeout: 1000 })
+        .catch(() => null),
       screenshot: failurePath,
     }),
   );

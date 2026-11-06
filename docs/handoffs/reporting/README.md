@@ -5,6 +5,9 @@ merge or READY tag has been made by this lane.
 
 Latest integration follow-ups:
 
+- [Vietnamese DateInput adoption](date-input-adoption.md): DD/MM/YYYY display,
+  invalid-draft blocking, new ISO payload after correction. Latest UI harness:
+  **17 synthetic browser cases PASS**.
 - [Core lifecycle timer binding and live status](periodic-binding.md): actual
   60-second background callback, no screen heartbeat, sanitized status/errors.
   **240 tests (78 reporting + 162 core), 14 synthetic browser cases PASS**.
@@ -20,6 +23,8 @@ Latest integration follow-ups:
 The 168 combined tests and export hashes below describe the earlier candidate.
 Core periodic interface `e4f35947d086c6d892f03fe8b9a852c3cb9a28f5` is approved
 and applied unchanged as `8ed4f77`. Native tray/parent lifecycle acceptance remains pending.
+Shared DateInput `6098a1111432995ed5b6be96fd0650af382a15e2` is approved and applied
+unchanged as `f026708`. Root should skip both local duplicate shared commits.
 
 ## Checkout and baseline
 
@@ -40,7 +45,7 @@ and applied unchanged as `8ed4f77`. Native tray/parent lifecycle acceptance rema
   in the chat handoff.
 
 Lane-owned changes only touch reporting backend/frontend/tests/handoff paths;
-the fifteen shared files in `64ae735`/`84abda4`/`60c7ba8`/`8ed4f77` are exactly the
+the twenty shared files in `64ae735`/`84abda4`/`60c7ba8`/`8ed4f77`/`f026708` are exactly the
 coordinator-approved cherry-picks.
 No production
 data, DB, real Excel, token, account information, images or generated binaries are
