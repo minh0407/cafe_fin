@@ -113,6 +113,25 @@ pub enum ReplyStatus {
     Error,
 }
 
+/// Receipt outcome is independent of live Runtime admission. REPLAY_REQUIRED
+/// and CLOSE_AUTHORIZED must never enter the RuntimeState enum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum OperationState {
+    Active,
+    Quiescing,
+    Quiesced,
+    Preparing,
+    Prepared,
+    Closing,
+    Closed,
+    Dormant,
+    Activating,
+    FailedHeld,
+    ReplayRequired,
+    CloseAuthorized,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MaintenanceReply {
@@ -121,7 +140,8 @@ pub struct MaintenanceReply {
     pub generation: String,
     pub operation_id: String,
     pub status: ReplyStatus,
-    pub state: RuntimeState,
+    pub state: OperationState,
+    pub runtime_state: RuntimeState,
     // At quiesce/status before intent, kind may not yet be known to core. No
     // prepared/cutover action may proceed without exact expected kind matching.
     #[serde(deserialize_with = "required_kind")]
@@ -131,6 +151,10 @@ pub struct MaintenanceReply {
     pub manifest_sha256: Option<String>,
     pub source_fingerprint: Option<String>,
     pub candidate_fingerprint: Option<String>,
+    pub origin_generation: Option<String>,
+    pub activation_id: Option<String>,
+    pub activation_completed: Option<bool>,
+    pub format: Option<u32>,
     pub code: Option<String>,
 }
 
@@ -143,6 +167,8 @@ pub struct ReportsReply {
     pub allowed: bool,
     pub root_id: Option<String>,
     pub source_fingerprint: Option<String>,
+    pub state: Option<OperationState>,
+    pub runtime_state: Option<RuntimeState>,
     pub status: Option<ReplyStatus>,
     pub code: Option<String>,
 }
@@ -165,6 +191,7 @@ struct Expected {
     operation_id: Option<String>,
     command: ControlCommand,
     kind: Option<MaintenanceKind>,
+    origin_generation: Option<String>,
 }
 
 enum ReaderEvent {
@@ -252,6 +279,7 @@ impl<W: Write> ControlPipe<W> {
             operation_id: request.operation_id.map(str::to_owned),
             command: request.command,
             kind: request.kind,
+            origin_generation: request.origin_generation.map(str::to_owned),
         });
         if self
             .writer
@@ -397,6 +425,16 @@ fn decode_reply(frame: &[u8], expected: &Expected) -> Result<ControlReply, &'sta
             .manifest_sha256
             .as_ref()
             .is_some_and(|hash| !valid_digest(hash))
+        || reply.origin_generation.as_ref().is_some_and(|generation| {
+            Some(generation.as_str()) != expected.origin_generation.as_deref()
+        })
+        || reply
+            .activation_id
+            .as_ref()
+            .is_some_and(|activation| !valid_uuid(activation) || activation != &reply.operation_id)
+        || reply.format.is_some_and(|format| format != 1)
+        || (reply.activation_completed == Some(true)
+            && reply.state == OperationState::ReplayRequired)
         || [&reply.source_fingerprint, &reply.candidate_fingerprint]
             .into_iter()
             .flatten()
@@ -405,19 +443,28 @@ fn decode_reply(frame: &[u8], expected: &Expected) -> Result<ControlReply, &'sta
                     || fingerprint.len() > 256
                     || fingerprint.chars().any(char::is_control)
             })
-        || (reply.status == ReplyStatus::Error) != reply.code.is_some()
+        || (reply.status == ReplyStatus::Error && reply.code.is_none())
+        || (reply.status == ReplyStatus::Ok
+            && reply.code.is_some()
+            && !matches!(
+                reply.state,
+                OperationState::FailedHeld | OperationState::ReplayRequired
+            ))
     {
         return Err("CONTROL_RESPONSE_MISMATCH");
     }
     if reply.status == ReplyStatus::Ok {
-        let expected_state = match expected.command {
-            ControlCommand::Quiesce => Some(RuntimeState::Quiesced),
-            ControlCommand::Prepare => Some(RuntimeState::Prepared),
-            ControlCommand::Close => Some(RuntimeState::Closed),
-            ControlCommand::Activate => Some(RuntimeState::Active),
-            _ => None,
+        let (expected_state, expected_runtime) = match expected.command {
+            ControlCommand::Quiesce => {
+                (Some(OperationState::Quiesced), Some(RuntimeState::Quiesced))
+            }
+            ControlCommand::Prepare => (Some(OperationState::Prepared), None),
+            ControlCommand::Close => (Some(OperationState::Closed), Some(RuntimeState::Closed)),
+            ControlCommand::Activate => (Some(OperationState::Active), Some(RuntimeState::Active)),
+            _ => (None, None),
         };
         if expected_state.is_some_and(|state| reply.state != state)
+            || expected_runtime.is_some_and(|state| reply.runtime_state != state)
             || (expected.command == ControlCommand::Prepare && reply.kind != expected.kind)
         {
             return Err("CONTROL_RESPONSE_MISMATCH");

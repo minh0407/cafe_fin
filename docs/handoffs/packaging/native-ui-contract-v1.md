@@ -130,7 +130,9 @@ separate null-BootSession semantics above. Restart stays forbidden while pending
   generation, containment and reparse points, then opens only currentRoot/reports.
 - Native picker selects an existing local parent. Final child is exactly
   `CafeFinBackup-<operation_id>` for backup, `CafeFinData-<operation_id>` for
-  move/restore. The backup-source picker selects an existing backup folder.
+  move/restore. All destinations must be independent of the active data root,
+  including backup, per approved phase 2 controller. The backup-source picker
+  selects an existing backup folder.
 - CLOSED plus exit 0 remains mandatory. Unknown exit/lost ACK stays held; only
   core status/recovery proof can permit an explicit new close attempt. Dormant
   construction may migrate DB, so candidate boot is not assumed side-effect free.

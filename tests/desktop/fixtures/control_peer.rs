@@ -24,10 +24,14 @@ fn main() {
         "maintenance.quiesce" => "QUIESCED",
         _ => "ACTIVE",
     };
+    let runtime_state = match command {
+        "maintenance.prepare" => "QUIESCED",
+        _ => state,
+    };
     let mut response = serde_json::json!({
         "maintenance_protocol":1, "request_id":request["request_id"],
         "generation":request["generation"], "operation_id":request["operation_id"],
-        "status":"ok", "state":state, "kind":request["kind"],
+        "status":"ok", "state":state, "runtime_state":runtime_state, "kind":request["kind"],
     });
     if command == "reports.authorize_open" {
         response = serde_json::json!({"maintenance_protocol":1, "request_id":request["request_id"],
@@ -46,6 +50,35 @@ fn main() {
         "extra-field" => response["raw_exception"] = "synthetic-private-error".into(),
         "wrong-state" => response["state"] = "ACTIVE".into(),
         "wrong-kind" => response["kind"] = "restore".into(),
+        "prepared-held" => {
+            response["state"] = "PREPARED".into();
+            response["runtime_state"] = "QUIESCED".into();
+        }
+        "replay-required" => {
+            response["state"] = "REPLAY_REQUIRED".into();
+            response["runtime_state"] = "DORMANT".into();
+        }
+        "bad-runtime-state" => response["runtime_state"] = "REPLAY_REQUIRED".into(),
+        "close-authorized" => {
+            response["state"] = "CLOSE_AUTHORIZED".into();
+            response["runtime_state"] = "QUIESCED".into();
+        }
+        "close-not-drained" => response["runtime_state"] = "QUIESCED".into(),
+        "failed-held" => {
+            response["state"] = "FAILED_HELD".into();
+            response["runtime_state"] = "QUIESCED".into();
+            response["code"] = "MAINTENANCE_ARTIFACT_CONFLICT".into();
+        }
+        "missing-runtime" => {
+            response.as_object_mut().unwrap().remove("runtime_state");
+        }
+        "wrong-origin" => {
+            response["origin_generation"] = "00000000-0000-4000-8000-000000000099".into()
+        }
+        "wrong-activation" => {
+            response["activation_id"] = "00000000-0000-4000-8000-000000000099".into()
+        }
+        "wrong-format" => response["format"] = 2.into(),
         _ => {}
     }
     writeln!(stdout, "{response}").unwrap();

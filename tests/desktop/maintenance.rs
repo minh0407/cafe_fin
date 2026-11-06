@@ -1,5 +1,5 @@
 use cafe_fin_native_checks::{
-    control::{ControlCommand, ControlPipe, ControlReply, ControlRequest},
+    control::{ControlCommand, ControlPipe, ControlReply, ControlRequest, OperationState},
     maintenance_dto::{
         BootSession, MaintenanceKind, MaintenancePhase, PendingTransition, RuntimeState,
     },
@@ -406,9 +406,10 @@ fn backup_is_online_and_cannot_gain_transition_or_activation_phase() {
     let fixture = Fixture::new();
     let store = JournalStore::new(&fixture.directory("config")).unwrap();
     let mut journal = fixture.intent(MaintenanceKind::Backup);
-    // The product's own backups directory is a valid backup parent: core copies
-    // only referenced immutable files, not prior backup directories recursively.
-    journal.destination = derive_destination(&journal.source_root, OP, true).unwrap();
+    // Approved phase 2 controller requires an independent root for every kind.
+    let mut nested = journal.clone();
+    nested.destination = derive_destination(&journal.source_root, OP, true).unwrap();
+    assert_eq!(store.begin(&nested).err(), Some("JOURNAL_PATH_CONFLICT"));
     store.begin(&journal).unwrap();
     assert_eq!(
         journal.reconcile_config(&journal.source_root).unwrap(),
@@ -639,4 +640,73 @@ fn lost_initial_start_ack_can_attach_legacy_verified_child_without_reinitializin
         attach_existing(Some(&mut child), None, true).err(),
         Some("ATTACH_INITIALIZE_DENIED")
     );
+}
+
+#[test]
+fn operation_outcome_does_not_replace_actual_runtime_admission() {
+    for (mode, expected_operation, expected_runtime) in [
+        (
+            "prepared-held",
+            OperationState::Prepared,
+            RuntimeState::Quiesced,
+        ),
+        (
+            "replay-required",
+            OperationState::ReplayRequired,
+            RuntimeState::Dormant,
+        ),
+        (
+            "failed-held",
+            OperationState::FailedHeld,
+            RuntimeState::Quiesced,
+        ),
+    ] {
+        let (mut child, mut pipe) = peer(mode);
+        pipe.send(&request(ControlCommand::Status)).unwrap();
+        match pipe.receive(Duration::from_secs(5)).unwrap() {
+            ControlReply::Maintenance(reply) => {
+                assert_eq!(reply.state, expected_operation);
+                assert_eq!(reply.runtime_state, expected_runtime);
+            }
+            _ => panic!("wrong response"),
+        }
+        assert!(child.wait().unwrap().success());
+    }
+    assert!(serde_json::from_str::<RuntimeState>("\"REPLAY_REQUIRED\"").is_err());
+    assert!(serde_json::from_str::<RuntimeState>("\"CLOSE_AUTHORIZED\"").is_err());
+}
+
+#[test]
+fn close_authorization_or_undrained_runtime_plus_exit_zero_is_not_closed() {
+    for mode in ["close-authorized", "close-not-drained"] {
+        let (mut child, mut pipe) = peer(mode);
+        pipe.send(&request(ControlCommand::Close)).unwrap();
+        assert_eq!(
+            pipe.receive(Duration::from_secs(5)).err(),
+            Some("CONTROL_RESPONSE_MISMATCH")
+        );
+        let mut proof = CloseProof::new(GENERATION.into(), OP.into(), REQUEST.into());
+        proof.observe_exit(child.wait().unwrap().code());
+        assert!(!proof.is_clean());
+    }
+}
+
+#[test]
+fn wire_requires_real_runtime_state_and_checks_optional_activation_binding() {
+    for mode in [
+        "missing-runtime",
+        "bad-runtime-state",
+        "wrong-origin",
+        "wrong-activation",
+        "wrong-format",
+    ] {
+        let (mut child, mut pipe) = peer(mode);
+        pipe.send(&request(ControlCommand::Status)).unwrap();
+        let code = pipe.receive(Duration::from_secs(5)).err().unwrap();
+        assert!(matches!(
+            code,
+            "CONTROL_RESPONSE_INVALID" | "CONTROL_RESPONSE_MISMATCH"
+        ));
+        assert!(child.wait().unwrap().success());
+    }
 }

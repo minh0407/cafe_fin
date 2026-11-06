@@ -70,7 +70,7 @@ impl NativeJournal {
         {
             check_local_path(path)?;
         }
-        if (self.kind != MaintenanceKind::Backup && self.destination.starts_with(&self.source_root))
+        if self.destination.starts_with(&self.source_root)
             || self.source_root.starts_with(&self.destination)
             || self.backup_source.as_ref().is_some_and(|source| {
                 self.destination.starts_with(source) || source.starts_with(&self.destination)
