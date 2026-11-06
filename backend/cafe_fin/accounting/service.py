@@ -75,6 +75,11 @@ def book_dto(book):
     }
 
 
+def _summary_book_name(value):
+    """Optional entity label; preserve valid literal text, never infer a name."""
+    return value if isinstance(value, str) and 1 <= len(value) <= 256 and value.strip() else None
+
+
 def _batch(conn, batch_id, actor=None):
     row = conn.execute(select(s.batches).where(s.batches.c.id == batch_id)).mappings().first()
     if row is None:
@@ -1669,6 +1674,7 @@ class AccountingService:
             self.rt.auth.authorize(conn, actor, "accounting.read")
             book = _book(conn, book_id)
             semantics = json.loads(book["semantics_json"])
+            book_name = _summary_book_name(book.get("name"))
             columns = {c["id"]: c for c in json.loads(book["columns_json"])}
             valid = bool(
                 semantics.get("date_column")
@@ -1702,6 +1708,7 @@ class AccountingService:
             if not valid:
                 return {
                     "book_id": book_id,
+                    "book_name": book_name,
                     "has_valid_money_mapping": False,
                     "totals": {},
                     "validation_flags": ["MONEY_MAPPING_REQUIRED"],
@@ -1775,6 +1782,7 @@ class AccountingService:
                 }
             return dict(
                 book_id=book_id,
+                book_name=book_name,
                 has_valid_money_mapping=True,
                 totals=totals,
                 validation_flags=[f"UNMAPPED_DIRECTION_ROWS:{unknown_directions}"]
@@ -1877,6 +1885,7 @@ class AccountingReadProvider:
                     ]
         return BookSummaryDTO(
             book_id=book_id,
+            book_name=_summary_book_name(result.get("book_name")),
             from_on=from_on,
             through_on=through_on,
             cutoff=cutoff,
