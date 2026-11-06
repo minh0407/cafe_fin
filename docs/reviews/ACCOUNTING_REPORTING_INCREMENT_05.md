@@ -52,3 +52,5 @@ XLSX parser gần giới hạn worksheet: 1.048.575 data rows + header, 8.388.60
 Chưa phát hành/production-ready. CI Windows phải kiểm riêng source increment này; native installer của increment hợp đồng trước không chứng minh native accounting/reporting. Windows sạch, native GUI/offline, update/uninstall, backup/restore/move data root, DOCX mở/in, benchmark trên app đã cài và native license/source/relink còn thuộc packaging/release gate. Zalo live cần tài khoản/loại nhóm/quyền API và đích thật đã xác minh.
 
 Core backup giữ canonical report bytes; bản tên thân thiện là dẫn xuất và có thể tạo lại khi export sau restore. Không tự xóa tệp mà reconciliation liệt kê orphan. Báo cáo chỉ phản ánh dữ liệu đã nhập; không khẳng định bao phủ toàn bộ tiền hoặc hàng thực tế.
+
+Run Windows [42286460765](https://github.com/minh0407/cafe_fin/actions/runs/42286460765) trên source `5480298` đã kết thúc SUCCESS: 1.029 backend, 32 frontend, các browser lane, frozen sidecar và NSIS PASS. [Biên bản integration v1](INTEGRATION_BASELINE_V1.md) ghi số đo/hash và các gate packaging còn mở.
