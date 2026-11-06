@@ -161,15 +161,24 @@ def test_api_auth_origin_host_paging_downloads_and_jobs(tmp_path):
 
 
 def sidecar(path: Path, token=TOKEN, initialize=True):
+    binary = os.environ.get("CAFE_FIN_TEST_SIDECAR")
+    environment = dict(os.environ)
+    if binary:
+        # Opt-in installed/frozen proof: do not let Python/Node/dev PATH satisfy it.
+        environment["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
+        for key in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
+            environment.pop(key, None)
+    else:
+        environment["PYTHONPATH"] = str(Path(__file__).parents[2] / "backend")
     process = subprocess.Popen(
-        [sys.executable, "-m", "cafe_fin"],
+        [binary] if binary else [sys.executable, "-m", "cafe_fin"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         creationflags=subprocess.CREATE_NO_WINDOW,
-        env=os.environ | {"PYTHONPATH": str(Path(__file__).parents[2] / "backend")},
+        env=environment,
     )
     process.stdin.write(
         json.dumps(

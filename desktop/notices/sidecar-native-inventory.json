@@ -1,0 +1,210 @@
+{
+  "exe_sha256": "ef636343329730d3b0cc6a73f9f6c72c55d0121fb149a75b0ec1baac324f357e",
+  "exe_bytes": 33008864,
+  "native_files": [
+    {
+      "key": "PIL\\_avif.cp312-win_amd64.pyd",
+      "sha256": "3c31d65c8b3b4c91ac2838d5c843a6b2479d775b6904fe654d60b56d41772411"
+    },
+    {
+      "key": "PIL\\_imaging.cp312-win_amd64.pyd",
+      "sha256": "7140f56d38dd6cd51512f8122386bcb914c5df2a82eb5f719c973527d9213cee"
+    },
+    {
+      "key": "PIL\\_imagingcms.cp312-win_amd64.pyd",
+      "sha256": "2640857cace64d69735bdcaa3987e9ad70f85168abc1a8662079c77ac44b5301"
+    },
+    {
+      "key": "PIL\\_webp.cp312-win_amd64.pyd",
+      "sha256": "bb9c64d38a6e4857bd3358e14dbe6cf3a4593b1efcd1185fdba1ef8931550896"
+    },
+    {
+      "key": "VCRUNTIME140.dll",
+      "sha256": "d5e4d9a3e835fa679450145d6a7d94e36573a509317111904d9b3712c30d9066"
+    },
+    {
+      "key": "VCRUNTIME140_1.dll",
+      "sha256": "1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f"
+    },
+    {
+      "key": "_argon2_cffi_bindings\\_ffi.pyd",
+      "sha256": "689c26e44203c1ae21b2bfb83bbe79b3b6bf12a42e4525daa594a36193ebfdae"
+    },
+    {
+      "key": "_asyncio.pyd",
+      "sha256": "6c3570716921fd402c441c3ad8fab159f80c60fc55dd31ebb273e18d0764b2ff"
+    },
+    {
+      "key": "_bz2.pyd",
+      "sha256": "4ce0888c64c92806abfa067ddd0a3fffa0cb0be230c2d5a6054094af343c64a7"
+    },
+    {
+      "key": "_cffi_backend.cp312-win_amd64.pyd",
+      "sha256": "9af5e4f68a41f26b726f2e9424f9d58a4f5666189f6a48be95f406b257102aec"
+    },
+    {
+      "key": "_ctypes.pyd",
+      "sha256": "0abcfe23e653e2bc6da07265dcdbe7c1f381bc97183e251db484ea4e33abfcbe"
+    },
+    {
+      "key": "_decimal.pyd",
+      "sha256": "ea563edf82530e516560880767779b6c5c23d84b6cbdfa19ba5e8322f9d42709"
+    },
+    {
+      "key": "_elementtree.pyd",
+      "sha256": "e40b9ead71dd6d0a72e551f8f783fc3658a745bb3060b7a313d64535ce6da45e"
+    },
+    {
+      "key": "_hashlib.pyd",
+      "sha256": "2339f748935aca402ceb1e397c9f488bb42200eea7804d31f973a8ced6fe1a4b"
+    },
+    {
+      "key": "_lzma.pyd",
+      "sha256": "c1109a16ebe0f573f1df565899adee57ce73a9633a6bab8b6d1cc9ce483d0c85"
+    },
+    {
+      "key": "_multiprocessing.pyd",
+      "sha256": "246dcc0dcb2ddff11c9491110dd334a785ca266a2257268ead09ed9ffecc2fbd"
+    },
+    {
+      "key": "_overlapped.pyd",
+      "sha256": "fc1bd45848f10d2a3c32d568990e922e8567cc4ccd3e97ae9e07829184cbf03d"
+    },
+    {
+      "key": "_queue.pyd",
+      "sha256": "e0b738902e9b229896e8aded26b2616abeafa7c46293362c95a83dce840205e5"
+    },
+    {
+      "key": "_socket.pyd",
+      "sha256": "0dff3e3b7777b0cbc5f278e020239c9a03b7b470cf4ea6c62b1cfd2fdbddcbb7"
+    },
+    {
+      "key": "_sqlite3.pyd",
+      "sha256": "8d1ef0cf074a10f7e28835c235260293e4bdb07c1952852f01acc2136f952b66"
+    },
+    {
+      "key": "_ssl.pyd",
+      "sha256": "27b8579d4c14134f7c97266956f4a6218f13d4c15e242c67b93b2b03adbad1a2"
+    },
+    {
+      "key": "_uuid.pyd",
+      "sha256": "689143e8379254e6a5b046dd709d25bce0703f049607d99d13616a8559a0c07e"
+    },
+    {
+      "key": "_wmi.pyd",
+      "sha256": "4aed43305acffa5a530970532169367c59062996bb08a938713bf0044cb8b433"
+    },
+    {
+      "key": "_zoneinfo.pyd",
+      "sha256": "891306bb828888741d26dc83f778025e2c1e3564837293354300096c0127c965"
+    },
+    {
+      "key": "charset_normalizer\\cd.cp312-win_amd64.pyd",
+      "sha256": "2bdbc0805f85565d76f8d6166e451bfafa6d5490b06b36c9f423cd0102b4f149"
+    },
+    {
+      "key": "charset_normalizer\\md.cp312-win_amd64.pyd",
+      "sha256": "b08be5d29125f39a92e22d0abe4b9160753f7a790fffd07258319a8e16394afa"
+    },
+    {
+      "key": "libcrypto-3-x64.dll",
+      "sha256": "dce8937b5cb456a0d6c4040cba760b9b97881631b5ef844a64ca0175c7c35f90"
+    },
+    {
+      "key": "libffi-8.dll",
+      "sha256": "2ce5d09874ff875d6cc5e220d23520d38a362dd73517081571d1e032acebfef9"
+    },
+    {
+      "key": "libssl-3-x64.dll",
+      "sha256": "58a5cfda3f9057a743c87f623780b0b358279d394467abbd35ff2570fbd0c366"
+    },
+    {
+      "key": "lxml\\_elementpath.cp312-win_amd64.pyd",
+      "sha256": "b445db501dba7797e2743e720d47106be9db86dff70aff1ac660da558545ca07"
+    },
+    {
+      "key": "lxml\\builder.cp312-win_amd64.pyd",
+      "sha256": "cdd6dfe72b472034187f3b49b628ec5b8b92c9f305a984c55d2d257afdadd0a2"
+    },
+    {
+      "key": "lxml\\etree.cp312-win_amd64.pyd",
+      "sha256": "b5cef7d22ab972de3fee18e3787730ba74ecd12d5896eaa3660ebde418219669"
+    },
+    {
+      "key": "lxml\\html\\_difflib.cp312-win_amd64.pyd",
+      "sha256": "d06cd3f667b868c9882b172f056ea7eb0157ce22845db893cca2634d25a848fc"
+    },
+    {
+      "key": "lxml\\html\\diff.cp312-win_amd64.pyd",
+      "sha256": "6f2046cb59234ba30ce56a5424a054d33fa5395f31e886fff516a1654575a9b1"
+    },
+    {
+      "key": "lxml\\objectify.cp312-win_amd64.pyd",
+      "sha256": "ad4d1aabe85561cc06f503fb5758a45c3850a12f8719f1d66af06bd74553cf83"
+    },
+    {
+      "key": "lxml\\sax.cp312-win_amd64.pyd",
+      "sha256": "57c38c31989fd3da9cedb47f762e42eae4bcaeb0e0698aaac9e7c3980d58d25b"
+    },
+    {
+      "key": "pydantic_core\\_pydantic_core.cp312-win_amd64.pyd",
+      "sha256": "c7f18997006f997fd0126367a42668f497c054fc3749e61eb3eccee3807b5028"
+    },
+    {
+      "key": "pyexpat.pyd",
+      "sha256": "48595059edc8d5c049edada829a71056971473855a39e65e872f4112fc97d258"
+    },
+    {
+      "key": "python3.dll",
+      "sha256": "d054a745b92a230114251975f7296178131a284f872ea97817d4b820453c5c90"
+    },
+    {
+      "key": "python312.dll",
+      "sha256": "00f1e27a720f04606d9f6eac703b89418265fde213d6cb9378a0a4854b5d4669"
+    },
+    {
+      "key": "select.pyd",
+      "sha256": "09ec190e299a2925d65d66821510ef11db0b1c2db13069a0185bf970977c5429"
+    },
+    {
+      "key": "sqlalchemy\\engine\\_processors_cy.cp312-win_amd64.pyd",
+      "sha256": "d184fbd49e00d14730461b422491da978a5702cf125208e097112707e2cd7c35"
+    },
+    {
+      "key": "sqlalchemy\\engine\\_result_cy.cp312-win_amd64.pyd",
+      "sha256": "08c2b88b4f5a537d46a2979ad5ee606877edfb2c8f8b6264165bde6d6f8e4299"
+    },
+    {
+      "key": "sqlalchemy\\engine\\_row_cy.cp312-win_amd64.pyd",
+      "sha256": "5b9ed462e944746284e5fd892c02e640be31902f6c3e7cfe3ef49b231db24690"
+    },
+    {
+      "key": "sqlalchemy\\engine\\_util_cy.cp312-win_amd64.pyd",
+      "sha256": "c6b7ac1557789ea1745730a5a4e3a0da475539ed9d34a427afaad35e1719a462"
+    },
+    {
+      "key": "sqlalchemy\\sql\\_cache_key_cy.cp312-win_amd64.pyd",
+      "sha256": "e91b36c6dfa8135c20059c8af58e55ae2e37636043abcd34ba9557208d1fe2f3"
+    },
+    {
+      "key": "sqlalchemy\\sql\\_util_cy.cp312-win_amd64.pyd",
+      "sha256": "c25f7b05f39bd68c56cbc3ffa4a763d59cae25c10bda3afb1831e03b52372c73"
+    },
+    {
+      "key": "sqlalchemy\\util\\_collections_cy.cp312-win_amd64.pyd",
+      "sha256": "ef31a77c0bfff812ff2fa1b98508d73dc5f9711c6dfa47e35f2b54c2fb0a38dd"
+    },
+    {
+      "key": "sqlalchemy\\util\\_immutabledict_cy.cp312-win_amd64.pyd",
+      "sha256": "a2c6d0561e7259971b3944c34c81627ee0826e2a5f8261cd13c717a05bd85ebb"
+    },
+    {
+      "key": "sqlite3.dll",
+      "sha256": "cb82c726c39bb73717a8820688137cf3504d4fba928f188504384c23b6602817"
+    },
+    {
+      "key": "unicodedata.pyd",
+      "sha256": "6e12f0e3fc207e82cc59b62acbd68e0ae1fbc7f513d9475e4c66c3036d80732d"
+    }
+  ]
+}
