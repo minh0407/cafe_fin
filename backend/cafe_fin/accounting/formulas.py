@@ -159,7 +159,11 @@ def _tokens(formula: str, charge: Callable[[int], None]) -> list[_Token]:
                 position += 1
             else:
                 _fail("SYNTAX", "Chuỗi trong công thức chưa đóng dấu nháy.")
-            result.append(_Token("STRING", formula[start + 1:position - 1].replace('""', '"'), start, position))
+            result.append(
+                _Token(
+                    "STRING", formula[start + 1 : position - 1].replace('""', '"'), start, position
+                )
+            )
             continue
         if character in "[]!|'":
             _fail("EXTERNAL_REFERENCE", "Không hỗ trợ tham chiếu sheet/tệp ngoài hoặc DDE.")
@@ -176,7 +180,7 @@ def _tokens(formula: str, charge: Callable[[int], None]) -> list[_Token]:
             kind = "REF" if _REF.fullmatch(word) and not following.startswith("(") else "NAME"
             result.append(_Token(kind, word.upper(), start, position))
             continue
-        pair = formula[position:position + 2]
+        pair = formula[position : position + 2]
         if pair in ("<=", ">=", "<>"):
             position += 2
             result.append(_Token(pair, pair, start, position))
@@ -191,8 +195,20 @@ def _tokens(formula: str, charge: Callable[[int], None]) -> list[_Token]:
 
 
 class _Parser:
-    _binding = {"=": 10, "<>": 10, "<": 10, ">": 10, "<=": 10, ">=": 10,
-                "&": 15, "+": 20, "-": 20, "*": 30, "/": 30, "^": 40}
+    _binding = {
+        "=": 10,
+        "<>": 10,
+        "<": 10,
+        ">": 10,
+        "<=": 10,
+        ">=": 10,
+        "&": 15,
+        "+": 20,
+        "-": 20,
+        "*": 30,
+        "/": 30,
+        "^": 40,
+    }
 
     def __init__(self, tokens: list[_Token], max_depth: int) -> None:
         self.tokens = tokens
@@ -295,9 +311,15 @@ class FormulaEngine:
     actually visited (IF is lazy). Reuse the engine only with a stable resolver.
     """
 
-    def __init__(self, resolve: Callable[[str], object], *, max_range: int = 10_000,
-                 max_cost: int = 100_000, max_depth: int = 64,
-                 cancelled: Callable[[], bool] | None = None) -> None:
+    def __init__(
+        self,
+        resolve: Callable[[str], object],
+        *,
+        max_range: int = 10_000,
+        max_cost: int = 100_000,
+        max_depth: int = 64,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> None:
         if min(max_range, max_cost, max_depth) < 1 or max_depth > 128:
             raise ValueError("Formula limits must be positive; max_depth must be <= 128")
         self.resolve = resolve
@@ -377,14 +399,22 @@ class FormulaEngine:
             return literal
         if isinstance(value, FormulaCell):
             if value.formula_text is not None:
-                if not isinstance(value.formula_text, str) or not value.formula_text.startswith("="):
+                if not isinstance(value.formula_text, str) or not value.formula_text.startswith(
+                    "="
+                ):
                     _fail("SYNTAX", "Ô công thức phải chứa raw formula bắt đầu bằng dấu =.")
                 value = value.formula_text
             else:
-                status_codes = {"unsupported": "UNSUPPORTED", "external_reference": "EXTERNAL_REFERENCE",
-                                "circular": "CIRCULAR", "missing_cache": "MISSING_CACHE"}
-                code = status_codes.get(value.calculation_status or "",
-                                        "MISSING_CACHE" if value.cached_value is None else "CACHE_ONLY")
+                status_codes = {
+                    "unsupported": "UNSUPPORTED",
+                    "external_reference": "EXTERNAL_REFERENCE",
+                    "circular": "CIRCULAR",
+                    "missing_cache": "MISSING_CACHE",
+                }
+                code = status_codes.get(
+                    value.calculation_status or "",
+                    "MISSING_CACHE" if value.cached_value is None else "CACHE_ONLY",
+                )
                 _fail(code, "Ô công thức chưa có giá trị được bộ tính xác nhận.")
         if isinstance(value, str) and value.startswith("="):
             self._active.append(reference)
@@ -409,7 +439,10 @@ class FormulaEngine:
             if len(value) > MAX_TEXT:
                 _fail("LIMIT", "Nội dung ô vượt giới hạn độ dài.")
             return value
-        _fail("VALUE", "Ô phải là Decimal, số nguyên, text, boolean hoặc blank; không chấp nhận float.")
+        _fail(
+            "VALUE",
+            "Ô phải là Decimal, số nguyên, text, boolean hoặc blank; không chấp nhận float.",
+        )
 
     @staticmethod
     def _numeric(value: object) -> Decimal:
@@ -439,8 +472,12 @@ class FormulaEngine:
             start, end = node.value
             row, column, _, _ = _coordinates(start)
             end_row, end_column, _, _ = _coordinates(end)
-            region = _Range(min(row, end_row), min(column, end_column),
-                            max(row, end_row), max(column, end_column))
+            region = _Range(
+                min(row, end_row),
+                min(column, end_column),
+                max(row, end_row),
+                max(column, end_column),
+            )
             height, width = region.shape
             if height * width > self.max_range:
                 _fail("RANGE_LIMIT", "Range vượt giới hạn số ô cho một phép tính.")
@@ -461,12 +498,14 @@ class FormulaEngine:
         if node.value in ("=", "<>", "<", ">", "<=", ">="):
             return self._compare(left, right, node.value)
         if node.value == "&":
+
             def text(value: Scalar) -> str:
                 if value is None:
                     return ""
                 if isinstance(value, bool):
                     return "TRUE" if value else "FALSE"
                 return str(value)
+
             return self._scalar(text(left) + text(right))
         return self._arithmetic(node.value, self._numeric(left), self._numeric(right))
 
@@ -500,9 +539,13 @@ class FormulaEngine:
     @staticmethod
     def _compare(left: Scalar, right: Scalar, operator: str) -> bool:
         if left is None:
-            left = "" if isinstance(right, str) else (False if isinstance(right, bool) else Decimal(0))
+            left = (
+                "" if isinstance(right, str) else (False if isinstance(right, bool) else Decimal(0))
+            )
         if right is None:
-            right = "" if isinstance(left, str) else (False if isinstance(left, bool) else Decimal(0))
+            right = (
+                "" if isinstance(left, str) else (False if isinstance(left, bool) else Decimal(0))
+            )
         if isinstance(left, str) and isinstance(right, str):
             left, right = left.casefold(), right.casefold()
         if type(left) is not type(right):
@@ -564,14 +607,18 @@ class FormulaEngine:
                 _fail("ARGUMENTS", "Số đối số của SUMIF/COUNTIF không hợp lệ.")
             region = self._range_argument(arguments[0], depth + 1)
             criterion = self._eval(arguments[1], depth + 1)
-            summed = self._range_argument(arguments[2], depth + 1) if len(arguments) == 3 else region
+            summed = (
+                self._range_argument(arguments[2], depth + 1) if len(arguments) == 3 else region
+            )
             if isinstance(criterion, _Range):
                 _fail("ARGUMENTS", "SUMIF/COUNTIF cần range và điều kiện đơn.")
             if region.shape != summed.shape:
                 _fail("RANGE_SHAPE", "Range điều kiện và range tổng phải cùng kích thước.")
             matches = self._criterion(criterion)
             total = Decimal(0)
-            for reference, sum_reference in zip(region.references(), summed.references(), strict=True):
+            for reference, sum_reference in zip(
+                region.references(), summed.references(), strict=True
+            ):
                 if matches(self._cell(reference, depth + 1)):
                     if name == "COUNTIF":
                         total = self._arithmetic("+", total, Decimal(1))
@@ -616,7 +663,7 @@ class FormulaEngine:
             match = re.match(r"^(<=|>=|<>|=|<|>)", criterion)
             if match:
                 operator = match.group()
-                target = criterion[len(operator):]
+                target = criterion[len(operator) :]
             if _NUMERIC_CRITERION.fullmatch(target):
                 target = _decimal(target)
         if isinstance(target, str) and operator in ("=", "<>"):
@@ -645,6 +692,7 @@ class FormulaEngine:
                 else:
                     matched = isinstance(value, str) and self._wildcard(pattern, value.casefold())
                 return matched if operator == "=" else not matched
+
             return match_text
 
         def compare(value: Scalar) -> bool:
@@ -653,6 +701,7 @@ class FormulaEngine:
             if type(value) is not type(target):
                 return operator == "<>"
             return self._compare(value, target, operator)
+
         return compare
 
     def _wildcard(self, pattern: list[tuple[str, str]], text: str) -> bool:
@@ -662,8 +711,9 @@ class FormulaEngine:
         retry = 0
         while position < len(text):
             self._charge()
-            if token < len(pattern) and (pattern[token][0] == "any" or
-                                        pattern[token] == ("literal", text[position])):
+            if token < len(pattern) and (
+                pattern[token][0] == "any" or pattern[token] == ("literal", text[position])
+            ):
                 token += 1
                 position += 1
             elif token < len(pattern) and pattern[token][0] == "star":
@@ -712,7 +762,7 @@ def translate_formula(formula: str, row_delta: int, col_delta: int) -> str:
             _fail("REFERENCE", "Sao chép công thức làm tham chiếu vượt trang tính.")
         reference = ("$" if absolute_column else "") + _column_letters(column)
         reference += ("$" if absolute_row else "") + str(row)
-        fragments.extend((formula[position:token.start], reference))
+        fragments.extend((formula[position : token.start], reference))
         position = token.end
     fragments.append(formula[position:])
     return "".join(fragments)
