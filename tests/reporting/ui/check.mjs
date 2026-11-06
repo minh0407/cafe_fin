@@ -96,9 +96,34 @@ await page.route("**/api/v1/**", async (route) => {
       timezone: "Asia/Ho_Chi_Minh",
       send_at: null,
       attachments_enabled: false,
+      auto_generate_daily: false,
+      daily_book_ids: [],
+      daily_export_formats: ["pdf", "xlsx", "txt"],
+      scheduled_actor_id: "server-owned-synthetic-id",
+      schedule_actor_status: "ACTIVE",
       credential_store_available: false,
       credential_configured: false,
       sender_status: "UNCONFIGURED",
+    };
+  else if (resource === "/reporting/scheduler/daily-runs")
+    result = {
+      items: [
+        {
+          id: "missed-demo",
+          business_on: "2026-11-05",
+          state: "MISSED",
+          phase: "capture",
+          policy: "MISSED_NO_SNAPSHOT",
+          report_id: null,
+          outbox_id: null,
+          attempts: 0,
+          error_code: "MISSED_REQUIRES_MANUAL",
+          config_version: 1,
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 25,
     };
   else if (resource === "/reporting/reports")
     result = {
@@ -228,6 +253,33 @@ try {
   });
   await page.getByRole("tab", { name: "Cấu hình Admin", exact: true }).click();
   await page.getByText("UNCONFIGURED", { exact: true }).waitFor();
+  await page.getByText("Bỏ lỡ; cần tạo thủ công", { exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByLabel("Tự tạo và lưu báo cáo cuối ngày", { exact: true })
+      .getAttribute("aria-checked"),
+    "false",
+  );
+  await page
+    .getByLabel("Tự tạo và lưu báo cáo cuối ngày", { exact: true })
+    .click();
+  await page
+    .getByLabel(
+      "Các sổ cho báo cáo tự động (mã cách bằng dấu phẩy, tối đa 100)",
+      { exact: true },
+    )
+    .fill("cash, missing");
+  await page.getByLabel("Giờ gửi", { exact: true }).fill("18:00");
+  await page.getByRole("button", { name: "Lưu cấu hình", exact: true }).click();
+  await page.getByText("Đã lưu cấu hình.", { exact: true }).waitFor();
+  const configWrite = calls.findLast(
+    (x) => x.resource === "/reporting/settings" && x.method === "PUT",
+  );
+  const configBody = JSON.parse(configWrite.body);
+  assert.equal(configBody.auto_generate_daily, true);
+  assert.deepEqual(configBody.daily_book_ids, ["cash", "missing"]);
+  assert.deepEqual(configBody.daily_export_formats, ["pdf", "xlsx", "txt"]);
+  assert(!Object.hasOwn(configBody, "scheduled_actor_id"));
   assert(
     await page
       .getByRole("button", { name: "Lưu credential", exact: true })
@@ -280,6 +332,8 @@ try {
         "reconcile remains unknown",
         "unconfigured credentials disabled",
         "connection check no send",
+        "daily generation explicit opt-in, selected books/formats, no actor spoof",
+        "missed day status visible",
         "actor draft reset",
       ],
       screenshots: output,

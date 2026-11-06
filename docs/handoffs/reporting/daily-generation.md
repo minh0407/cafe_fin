@@ -21,6 +21,15 @@ shutdown/drain and native tray behavior; no extra backend runner/thread, tray or
 Codex automation is installed. UI heartbeat still only works while Reporting is
 mounted unless root has actually wired the runtime timer.
 
+Root has announced the pending public `PeriodicTask(run, interval_seconds)` /
+`ModuleManifest.periodic_tasks` interface. After the exact shared commit is
+approved and applied, the lane integration is
+`periodic_tasks={'reporting.tick': PeriodicTask(lambda runtime: service(runtime).tick(), 60)}`.
+Keep `heartbeat_bound=False` until that real registration is present and tested.
+Do not add a lane-owned thread or require the not-yet-present core type. The
+core-owned timer must stop before writer/database shutdown and remain separate
+from long import execution. This pending interface is not in the current build.
+
 ## Admin configuration and authority
 
 - `auto_generate_daily` defaults false and is an explicit opt-in.

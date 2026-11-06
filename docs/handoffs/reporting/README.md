@@ -3,11 +3,20 @@
 Development candidate; **integration/live acceptance remains pending**. No push,
 merge or READY tag has been made by this lane.
 
-Latest integration follow-up: [inclusive date contract v1](date-range-v1.md).
-New snapshots are reporting JSON schema 2 with explicit inclusive date/half-open
-UTC markers; unmarked legacy ranges are preserved without reinterpretation.
-The follow-up has 53 reporting tests and 10 synthetic browser cases PASS.
-The 168 combined tests and export hashes below describe the preceding candidate.
+Latest integration follow-ups:
+
+- [Daily local generation, durable recovery and delegated Admin](daily-generation.md)
+  adds opt-in capture/save/export/queue and migration reporting v2. **210 tests
+  (74 reporting + 136 core), 12 synthetic browser cases PASS**.
+- [Actor-scoped read source factory](actor-source-factory.md), commit `82e6913`.
+- [Independent QA recovery fixes](review-recovery.md), commit `82cd941`.
+- [Inclusive date contract v1](date-range-v1.md), commit `5aa4722`. New snapshots
+  are JSON schema 2 with explicit inclusive date/half-open UTC markers; unmarked
+  legacy ranges are preserved without reinterpretation.
+
+The 168 combined tests and export hashes below describe the earlier candidate.
+Root's lifecycle periodic-task interface is pending an approved shared commit;
+the lane currently exposes a finite tick and does not claim native timer binding.
 
 ## Checkout and baseline
 
@@ -21,10 +30,15 @@ The 168 combined tests and export hashes below describe the preceding candidate.
 - Approved OS adapter: root `13222da90c0d504b9d95cdeb804dd8fc466aa130`,
   cherry-picked without conflict as `84abda4`. Reporting integration test uses
   genuine Credential Manager and fake transport, then deletes only its exact test key.
-- Remaining candidate commits and final test totals are recorded in the chat handoff.
+- Approved background actor helper: root
+  `3021059351a6bf6033eedfdf83e2381c9d95b95e`, cherry-picked unchanged as `60c7ba8`.
+  Root already owns the original shared commits and should skip their local duplicates.
+- Daily backend generation: `151c666`. Remaining candidate commits are recorded
+  in the chat handoff.
 
 Lane-owned changes only touch reporting backend/frontend/tests/handoff paths;
-the seven shared files in `64ae735`/`84abda4` are exactly the coordinator-approved cherry-picks.
+the ten shared files in `64ae735`/`84abda4`/`60c7ba8` are exactly the
+coordinator-approved cherry-picks.
 No production
 data, DB, real Excel, token, account information, images or generated binaries are
 committed. Test transport never contacts Zalo.
@@ -71,10 +85,10 @@ Coordinator registers `cafe_fin.reporting.module.module_manifest` and frontend
 
 ```python
 module_manifest(
-    source_factory=lambda runtime: AtomicSources(
+    actor_source_factory=lambda runtime, actor: AtomicSources(
         runtime.reader,
-        records_public_inventory_summary_from_connection,
-        accounting_public_book_summary_from_connection,
+        records_callback_bound_to_current_actor(runtime, actor),
+        accounting_callback_bound_to_current_actor(runtime, actor),
     ),
     secret_store=foundation_os_secret_store,
     transport=OfficialGMF(),
@@ -82,7 +96,9 @@ module_manifest(
 )
 ```
 
-The two connection-aware helpers receive `(conn, first_date, last_date,
+The factory runs on each actual capture. Bind both public providers to that
+current principal; never retain an earlier request's Admin. The two returned
+connection-aware helpers receive `(conn, first_date, last_date,
 cutoff=aware_utc)` and accounting additionally receives `book_id` after conn.
 `AtomicSources` explicitly BEGINs a read-only transaction: SQLite legacy SELECT
 autobegin alone is insufficient for snapshot isolation. It never imports either
@@ -98,17 +114,19 @@ while Reporting screen is mounted. Status text states this limit. Startup also
 performs one catch-up/dispatch. Native tray/background timer is an integration
 gate, not claimed complete by browser tests.
 
-Files: backend `models.py` (commands), `migrations.py` (schema), `sources.py`
+Files: backend `models.py` (commands), `migrations.py` (schema v1),
+`schedule_migrations.py` (append-only v2), `schedule.py` (daily orchestration), `sources.py`
 (public/atomic adapters), `service.py` (reports/config/outbox), `exports.py`
 (summary renderers), `zalo.py` (official transport/secret protocol), `sender.py`
 (single sender/receipts/reconcile), `module.py` (manifest/router/job). Frontend
 `ReportingPage.tsx`, `types.ts`, `index.ts`; all regression and synthetic UI/evidence
 helpers are under `tests/reporting/**`.
 
-Migration: namespace `reporting`, version 1, checksummed DDL and immutable triggers.
+Migration: namespace `reporting`, versions 1 and 2, checksummed DDL and immutable triggers.
 Tables: `reporting_reports`, `reporting_exports`, `reporting_settings`,
 `reporting_outbox`, `reporting_attempts`, `reporting_locks`. No central version
-table or another lane's migration was modified.
+table or another lane's migration was modified. V2 adds `reporting_daily_runs`
+and `reporting_daily_cursor`; the v1 file/checksum is unchanged.
 
 ## Delivery guarantees and limits
 
@@ -157,10 +175,13 @@ requires verification. `OfficialGMF.upload_verified` defaults false and attachme
 deliveries fail preflight before sending text. Do not enable the flag until the
 current upload contract and real OA/app capability are confirmed.
 
-Catch-up considers saved immutable reports only, preserves their business date,
-queues latest saved versions in batches of at most 100 and never synthesizes old
-days from today's balances. Sleep/off/closed app cannot send on time. No Codex
-automation is used as a product scheduler.
+Manual-only catch-up considers saved immutable reports, preserving their business
+date. With daily generation opted in, the durable daily orchestrator owns the
+selected series: capture today's data, reuse compatible saved manual reports,
+or resume already frozen input. Old days without a snapshot become MISSED;
+failed exports never fall through to implicit sending. See the daily handoff for
+the pinned config/manual-version policy. Sleep/off/closed app cannot send on time.
+No Codex automation is used as a product scheduler.
 
 ## Official capability review, 06/11/2026
 

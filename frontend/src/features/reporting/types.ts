@@ -28,6 +28,11 @@ export interface Book {
   validation_flags: string[];
 }
 export interface Snapshot {
+  generation?: {
+    kind: string;
+    created_late: boolean;
+    scheduled_due_at: string;
+  };
   notice: string;
   cutoff: string;
   source_sha256: string;
@@ -116,10 +121,28 @@ export interface Settings {
   timezone: string;
   send_at: string | null;
   attachments_enabled: boolean;
+  auto_generate_daily?: boolean;
+  daily_book_ids?: string[];
+  daily_export_formats?: ("pdf" | "xlsx" | "txt")[];
+  scheduled_actor_id?: string | null;
+  schedule_actor_status?: "ACTIVE" | "BLOCKED";
   credential_store_available?: boolean;
   credential_configured?: boolean;
   sender_status?: string;
   scheduler_limit?: string;
+}
+export interface DailyRun {
+  id: string;
+  business_on: string;
+  state: string;
+  phase: string;
+  policy: string;
+  report_id: string | null;
+  outbox_id: string | null;
+  attempts: number;
+  error_code: string | null;
+  config_version: number;
+  updated_at: string;
 }
 export type ReportPage = Page<Report>;
 export type DeliveryPage = Page<Delivery>;

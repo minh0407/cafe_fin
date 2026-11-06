@@ -16,6 +16,7 @@ import {
 } from "antd";
 import { api, messageOf } from "../../shared/api";
 import { useSession } from "../../shared/session";
+import { DailyScheduleHistory } from "./DailyScheduleHistory";
 import type { Page } from "../../shared/types";
 import type {
   Attempt,
@@ -76,6 +77,12 @@ const exact = (value: string) => {
     (fraction ? `,${fraction}` : "")
   );
 };
+const settingsFields = (settings: Settings) => ({
+  ...settings,
+  auto_generate_daily: settings.auto_generate_daily ?? false,
+  daily_book_ids_text: (settings.daily_book_ids ?? []).join(", "),
+  daily_export_formats: settings.daily_export_formats ?? ["pdf", "xlsx", "txt"],
+});
 function todayVN() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
@@ -233,7 +240,7 @@ function ReportingView() {
       .then((result) => {
         if (live()) {
           setSettings(result);
-          settingsForm.setFieldsValue(result);
+          settingsForm.setFieldsValue(settingsFields(result));
         }
       })
       .catch((cause) => {
@@ -629,7 +636,22 @@ function ReportingView() {
                             await mutate(
                               "/reporting/settings",
                               {
-                                ...values,
+                                oa_id: values.oa_id ?? "",
+                                group_id: values.group_id ?? "",
+                                timezone: values.timezone,
+                                enabled: !!values.enabled,
+                                attachments_enabled:
+                                  !!values.attachments_enabled,
+                                auto_generate_daily:
+                                  !!values.auto_generate_daily,
+                                daily_book_ids: String(
+                                  values.daily_book_ids_text ?? "",
+                                )
+                                  .split(",")
+                                  .map((x) => x.trim())
+                                  .filter(Boolean),
+                                daily_export_formats:
+                                  values.daily_export_formats ?? [],
                                 send_at: values.send_at || null,
                                 expected_version: settings?.version ?? 0,
                               },
@@ -640,7 +662,9 @@ function ReportingView() {
                             );
                             if (live()) {
                               setSettings(result);
-                              settingsForm.setFieldsValue(result);
+                              settingsForm.setFieldsValue(
+                                settingsFields(result),
+                              );
                               setNotice("Đã lưu cấu hình.");
                             }
                           })
@@ -662,6 +686,58 @@ function ReportingView() {
                         <Form.Item name="send_at" label="Giờ gửi">
                           <Input type="time" />
                         </Form.Item>
+                        <Alert
+                          type="info"
+                          title="Tự tạo báo cáo là tùy chọn"
+                          description="Đến giờ đã chọn, tạo cho ngày Việt Nam hiện tại, lưu định dạng đã chọn rồi xếp gửi tin tổng hợp. Không tự đính kèm tệp. Ngày cũ chưa có snapshot được ghi bỏ lỡ để xử lý thủ công."
+                        />
+                        <Form.Item
+                          name="auto_generate_daily"
+                          label="Tự tạo và lưu báo cáo cuối ngày"
+                          valuePropName="checked"
+                        >
+                          <Switch />
+                        </Form.Item>
+                        <Form.Item
+                          name="daily_book_ids_text"
+                          label="Các sổ cho báo cáo tự động (mã cách bằng dấu phẩy, tối đa 100)"
+                        >
+                          <Input
+                            maxLength={12899}
+                            placeholder="Để trống: chỉ tổng hợp kho, tiền chưa đủ dữ liệu"
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          name="daily_export_formats"
+                          label="Định dạng lưu local"
+                        >
+                          <Select
+                            mode="multiple"
+                            maxCount={3}
+                            options={[
+                              { value: "pdf", label: "PDF" },
+                              { value: "xlsx", label: "XLSX" },
+                              { value: "txt", label: "Tin ngắn TXT" },
+                            ]}
+                          />
+                        </Form.Item>
+                        <Typography.Paragraph>
+                          Cùng ngày và sổ: dùng bản thủ công đã lưu; ưu tiên bản
+                          đã xếp gửi để tránh gửi hai phiên bản ngầm. Sau khi có
+                          lượt hôm nay, thay đổi cấu hình áp dụng từ ngày sau
+                          hoặc xử lý thủ công. Thiếu Zalo vẫn tạo báo cáo local.
+                        </Typography.Paragraph>
+                        {(settings?.enabled || settings?.scheduled_actor_id) &&
+                          settings.schedule_actor_status === "BLOCKED" && (
+                            <Alert
+                              type="warning"
+                              title={
+                                settings.scheduled_actor_id
+                                  ? "Tài khoản đã cấu hình lịch không còn quyền Admin hoặc bị vô hiệu; tác vụ tự động bị chặn."
+                                  : "Admin cần lưu lại cấu hình để xác định tài khoản chịu trách nhiệm cho lịch tự động."
+                              }
+                            />
+                          )}
                         <Form.Item
                           name="attachments_enabled"
                           label="Cho phép người dùng chọn tệp tổng hợp đính kèm"
@@ -671,7 +747,7 @@ function ReportingView() {
                         </Form.Item>
                         <Form.Item
                           name="enabled"
-                          label="Bật gửi theo lịch đối với báo cáo đã lưu"
+                          label="Bật lịch tạo / gửi báo cáo"
                           valuePropName="checked"
                         >
                           <Switch />
@@ -758,6 +834,9 @@ function ReportingView() {
                           </Button>
                         </Space>
                       </Form>
+                      <DailyScheduleHistory
+                        onOpenReport={(id) => void action(() => openReport(id))}
+                      />
                     </Card>
                   ),
                 },
@@ -795,6 +874,12 @@ function ReportingView() {
             </Space>
             <Typography.Text copyable>SHA-256: {detail.sha256}</Typography.Text>
             <Typography.Text>Cutoff: {detail.snapshot.cutoff}</Typography.Text>
+            {detail.snapshot.generation?.created_late && (
+              <Alert
+                type="info"
+                title="Báo cáo được tạo sau giờ hẹn; cutoff là thời điểm capture thực tế, không phải số liệu chốt hồi tố."
+              />
+            )}
             {detail.snapshot.period.date_range_contract !==
               "inclusive_business_dates_v1" && (
               <Alert
