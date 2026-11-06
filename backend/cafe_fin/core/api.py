@@ -7,7 +7,7 @@ import re
 import secrets
 import sqlite3
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -32,7 +32,7 @@ from .http_types import (
     UserDetailDTO,
     UserDTO,
 )
-from .renderers import DocumentRenderer, synthetic_snapshot
+from .renderers import DocumentRenderer, DocumentSnapshot, synthetic_snapshot
 from .runtime import Runtime
 
 PROTOCOL_VERSION = 1
@@ -40,6 +40,20 @@ ALLOWED_ORIGINS = frozenset(
     {"http://tauri.localhost", "https://tauri.localhost", "http://127.0.0.1:1420"}
 )
 MAX_BODY = 2 * 1024 * 1024
+
+
+class VerifiedFileResponse(StreamingResponse):
+    """Close even if the client disconnects before iteration/response-start succeeds."""
+
+    def __init__(self, content, *, resources: ExitStack, **kwargs):
+        super().__init__(content, **kwargs)
+        self.resources = resources
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.resources.close()
 
 
 class Payload(BaseModel):
@@ -303,12 +317,28 @@ def create_app(
 
     @app.get("/api/v1/jobs/{job_id}", response_model=JobDTO)
     def job_status(job_id: str, request: Request):
-        require(request, "jobs.read")
-        return runtime.jobs.status(job_id)
+        actor = require(request, "jobs.read")
+        result = runtime.jobs.status(job_id)
+        if result["kind"] != "foundation.sample":
+            actor.require(f"{result['kind'].split('.', 1)[0]}.read")
+        return result
+
+    def require_core_demo_job(kind: str):
+        # Module commands own validation, confirmation snapshots and permission scope.
+        # Exposing arbitrary registered payloads here would bypass those contracts.
+        if kind != "foundation.sample":
+            if kind not in runtime.jobs.handlers:
+                raise CoreError("UNKNOWN_JOB", "Tác vụ chưa được đăng ký.")
+            raise CoreError(
+                "MODULE_JOB_ENDPOINT_REQUIRED",
+                "Thực hiện tác vụ từ màn hình module đã tạo tác vụ.",
+                403,
+            )
 
     @app.post("/api/v1/jobs", response_model=JobSubmittedDTO)
     def submit_job(request: Request, payload: SubmitJob):
         actor = require(request, "jobs.write")
+        require_core_demo_job(payload.kind)
         return runtime.jobs.submit(
             actor.id,
             payload.kind,
@@ -320,6 +350,7 @@ def create_app(
     @app.post("/api/v1/jobs/{job_id}/cancel", response_model=JobDTO)
     def cancel_job(job_id: str, request: Request):
         actor = require(request, "jobs.write")
+        require_core_demo_job(runtime.jobs.status(job_id)["kind"])
         return runtime.jobs.cancel(
             job_id, authorize=lambda conn: runtime.auth.authorize(conn, actor, "jobs.write")
         )
@@ -327,6 +358,7 @@ def create_app(
     @app.post("/api/v1/jobs/{job_id}/resume", response_model=JobDTO)
     def resume_job(job_id: str, request: Request):
         actor = require(request, "jobs.write")
+        require_core_demo_job(runtime.jobs.status(job_id)["kind"])
         return runtime.jobs.resume(
             job_id, authorize=lambda conn: runtime.auth.authorize(conn, actor, "jobs.write")
         )
@@ -358,8 +390,39 @@ def create_app(
                     )
                 ).scalar_one_or_none()
             if prior is not None:
-                return json.loads(prior)
-            result = render_documents(actor, payload.request_key)
+                return runtime.writer.execute(
+                    actor.id,
+                    "spikes.documents",
+                    payload.request_key,
+                    {},
+                    lambda conn: json.loads(prior),
+                    authorize=lambda conn: runtime.auth.authorize(conn, actor, "spikes.use"),
+                )
+            # Persist the immutable render input before either format can commit.
+            prepared = runtime.writer.execute(
+                actor.id,
+                "spikes.documents.prepare",
+                payload.request_key,
+                {},
+                lambda conn: {
+                    "snapshot_json": synthetic_snapshot().canonical_bytes().decode("utf-8")
+                },
+                authorize=lambda conn: runtime.auth.authorize(conn, actor, "spikes.use"),
+            )
+            raw = json.loads(prepared["snapshot_json"])
+            snapshot = DocumentSnapshot(
+                title=raw["title"],
+                subtitle=raw["subtitle"],
+                fields=tuple(tuple(pair) for pair in raw["fields"]),
+                paragraphs=tuple(raw["paragraphs"]),
+                column_headers=tuple(raw["column_headers"]),
+                rows=tuple(tuple(row) for row in raw["rows"]),
+            )
+            result = render_documents(actor, payload.request_key, snapshot)
+            if result["errors"]:
+                # Successful formats already have durable individual receipts. A retry
+                # recovers those and retries only failures, preserving the first snapshot.
+                return result
             return runtime.writer.execute(
                 actor.id,
                 "spikes.documents",
@@ -369,23 +432,45 @@ def create_app(
                 authorize=lambda conn: runtime.auth.authorize(conn, actor, "spikes.use"),
             )
 
-    def render_documents(actor: Principal, request_key: str):
-        snapshot, renderer, outputs, errors = synthetic_snapshot(), DocumentRenderer(), [], []
+    def render_documents(actor: Principal, request_key: str, snapshot: DocumentSnapshot):
+        outputs, errors = [], []
         for format in ("docx", "pdf"):
             try:
-                output = getattr(renderer, format)(snapshot)
-                stored = runtime.files.put(
-                    io.BytesIO(output.content),
-                    category="documents",
-                    original_name=f"foundation-sample.{format}",
-                    media_type={
-                        "pdf": "application/pdf",
-                        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    }[format],
-                    actor=actor.id,
-                    request_key=hashlib.sha256(f"{request_key}:{format}".encode()).hexdigest(),
-                    authorize=lambda conn: runtime.auth.authorize(conn, actor, "spikes.use"),
-                )
+                format_key = hashlib.sha256(f"{request_key}:{format}".encode()).hexdigest()
+                with runtime.database.read() as conn:
+                    receipt = conn.execute(
+                        select(REQUESTS.c.result_json).where(
+                            REQUESTS.c.actor == actor.id,
+                            REQUESTS.c.action == "files.put",
+                            REQUESTS.c.request_key == format_key,
+                        )
+                    ).scalar_one_or_none()
+                if receipt is not None:
+                    record = json.loads(receipt)
+                    stored = runtime.files.get(record["id"])
+                    if (
+                        stored.sha256 != record["sha256"]
+                        or stored.original_name != f"foundation-sample.{format}"
+                    ):
+                        raise CoreError(
+                            "EXPORT_RECEIPT_CONFLICT", "Output không khớp lượt xuất đã lưu.", 409
+                        )
+                    with runtime.files.read(stored.id):
+                        pass
+                else:
+                    output = getattr(DocumentRenderer(), format)(snapshot)
+                    stored = runtime.files.put(
+                        io.BytesIO(output.content),
+                        category="documents",
+                        original_name=f"foundation-sample.{format}",
+                        media_type={
+                            "pdf": "application/pdf",
+                            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        }[format],
+                        actor=actor.id,
+                        request_key=format_key,
+                        authorize=lambda conn: runtime.auth.authorize(conn, actor, "spikes.use"),
+                    )
                 outputs.append(
                     {
                         "format": format,
@@ -420,14 +505,24 @@ def create_app(
     def file_content(file_id: str, request: Request):
         require(request, "files.read")
         stored = runtime.files.get(file_id)
+        resources = ExitStack()
+        try:
+            # Opening and hash verification must finish before HTTP response-start.
+            source = resources.enter_context(runtime.files.read(file_id))
+        except BaseException:
+            resources.close()
+            raise
 
         def stream():
-            with runtime.files.read(file_id) as source:
+            try:
                 while chunk := source.read(64 * 1024):
                     yield chunk
+            finally:
+                resources.close()
 
-        return StreamingResponse(
+        return VerifiedFileResponse(
             stream(),
+            resources=resources,
             media_type=stored.media_type,
             headers={"Content-Disposition": "attachment", "X-Content-SHA256": stored.sha256},
         )

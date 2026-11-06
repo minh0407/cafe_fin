@@ -1,14 +1,21 @@
 """Trusted bootstrap. Native selection owns absolute paths; modules use service handles."""
 
+from __future__ import annotations
+
 import logging
 import logging.handlers
 import threading
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
+
+from sqlalchemy.engine import Connection
 
 from . import auth, imports, jobs, storage
 from .auth import AuthService
 from .backup import BackupService
 from .db import Database, WriteCoordinator
+from .errors import CoreError
 from .jobs import JobHandler, JobRunner, JobService
 from .modules import ModuleRegistry
 from .storage import DataRootService, FileStore
@@ -54,16 +61,27 @@ class Runtime:
             migrations = auth.MIGRATIONS + jobs.MIGRATIONS + storage.MIGRATIONS + imports.MIGRATIONS
             migrations += tuple(m for module in self.modules.ordered() for m in module.migrations)
             self.database.migrate(migrations)
+            self.reader: Callable[[], AbstractContextManager[Connection]] = self.database.read
             self.writer = WriteCoordinator(self.database)
             self.auth = AuthService(self.database, self.writer)
             self.files = FileStore(self.root, self.database, self.writer)
             self.workbook_spike = WorkbookSpike(self.files)
             self.backups = BackupService(self.root, self.database, self.writer)
             self.render_lock = threading.Lock()
+            handlers = {"foundation.sample": JobHandler(sample_job, resumable=True)}
+            for module in self.modules.ordered():
+                for kind, handler in module.job_handlers.items():
+                    if kind in handlers:
+                        raise CoreError(
+                            "DUPLICATE_JOB_KIND",
+                            "Loại job đã được core hoặc module khác đăng ký.",
+                            503,
+                        )
+                    handlers[kind] = handler
             self.jobs = JobService(
                 self.database,
                 self.writer,
-                {"foundation.sample": JobHandler(sample_job, resumable=True)},
+                handlers,
             )
             self.runner = JobRunner(self.jobs)
             self.logger = logging.getLogger(f"cafe_fin.{id(self)}")
@@ -89,6 +107,12 @@ class Runtime:
 
     def start(self):
         if not self._started:
+            # Hooks can reconcile module-owned attempts after core marks abandoned jobs,
+            # before any worker can observe partially restored module state.
+            self.jobs.recover_interrupted()
+            for module in self.modules.ordered():
+                if module.on_startup is not None:
+                    module.on_startup(self)
             self.runner.start()
             self._started = True
 

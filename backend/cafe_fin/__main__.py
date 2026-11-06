@@ -4,6 +4,7 @@ import json
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 
 import uvicorn
@@ -26,7 +27,7 @@ class BootRequest(BaseModel):
 
 
 def main() -> int:
-    runtime, listener = None, None
+    runtime, listener, server, server_thread = None, None, None, None
     error = None
     try:
         sys.stdin.reconfigure(encoding="utf-8", errors="strict")
@@ -60,6 +61,15 @@ def main() -> int:
             server_header=False,
         )
         server = uvicorn.Server(config)
+        server_failed = threading.Event()
+
+        def serve():
+            try:
+                server.run(sockets=[listener])
+            except BaseException:
+                # Uvicorn may raise SystemExit on lifespan failure. IPC must still
+                # emit a sanitized startup error instead of an optimistic ready.
+                server_failed.set()
 
         def parent_control():
             while True:
@@ -75,6 +85,18 @@ def main() -> int:
                     pass
 
         threading.Thread(target=parent_control, name="cafe-fin-ipc", daemon=True).start()
+        server_thread = threading.Thread(target=serve, name="cafe-fin-http", daemon=True)
+        server_thread.start()
+        startup_deadline = time.monotonic() + 15
+        while not server.started and server_thread.is_alive():
+            if time.monotonic() >= startup_deadline:
+                server.should_exit = True
+                raise CoreError(
+                    "STARTUP_TIMEOUT", "Backend chưa sẵn sàng trong thời hạn khởi động.", 503
+                )
+            time.sleep(0.01)
+        if not server.started or server_failed.is_set() or not server_thread.is_alive():
+            raise CoreError("STARTUP_FAILED", "Không thể khởi động các dịch vụ dữ liệu local.", 503)
         print(
             json.dumps(
                 {
@@ -85,7 +107,9 @@ def main() -> int:
             ),
             flush=True,
         )
-        server.run(sockets=[listener])
+        server_thread.join()
+        if server_failed.is_set():
+            raise CoreError("BACKEND_FAILED", "Backend local đã dừng do lỗi.", 503)
     except (ValidationError, ValueError, TypeError):
         error = CoreError("BOOT_PROTOCOL_INVALID", "Thông tin khởi động không hợp lệ.", 503)
     except CoreError as exc:
@@ -95,6 +119,9 @@ def main() -> int:
             "STARTUP_FAILED", "Không thể mở dữ liệu local. Kiểm tra cấu hình và thư mục.", 503
         )
     finally:
+        if server_thread and server_thread.is_alive():
+            server.should_exit = True
+            server_thread.join(timeout=10)
         if listener:
             listener.close()
         if runtime:
