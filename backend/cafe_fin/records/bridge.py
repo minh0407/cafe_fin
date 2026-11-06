@@ -1,10 +1,13 @@
 """Permission-scoped concrete read provider; no private ORM needed by consumers."""
 
 import json
+import re
 from collections import defaultdict
 from contextlib import contextmanager
 from datetime import date, datetime
+from weakref import ref
 
+from sqlalchemy import event
 from sqlalchemy.engine import Connection
 
 from cafe_fin.core.contracts import (
@@ -53,6 +56,48 @@ _COMPONENT_FIELDS = (
     "adjustment_out_kg",
 )
 
+# SQLite permits comments, BOM and empty statements before a control statement.
+# This is a conservative control detector, not an SQL execution/parser facility.
+_SQL_PREFIX = re.compile(r"(?:\s+|\ufeff|;+|--[^\n]*(?:\n|$)|/\*.*?\*/)*", re.S)
+_SQL_WORD = re.compile(r"[A-Za-z]+")
+_QUERY_ONLY_NAME = re.compile(r"\bquery_only\b", re.I)
+_EPOCH_KEY = "cafe_fin.records.borrowed_snapshot_epoch"
+
+
+class _SnapshotEpoch:
+    def __init__(self, conn: Connection):
+        # Connection.info can follow a pooled DBAPI connection; never reuse its
+        # observer for a different SQLAlchemy Connection wrapper.
+        self.owner = ref(conn)
+        self.value = 0
+
+    def before_cursor_execute(self, conn, cursor, statement, parameters, context, executemany):
+        prefix = _SQL_PREFIX.match(statement)
+        word = _SQL_WORD.match(statement, prefix.end())
+        keyword = word.group().upper() if word else ""
+        if keyword in {"BEGIN", "COMMIT", "END", "ROLLBACK", "SAVEPOINT", "RELEASE"}:
+            self.value += 1
+        elif keyword == "PRAGMA":
+            tail = statement[word.end() :]
+            # No bound read may survive a temporary write-enabled connection.
+            # Treat setting attempts conservatively, even if SQLite rejects them.
+            if "=" in tail or (_QUERY_ONLY_NAME.search(tail) and "(" in tail):
+                self.value += 1
+
+    def end_transaction(self, conn):
+        self.value += 1
+
+
+def _snapshot_epoch(conn: Connection) -> _SnapshotEpoch:
+    state = conn.info.get(_EPOCH_KEY)
+    if not isinstance(state, _SnapshotEpoch) or state.owner() is not conn:
+        state = _SnapshotEpoch(conn)
+        event.listen(conn, "before_cursor_execute", state.before_cursor_execute)
+        event.listen(conn, "commit", state.end_transaction)
+        event.listen(conn, "rollback", state.end_transaction)
+        conn.info[_EPOCH_KEY] = state
+    return state
+
 
 class RecordsReadProvider:
     """Bind one authenticated principal; core rechecks permission on every read.
@@ -66,6 +111,12 @@ class RecordsReadProvider:
         self.service = RecordsService(runtime)
         self.connection = connection
         self._transaction = connection.get_transaction() if connection is not None else None
+        self._epoch = (
+            _snapshot_epoch(connection)
+            if connection is not None and not connection.closed and not connection.invalidated
+            else None
+        )
+        self._epoch_value = self._epoch.value if self._epoch is not None else None
 
     @staticmethod
     def _require_snapshot(conn: Connection) -> None:
@@ -96,7 +147,11 @@ class RecordsReadProvider:
     def _read(self):
         if self.connection is not None:
             self._require_snapshot(self.connection)
-            if self.connection.get_transaction() is not self._transaction:
+            if (
+                self.connection.get_transaction() is not self._transaction
+                or self._epoch is None
+                or self._epoch.value != self._epoch_value
+            ):
                 raise CoreError(
                     "READ_ONLY_SNAPSHOT_REQUIRED",
                     "Snapshot đã kết thúc; cần bind reader mới cho transaction mới.",

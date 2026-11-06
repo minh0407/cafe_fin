@@ -139,6 +139,15 @@ API:1 PASS/19.9s tổng. Build/typecheck, Ruff/compileall/diff đều PASS. Feat
 v2 bundle12 modules54.60KB/gzip14.05KB PASS. Không đổi migration/dependency.
 Chi tiết semantics và shared commit prerequisite ở read-bridge-v2.md.
 
+Bổ sung QA sau c82044d: borrowed reader theo dõi cả transaction epoch của public
+SQLAlchemy Connection, không thể hồi sinh qua raw ROLLBACK/COMMIT/END rồi BEGIN
+với cùng RootTransaction wrapper. PRAGMA setting/write-enable cũng vô hiệu hóa
+reader cũ. Caller vẫn sở hữu transaction và bind mới đọc được snapshot mới.
+Không đổi through_on (bao gồm ngày cuối). Xem raw-snapshot-fix.md và tests.md.
+Sau fix:131 records tests PASS/61.86s, gồm52 raw-SQL regression cases. Ruff,
+compileall và diff check PASS. Bằng chứng core/browser v2 phía trên là mốc trước
+patch guard; không suy là đã chạy lại chúng khi core/UI không đổi.
+
 Native Tauri GUI/installer/Windows sạch và workflow sau root integration chưa
 nghiệm thu ở lane này. Browser harness riêng dùng API/DB thật sẽ ghi tách biệt
 với native acceptance; không suy native PASS từ Chromium. Không có test trên DB

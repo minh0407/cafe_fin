@@ -168,3 +168,64 @@ cũ chưa phân loại; không tuyên bố HTTP cho phép tạo entry_type khôn
 
 Migration và các mutation không thay đổi. Không suy báo cáo/accounting/native
 integration PASS từ các tests producer này.
+
+## Bổ sung P2: raw SQL không được hồi sinh snapshot đã bind
+
+File mới `tests/records/test_records_raw_snapshot.py` tái hiện lỗi trước sửa bằng
+public SQLAlchemy Connection: raw `ROLLBACK`, writer commit phiếu mới trên một
+physical connection khác, rồi raw `BEGIN` vẫn giữ nguyên SQLAlchemy
+RootTransaction object. Cutoff là 2030 nên không che revision mới. Regression
+đầu tiên RED thật: provider cũ đọc `15.003` kg/`150.03` VND thay snapshot
+`10.001` kg/`100.01` VND, với wrapper transaction không thay đổi.
+
+Parent lane thêm connection epoch guard; nhóm test không sửa backend/core hoặc
+migration. Sau fix:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/records/test_records_raw_snapshot.py -q -o faulthandler_timeout=20
+# PASS: 52 passed, 1 warning in 25.44s
+.\.venv\Scripts\python.exe -m ruff check tests/records/test_records_raw_snapshot.py
+# PASS
+```
+
+Ma trận kiểm public `exec_driver_sql` và `execute(text(...))`, cả bind method và
+constructor `connection=...`, với COMMIT/END/ROLLBACK rồi BEGIN mới. Câu SQL có
+prefix BOM, semicolon, block/line comments và chữ hoa/thường vẫn làm provider cũ
+bị từ chối. Cả bốn method protocol và `inventory_breakdown` phải trả
+`READ_ONLY_SNAPSHOT_REQUIRED`; không đóng/rollback connection caller. Bind mới
+thấy v2 purchased/closing `15.003` và công nợ `150.03`. Nhiều provider cùng
+connection đều bị invalidated, không chỉ instance xử lý lệnh đầu tiên.
+
+Failed BEGIN và SAVEPOINT attempt cũng làm provider cũ invalid theo chính sách
+conservative. SQLAlchemy NestedTransaction commit/rollback vẫn giữ RootTransaction
+nhưng bị guard nhận biết. Negative controls là SELECT literal, comments và bound
+parameters chứa ROLLBACK/BEGIN/COMMIT/END/SAVEPOINT; chúng không được làm mất
+snapshot hợp lệ hoặc chặn các read bình thường.
+
+Query-only OFF → actual UPDATE → ON được kiểm với bốn dạng PRAGMA: bare setting,
+schema + quoted name, bracket + parentheses và schema + backtick + parentheses;
+mỗi dạng chạy bằng cả hai public SQL execution APIs. UPDATE chỉ tác động probe
+tổng hợp trong DB tạm và không commit. Dù query_only đã trở lại 1, driver vẫn ở
+transaction và RootTransaction wrapper còn nguyên, mọi provider cũ phải bị chặn;
+connection và dữ liệu probe chưa commit vẫn thuộc caller.
+
+Hook chứng minh writer khác chỉ đếm UPDATE records_documents của mutation thật,
+tránh nhầm transaction idle job worker vào số writer quan sát. Đây là test SQLite
+file/WAL thực và public SQLAlchemy APIs; không gọi raw driver_connection.execute.
+Không suy rằng mọi khả năng bypass ngoài public Connection đã được kiểm. Parent
+lane đã chạy full regression sau freeze, không suy từ focused 52 cases:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/records -q -o faulthandler_timeout=30
+# PASS: 131 passed, 1 warning in 61.86s.
+.\.venv\Scripts\ruff.exe check backend/cafe_fin/records tests/records
+# PASS
+.\.venv\Scripts\python.exe -m compileall -q backend/cafe_fin/records tests/records
+# PASS
+git diff --check
+# PASS
+```
+
+Một warning nền Starlette/httpx vẫn có. Core/shared/migration/frontend không đổi;
+không chạy lại core suite hoặc browser/build cho patch guard backend này. Kết quả
+187 core+records và browser v2 trước patch là bằng chứng mốc c82044d riêng.
