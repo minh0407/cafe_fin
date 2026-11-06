@@ -9,6 +9,8 @@ export type DeliveryState =
   | "UNKNOWN"
   | "UNCONFIGURED";
 export interface InventoryLine {
+  product_name?: string | null;
+  warehouse_name?: string | null;
   product_id: string;
   warehouse_id: string;
   opening_kg: string;
@@ -17,6 +19,7 @@ export interface InventoryLine {
   closing_kg: string;
 }
 export interface Book {
+  book_name?: string | null;
   book_id: string;
   has_valid_money_mapping: boolean;
   metrics: {
@@ -56,6 +59,8 @@ export interface Snapshot {
   warnings: string[];
 }
 export interface MovementLine {
+  product_name?: string | null;
+  warehouse_name?: string | null;
   product_id: string;
   warehouse_id: string;
   purchased_kg: string;

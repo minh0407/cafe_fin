@@ -10,6 +10,9 @@ const root = path.resolve(
 const require = createRequire(path.join(root, "frontend/package.json"));
 const { chromium } = require("@playwright/test");
 const browser = await chromium.launch({ headless: true });
+process.on("message", (message) => {
+  if (message?.type === "reporting-ui-cancel") void browser.close();
+});
 const page = await browser.newPage({ viewport: { width: 1440, height: 1080 } });
 const failures = [];
 page.on("pageerror", (error) => failures.push(error.message));
@@ -170,6 +173,16 @@ await page.route("**/api/v1/**", async (route) => {
       credential_store_available: false,
       credential_configured: false,
       sender_status: "UNCONFIGURED",
+    };
+  else if (resource === "/accounting/books")
+    result = {
+      items: [
+        { id: "cash", name: "Sổ quỹ tiền mặt" },
+        { id: "missing", name: "Sổ chưa ánh xạ tiền" },
+      ],
+      total: 2,
+      page: Number(url.searchParams.get("page")),
+      page_size: 50,
     };
   else if (resource === "/reporting/scheduler/tick") {
     timerFailed = !timerFailed;
@@ -378,6 +391,14 @@ try {
     validation_flags: [],
   });
   snapshot.warnings = ["MONEY_DATA_INCOMPLETE"];
+  snapshot.sources.inventory.items[0].warehouse_name = "Kho theo snapshot <b>&";
+  snapshot.sources.inventory.items[0].product_name =
+    "Cà phê theo snapshot <b>&";
+  snapshot.sources.inventory.movement_breakdown[0].warehouse_name =
+    "Kho theo snapshot <b>&";
+  snapshot.sources.inventory.movement_breakdown[0].product_name =
+    "Cà phê theo snapshot <b>&";
+  snapshot.sources.books[0].book_name = "Sổ quỹ theo snapshot <b>&";
   await page.setViewportSize({ width: 1440, height: 1500 });
   await page.getByText("Xem bản 1", { exact: true }).click();
   await page
@@ -387,6 +408,13 @@ try {
     )
     .waitFor();
   await page.getByText(/Tổng thu tiền: 1.234.567.890,01/).waitFor();
+  await page
+    .getByText("Kho theo snapshot <b>& / Cà phê theo snapshot <b>&", {
+      exact: true,
+    })
+    .first()
+    .waitFor();
+  await page.getByText("Sổ quỹ theo snapshot <b>&", { exact: true }).waitFor();
   await page.getByText(/Cọc thu \(trong tổng thu\): 100,00/).waitFor();
   await page.waitForFunction(
     () =>
@@ -427,12 +455,18 @@ try {
   await page
     .getByLabel("Tự tạo và lưu báo cáo cuối ngày", { exact: true })
     .click();
+  const dailyBooks = page.getByRole("combobox", {
+    name: "Sổ kế toán cho lịch tự động",
+    exact: true,
+  });
+  await dailyBooks.click();
   await page
-    .getByLabel(
-      "Các sổ cho báo cáo tự động (mã cách bằng dấu phẩy, tối đa 100)",
-      { exact: true },
-    )
-    .fill("cash, missing");
+    .getByRole("option", { name: "Sổ quỹ tiền mặt", exact: true })
+    .click();
+  await page
+    .getByRole("option", { name: "Sổ chưa ánh xạ tiền", exact: true })
+    .click();
+  await dailyBooks.press("Escape");
   await page.getByLabel("Giờ gửi", { exact: true }).fill("18:00");
   await page
     .getByRole("button", { name: "Yêu cầu kiểm tra lịch ngay", exact: true })
@@ -516,6 +550,7 @@ try {
         "unmarked legacy cannot enqueue",
         "snapshot exact kg/missing mapping",
         "v2 components and deposit subset labels",
+        "snapshot v3 product/warehouse/book names rendered as literal text",
         "UNKNOWN no retry",
         "reconcile remains unknown",
         "unconfigured credentials disabled",
@@ -556,4 +591,5 @@ try {
   throw cause;
 } finally {
   await browser.close();
+  if (process.connected) process.disconnect();
 }

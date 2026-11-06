@@ -5,6 +5,12 @@ merge or READY tag has been made by this lane.
 
 Latest integration follow-ups:
 
+- [Named book picker and snapshot-name UI](book-picker.md): public page_size50
+  metadata, ID-array commands, retained labels, stale/actor guards and empty-book
+  fallback. [V3 consumer](read-bridge-v3-consumer.md): frozen typed names in real
+  PDF/XLSX/TXT; old snapshots/exports stay unchanged. **193 focused backend PASS**.
+- [CI browser entrypoint](ui-ci.md): **1 Playwright wrapper PASS**, running 21 main
+  + 10 picker internal assertion groups on owned Vite1431, temp-only evidence.
 - [Empty-target preflight correction](empty-destination.md): missing OA/group/
   credential stays UNCONFIGURED with zero new external attempts; catch-up,
   manual retry, legacy WAITING and restart covered. **62 focused cases PASS**.
@@ -38,6 +44,9 @@ unchanged as `f026708`. Root should skip both local duplicate shared commits.
 File scopes `22ca543106bdcc91e55e11067683f5514fbbada3` and DateInput disabled-context
 fix `3aa94c601dbf878f07b46b0902fc71b0f388c40c` are applied unchanged as `4bce76f`
 and `9e6d9fc`; root should also skip these duplicates.
+Bridge v3 `206a7e30ce702d8064084c90296aed3634ef28b7` is applied as `057b613`
+with identical stable patch ID; root already owns the original and skips this
+duplicate. The consumer notes document the older local API-doc parent difference.
 
 ## Checkout and baseline
 
@@ -58,8 +67,9 @@ and `9e6d9fc`; root should also skip these duplicates.
   in the chat handoff.
 
 Lane-owned changes only touch reporting backend/frontend/tests/handoff paths;
-the twenty-four shared files in `64ae735`/`84abda4`/`60c7ba8`/`8ed4f77`/`f026708`/`4bce76f`/`9e6d9fc` are exactly the
-coordinator-approved cherry-picks.
+the twenty-six shared files covered by `64ae735`/`84abda4`/`60c7ba8`/`8ed4f77`/
+`f026708`/`4bce76f`/`9e6d9fc`/`057b613` contain only coordinator-approved
+cherry-pick deltas; newer approved patches update previously owned files.
 No production
 data, DB, real Excel, token, account information, images or generated binaries are
 committed. Test transport never contacts Zalo.
@@ -88,8 +98,9 @@ visible locally with a warning and are omitted from shareable summaries.
 Missing mapping or missing production breakdown is unavailable, never zero.
 There is no QC/approval/hold workflow and hold is never added to stock.
 
-All current exports are **summary-only**, with ordinal warehouse/product/book
-labels and no arbitrary source descriptions, IDs, notes, paths or provider flags.
+All current exports are **summary-only**, using frozen typed warehouse/product/book
+names plus identity-based ordinals when available (ordinal fallback for old
+snapshots), with no arbitrary descriptions, source IDs, notes, paths or flags.
 The local detail screen retains DTO source IDs for inspection. Summary files
 point back to the local snapshot by hash, without a localhost link. Only a
 reporting-owned summary export of that same report can be explicitly selected

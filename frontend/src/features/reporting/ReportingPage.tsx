@@ -17,6 +17,7 @@ import {
 import { api, messageOf } from "../../shared/api";
 import { useSession } from "../../shared/session";
 import { DateInput, dateInputRule } from "../../shared/DateInput";
+import { BookPicker } from "./BookPicker";
 import { DailyScheduleHistory } from "./DailyScheduleHistory";
 import { RuntimeScheduleStatus } from "./RuntimeScheduleStatus";
 import type { Page } from "../../shared/types";
@@ -79,10 +80,18 @@ const exact = (value: string) => {
     (fraction ? `,${fraction}` : "")
   );
 };
+const scopeName = (name: string | null | undefined, fallback: string) =>
+  name
+    ?.replace(
+      /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f]/g,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim() || fallback;
 const settingsFields = (settings: Settings) => ({
   ...settings,
   auto_generate_daily: settings.auto_generate_daily ?? false,
-  daily_book_ids_text: (settings.daily_book_ids ?? []).join(", "),
+  daily_book_ids: settings.daily_book_ids ?? [],
   daily_export_formats: settings.daily_export_formats ?? ["pdf", "xlsx", "txt"],
 });
 function todayVN() {
@@ -359,8 +368,16 @@ function ReportingView() {
     {
       title: "Kho / loại",
       key: "scope",
-      render: (_: unknown, row: { warehouse_id: string; product_id: string }) =>
-        `${row.warehouse_id} / ${row.product_id}`,
+      render: (
+        _: unknown,
+        row: {
+          warehouse_id: string;
+          product_id: string;
+          warehouse_name?: string | null;
+          product_name?: string | null;
+        },
+      ) =>
+        `${scopeName(row.warehouse_name, row.warehouse_id)} / ${scopeName(row.product_name, row.product_id)}`,
     },
     ...(
       [
@@ -380,8 +397,16 @@ function ReportingView() {
     {
       title: "Kho / loại",
       key: "scope",
-      render: (_: unknown, row: { warehouse_id: string; product_id: string }) =>
-        `${row.warehouse_id} / ${row.product_id}`,
+      render: (
+        _: unknown,
+        row: {
+          warehouse_id: string;
+          product_id: string;
+          warehouse_name?: string | null;
+          product_name?: string | null;
+        },
+      ) =>
+        `${scopeName(row.warehouse_name, row.warehouse_id)} / ${scopeName(row.product_name, row.product_id)}`,
     },
     ...(
       [
@@ -485,7 +510,7 @@ function ReportingView() {
           initialValues={{
             from_on: todayVN(),
             through_on: todayVN(),
-            books: "",
+            books: [],
             reason: "",
           }}
           onFinish={(values) =>
@@ -495,10 +520,7 @@ function ReportingView() {
                 {
                   from_on: values.from_on,
                   through_on: values.through_on,
-                  book_ids: String(values.books ?? "")
-                    .split(",")
-                    .map((x) => x.trim())
-                    .filter(Boolean),
+                  book_ids: values.books ?? [],
                   reason: values.reason ?? "",
                 },
               );
@@ -528,11 +550,8 @@ function ReportingView() {
             >
               <DateInput aria-label="Đến hết ngày (VN)" />
             </Form.Item>
-            <Form.Item name="books" label="Mã sổ (cách bằng dấu phẩy)">
-              <Input
-                placeholder="Để trống nếu chưa chọn sổ"
-                style={{ width: 320 }}
-              />
+            <Form.Item name="books" label="Sổ kế toán cho báo cáo">
+              <BookPicker label="Sổ kế toán cho báo cáo" disabled={busy} />
             </Form.Item>
           </Space>
           <Form.Item
@@ -636,12 +655,7 @@ function ReportingView() {
                                   !!values.attachments_enabled,
                                 auto_generate_daily:
                                   !!values.auto_generate_daily,
-                                daily_book_ids: String(
-                                  values.daily_book_ids_text ?? "",
-                                )
-                                  .split(",")
-                                  .map((x) => x.trim())
-                                  .filter(Boolean),
+                                daily_book_ids: values.daily_book_ids ?? [],
                                 daily_export_formats:
                                   values.daily_export_formats ?? [],
                                 send_at: values.send_at || null,
@@ -691,12 +705,12 @@ function ReportingView() {
                           <Switch />
                         </Form.Item>
                         <Form.Item
-                          name="daily_book_ids_text"
-                          label="Các sổ cho báo cáo tự động (mã cách bằng dấu phẩy, tối đa 100)"
+                          name="daily_book_ids"
+                          label="Sổ kế toán cho lịch tự động"
                         >
-                          <Input
-                            maxLength={12899}
-                            placeholder="Để trống: chỉ tổng hợp kho, tiền chưa đủ dữ liệu"
+                          <BookPicker
+                            label="Sổ kế toán cho lịch tự động"
+                            disabled={busy}
                           />
                         </Form.Item>
                         <Form.Item
@@ -927,7 +941,7 @@ function ReportingView() {
               <Card
                 key={book.book_id}
                 size="small"
-                title={`Sổ ${book.book_id}`}
+                title={scopeName(book.book_name, `Sổ ${book.book_id}`)}
               >
                 {!book.has_valid_money_mapping || !book.metrics.length ? (
                   <Typography.Text>Chưa đủ dữ liệu tiền</Typography.Text>
