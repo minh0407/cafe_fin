@@ -75,6 +75,13 @@ jobs:
       - name: Feature browser integration tests
         run: |
           $featureConfigs = @(Get-ChildItem -LiteralPath 'tests' -Filter 'playwright.config.*' -File -Recurse | Sort-Object FullName)
+          # The accounting real-API workflow is a separate bounded configuration;
+          # million-row benchmarks remain opt-in measured host work.
+          $accountingApiConfig = 'tests/accounting/ui/real.config.ts'
+          if (Test-Path -LiteralPath $accountingApiConfig) {
+            $featureConfigs += Get-Item -LiteralPath $accountingApiConfig
+          }
+          $featureConfigs = @($featureConfigs | Sort-Object FullName -Unique)
           foreach ($featureConfig in $featureConfigs) {
             node frontend/node_modules/@playwright/test/cli.js test --config $featureConfig.FullName
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

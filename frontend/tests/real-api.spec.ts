@@ -341,6 +341,38 @@ test("real sidecar API integrates auth, original uploads, paged grid and verifie
       return (await api(`/records/weighings/${identity}`)).lines[0].net_kg;
     }, realSources.weighing.id);
     expect(originalQuantity).toBe("12.345"); // Contract override never changes the source.
+    const localBook = await page.evaluate(async () => {
+      const modulePath = "/src/shared/api.ts";
+      const { api } = await import(modulePath);
+      const book = await api("/accounting/books", { method: "POST", body: JSON.stringify({
+        name: "Sổ quỹ kiểm thử tích hợp", request_key: "shell-book",
+        columns: [
+          { id: "code", name: "Mã chứng từ", kind: "text", required: true },
+          { id: "day", name: "Ngày ghi nhận", kind: "date", required: true },
+          { id: "income", name: "Thu tiền", kind: "money", required: true },
+          { id: "expense", name: "Chi tiền", kind: "money", required: true },
+        ],
+        semantics: { date_column: "day", income_column: "income", expense_column: "expense", currency: "VND",
+          metric_meanings: { income: "cash_receipts", expense: "cash_payments" } },
+      }) });
+      const row = await api(`/accounting/books/${book.id}/rows`, { method: "POST", body: JSON.stringify({
+        request_key: "shell-book-row", values: { code: "DOC-SHELL-001", day: "2026-11-06", income: "10.01", expense: "0.00" },
+      }) });
+      return { book, row };
+    });
+    await page.getByRole("menuitem", { name: "Sổ kế toán", exact: true }).click();
+    const accountingGrid = page.getByRole("grid", { name: "Sổ kế toán theo ô", exact: true });
+    await expect(accountingGrid.getByRole("gridcell", { name: "DOC-SHELL-001", exact: true })).toBeVisible();
+    await accountingGrid.getByRole("gridcell", { name: "10.01", exact: true }).dblclick();
+    await accountingGrid.getByRole("textbox").fill("20.03");
+    await accountingGrid.getByRole("textbox").press("Enter");
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "Lưu bản nháp", exact: true }).click();
+    await expect.poll(() => page.evaluate(async (id) => {
+      const modulePath = "/src/shared/api.ts";
+      const { api } = await import(modulePath);
+      return (await api(`/accounting/rows/${id}`)).values.income;
+    }, localBook.row.id)).toBe("20.03");
     await page.getByRole("menuitem", { name: "Cài đặt trên máy", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Tài khoản nội bộ", exact: true })).toBeVisible();
     await page.getByLabel("Tên đăng nhập mới", { exact: true }).fill("shell-operator");
