@@ -15,6 +15,8 @@ from cafe_fin.core.errors import CoreError
 from cafe_fin.core.time import utc_now
 
 from . import exports
+from .local_export_migrations import LOCAL_EXPORTS
+from .local_exports import ensure_local_copy, local_state
 from .migrations import ATTEMPTS, EXPORTS, LOCKS, OUTBOX, REPORTS, SETTINGS
 from .models import DATE_RANGE_CONTRACT
 from .sources import UnboundSources, build_snapshot
@@ -120,7 +122,7 @@ class ReportingService:
             row = self.report(conn, identity)
             result = report_dto(row)
             result["exports"] = [
-                dict(x)
+                {**dict(x), "local_export": local_state(conn, x.id)}
                 for x in conn.execute(
                     select(EXPORTS).where(EXPORTS.c.report_id == identity)
                 ).mappings()
@@ -243,7 +245,8 @@ class ReportingService:
 
     def export(self, actor, identity, command):
         with self.runtime.render_lock:
-            return self._export(actor, identity, command)
+            canonical = self._export(actor, identity, command)
+            return {**canonical, "local_export": ensure_local_copy(self, actor, canonical)}
 
     def _export(self, actor, identity, command):
         with self.runtime.reader() as conn:
@@ -671,6 +674,11 @@ class ReportingService:
 
     def recover(self):
         def operation(conn):
+            conn.execute(
+                LOCAL_EXPORTS.update()
+                .where(LOCAL_EXPORTS.c.state == "COPYING")
+                .values(state="PENDING", error_code="PROCESS_INTERRUPTED", updated_at=utc_now())
+            )
             # A persisted text receipt with no attachment already proves completion.
             conn.execute(
                 OUTBOX.update()

@@ -13,6 +13,7 @@ from cafe_fin.core.periodic import PeriodicTask
 
 from . import models
 from .downloads import export_content
+from .local_export_migrations import MIGRATIONS as LOCAL_EXPORT_MIGRATIONS
 from .migrations import MIGRATIONS
 from .schedule_migrations import MIGRATIONS as SCHEDULE_MIGRATIONS
 from .sender import check_connection, reconcile
@@ -210,7 +211,7 @@ def module_manifest(
         "reporting",
         "/reporting",
         permissions=("reporting.read", "reporting.write"),
-        migrations=MIGRATIONS + SCHEDULE_MIGRATIONS,
+        migrations=MIGRATIONS + SCHEDULE_MIGRATIONS + LOCAL_EXPORT_MIGRATIONS,
         router=router,
         job_handlers={"reporting.dispatch": JobHandler(run_dispatch, resumable=False)},
         on_startup=startup,
