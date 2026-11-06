@@ -106,6 +106,26 @@ class ScopeGuard:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        with ExitStack() as resources:
+            try:
+                # Includes authentication, uploads and the complete response stream.
+                resources.enter_context(self.runtime.maintenance.admit(scope["path"]))
+            except CoreError as error:
+                request_id = str(uuid.uuid4())
+                headers = {
+                    "X-Request-ID": request_id,
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                }
+                if (b"origin", self.origin.encode()) in scope["headers"]:
+                    headers["Access-Control-Allow-Origin"] = self.origin
+                    headers["Vary"] = "Origin"
+                return await JSONResponse(
+                    error.envelope(request_id), status_code=error.status, headers=headers
+                )(scope, receive, send)
+            return await self._http(scope, receive, send)
+
+    async def _http(self, scope, receive, send):
         headers = {
             key.decode("latin1").lower(): value.decode("latin1") for key, value in scope["headers"]
         }
@@ -289,7 +309,9 @@ def create_app(
 
     @app.get("/api/v1/health", response_model=HealthDTO)
     def health():
-        if runtime.runner.error_code or (runtime._started and not runtime.runner.thread.is_alive()):
+        if runtime.maintenance.status()["state"] == "ACTIVE" and (
+            runtime.runner.error_code or (runtime._started and not runtime.runner.thread.is_alive())
+        ):
             raise CoreError(
                 "JOB_RUNNER_UNAVAILABLE", "Bộ xử lý tác vụ local đang cần phục hồi.", 503
             )

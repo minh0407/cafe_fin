@@ -148,8 +148,12 @@ class PeriodicRunner:
                 steps = max(1, int((finished - due[name]) // task.interval_seconds) + 1)
                 due[name] += steps * task.interval_seconds
 
-    def close(self) -> None:
+    def request_stop(self) -> None:
+        """Wake the timer without joining; an active callback may still use the writer."""
         self.stop_event.set()
+
+    def close(self) -> None:
+        self.request_stop()
         with self._lock:
             self._state = "STOPPING" if self.thread.is_alive() else "STOPPED"
         if self.thread.ident is not None:

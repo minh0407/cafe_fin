@@ -470,9 +470,13 @@ class JobRunner:
 
             self._write_with_backpressure(finish, finish=True)
 
-    def close(self):
+    def request_stop(self):
+        """Signal cooperative stop without joining; core maintenance drains producers."""
         self.stop_event.set()
         self.service.wake.set()
+
+    def close(self):
+        self.request_stop()
         self.thread.join(timeout=10)
         if self.thread.is_alive():
             raise CoreError("JOB_SHUTDOWN_TIMEOUT", "Tác vụ chưa dừng tại ranh giới an toàn.", 503)
