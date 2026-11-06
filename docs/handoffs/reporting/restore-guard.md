@@ -3,6 +3,9 @@
 Reporting implements the default manifest's `on_activate(runtime, principal,
 ActivationContext)` hook. A verified restore suspends automatic generation and
 Zalo delivery before core recovery, startup hooks, JobRunner or PeriodicRunner.
+The [human-copy relocation follow-up](local-export-relocation.md) also invalidates
+copied local READY projections and rebuilds reports-folder files during activation
+for move and restore, after quarantine and before recovery, from canonical bytes.
 Move keeps its existing configuration. This is a reporting implementation handoff;
 native/four-module acceptance and the core failures below remain integration gates.
 

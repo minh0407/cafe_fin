@@ -67,8 +67,10 @@ canonical verified bytes under its own authorization checks.
 
 Core backup continues to preserve canonical FileStore objects and the DB. Derived
 human copies are not additional core_file rows and are not separately included by
-the current reference-only backup. After restore, export retry rebuilds a missing
-human copy from its preserved canonical ID/hash, with no source/renderer needed.
+the current reference-only backup. The [reporting activation follow-up](local-export-relocation.md)
+now invalidates copied READY projections and recreates human copies during both
+move and restore, before recovery/workers. Existing export retry can rebuild a
+failed/missing human copy from its preserved canonical ID/hash, with no source/renderer needed.
 Current FileStore.reconcile may list these derived files as orphan keys; reporting
 does not delete such files or change core backup/reconcile policy. A hard kill
 inside the public copy routine may leave its unregistered .part file; recovery

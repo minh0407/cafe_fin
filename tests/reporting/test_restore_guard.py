@@ -14,7 +14,8 @@ from cafe_fin.core.errors import CoreError
 from cafe_fin.core.maintenance_operations import MaintenanceOperations
 from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.core.runtime import Runtime
-from cafe_fin.reporting import models, sender
+from cafe_fin.reporting import exports, local_exports, models, sender
+from cafe_fin.reporting.local_export_migrations import LOCAL_EXPORTS
 from cafe_fin.reporting.migrations import ATTEMPTS, OUTBOX
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.restore import GUARD_ACTION, GUARD_ACTOR, REVIEW_CODE
@@ -671,3 +672,280 @@ def test_held_series_blocks_existing_saved_revision_but_future_and_explicit_send
         assert current["snapshot"] == row["snapshot"] and current["sha256"] == row["sha256"]
         with candidate.runtime.files.read(item["file_id"]) as stream:
             assert stream.read() == content
+
+
+def relocation_files(lab):
+    row, txt = report(lab.source, "2026-10-01")
+    receipts = [txt] + [
+        lab.source.service.export(
+            lab.source.actor,
+            row["id"],
+            models.Export(
+                request_key="relocate-" + format,
+                format=format,
+            ),
+        )
+        for format in ("pdf", "xlsx")
+    ]
+    # Local-copy maintenance does not need a provider target or credentials.
+    lab.source.service.update_settings(
+        lab.source.actor,
+        models.DeliverySettings(
+            request_key="local-only-relocation",
+            expected_version=lab.source.service.settings()["version"],
+            enabled=False,
+            oa_id="",
+            group_id="",
+        ),
+    )
+    frozen = {}
+    for receipt in receipts:
+        path = lab.source.runtime.root.resolve_key(receipt["local_export"]["relative_key"])
+        content = path.read_bytes()
+        assert hashlib.sha256(content).hexdigest() == receipt["sha256"]
+        frozen[receipt["id"]] = content
+    return row, receipts, frozen
+
+
+def preserved_relocation_inputs(lab, candidate, tmp_path):
+    paths = list(lab.source.runtime.root.path.rglob("*"))
+    backup = tmp_path / ("backup-" + candidate.operation_id)
+    if backup.exists():
+        paths += list(backup.rglob("*"))
+    paths.append(candidate.runtime.root.resolve_key("backup-manifest.json"))
+    # Windows deliberately denies reads of the live process-lock byte; it is not
+    # source data or a backup artifact. The source DB/files remain hashed below.
+    return {
+        path: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in paths
+        if path.is_file() and path.name != ".instance.lock"
+    }
+
+
+def assert_preserved_inputs(frozen):
+    assert all(
+        path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == digest
+        for path, digest in frozen.items()
+    )
+
+
+def assert_relocated_files(candidate, receipts, frozen):
+    for receipt in receipts:
+        path = candidate.runtime.root.resolve_key(receipt["local_export"]["relative_key"])
+        assert path.read_bytes() == frozen[receipt["id"]]
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == receipt["sha256"]
+        with candidate.runtime.files.read(receipt["file_id"]) as stream:
+            assert stream.read() == frozen[receipt["id"]]
+    assert {
+        item["local_export"]["state"]
+        for item in candidate.service.detail(receipts[0]["report_id"])["exports"]
+    } == {"READY"}
+
+
+@pytest.mark.parametrize("kind", ["move", "restore"])
+def test_activation_recreates_all_three_human_formats_before_recovery_in_bounded_pages(
+    lab,
+    tmp_path,
+    monkeypatch,
+    kind,
+):
+    row, receipts, frozen = relocation_files(lab)
+    candidate = lab.prepare(kind)
+    inputs = preserved_relocation_inputs(lab, candidate, tmp_path)
+    assert all(
+        not candidate.runtime.root.resolve_key(item["local_export"]["relative_key"]).exists()
+        for item in receipts
+    )
+    monkeypatch.setattr(local_exports, "RELOCATION_PAGE_SIZE", 2)
+    monkeypatch.setattr(
+        exports, "render", lambda *args: pytest.fail("Canonical exports must not be re-rendered")
+    )
+    actual_export = candidate.runtime.files.export
+    copied = []
+
+    def copy(file_id, destination):
+        assert candidate.runtime.maintenance.status()["state"] == "ACTIVATING"
+        candidate.runtime.writer.run(candidate.service.authorize(candidate.actor, "core.manage"))
+        copied.append(file_id)
+        return actual_export(file_id, destination)
+
+    monkeypatch.setattr(candidate.runtime.files, "export", copy)
+    recover = candidate.runtime.jobs.recover_interrupted
+
+    def observe_recovery():
+        assert_relocated_files(candidate, receipts, frozen)
+        return recover()
+
+    monkeypatch.setattr(candidate.runtime.jobs, "recover_interrupted", observe_recovery)
+    lab.secrets.reads = lab.secrets.writes = 0
+    assert activate(candidate)["state"] == "ACTIVE"
+    assert len(copied) == 3
+    assert_relocated_files(candidate, receipts, frozen)
+    assert candidate.service.detail(row["id"])["snapshot"] == row["snapshot"]
+    context = activation_context(candidate.runtime.root)
+    before = {
+        item["id"]: item["local_export"]["attempts"]
+        for item in candidate.service.detail(row["id"])["exports"]
+    }
+    candidate.service.restore_quarantine(candidate.actor, context)
+    assert candidate.service.repair_local_exports(candidate.actor, context) == {
+        "ready": 3,
+        "failed": 0,
+    }
+    assert len(copied) == 3
+    assert {
+        item["id"]: item["local_export"]["attempts"]
+        for item in candidate.service.detail(row["id"])["exports"]
+    } == before
+    assert not lab.transport.calls and lab.secrets.reads == lab.secrets.writes == 0
+    assert_preserved_inputs(inputs)
+    with candidate.runtime.reader() as conn:
+        audit = (
+            conn.execute(select(AUDIT).where(AUDIT.c.action == "invalidate_local_copies"))
+            .mappings()
+            .one()
+        )
+        assert audit.actor == candidate.actor.id
+
+
+@pytest.mark.parametrize("failure", ["io", "conflict"])
+def test_relocation_copy_failure_is_visible_retryable_and_never_overwrites_unknown_file(
+    lab,
+    tmp_path,
+    monkeypatch,
+    failure,
+):
+    row, receipts, frozen = relocation_files(lab)
+    candidate = lab.prepare()
+    inputs = preserved_relocation_inputs(lab, candidate, tmp_path)
+    txt = next(item for item in receipts if item["format"] == "txt")
+    path = candidate.runtime.root.resolve_key(txt["local_export"]["relative_key"])
+    actual_export = candidate.runtime.files.export
+    if failure == "conflict":
+        path.write_bytes(b"UNKNOWN-USER-FILE")
+    else:
+
+        def unavailable(file_id, destination):
+            if destination.suffix == ".txt":
+                raise OSError("synthetic interrupted local-copy IO")
+            return actual_export(file_id, destination)
+
+        monkeypatch.setattr(candidate.runtime.files, "export", unavailable)
+    assert activate(candidate)["state"] == "ACTIVE"
+    details = {item["format"]: item for item in candidate.service.detail(row["id"])["exports"]}
+    state = details["txt"]["local_export"]
+    assert state["state"] == ("FAILED" if failure == "io" else "CONFLICT")
+    assert state["verified_at"] is None
+    assert (
+        details["pdf"]["local_export"]["state"]
+        == details["xlsx"]["local_export"]["state"]
+        == "READY"
+    )
+    context = activation_context(candidate.runtime.root)
+    if failure == "conflict":
+        assert candidate.service.repair_local_exports(candidate.actor, context)["failed"] == 1
+        assert path.read_bytes() == b"UNKNOWN-USER-FILE"
+        path.unlink()  # Synthetic owner resolves its own conflicting file.
+    monkeypatch.setattr(candidate.runtime.files, "export", actual_export)
+    assert candidate.service.repair_local_exports(candidate.actor, context) == {
+        "ready": 3,
+        "failed": 0,
+    }
+    assert_relocated_files(candidate, receipts, frozen)
+    assert not lab.transport.calls
+    assert_preserved_inputs(inputs)
+
+
+def test_interrupted_activation_copy_reuses_completed_bytes_after_restart_with_fresh_admin(
+    lab,
+    tmp_path,
+    monkeypatch,
+):
+    _, receipts, frozen = relocation_files(lab)
+    candidate = lab.prepare()
+    inputs = preserved_relocation_inputs(lab, candidate, tmp_path)
+    context = activation_context(candidate.runtime.root)
+    actual_export = candidate.runtime.files.export
+    copied = []
+
+    class Interrupted(BaseException):
+        pass
+
+    def interrupt(file_id, destination):
+        actual_export(file_id, destination)
+        copied.append(file_id)
+        raise Interrupted()
+
+    monkeypatch.setattr(candidate.runtime.files, "export", interrupt)
+    with pytest.raises(CoreError, match="MAINTENANCE_ACTIVATION_FAILED"):
+        activate(candidate)
+    with candidate.runtime.reader() as conn:
+        assert set(conn.execute(select(LOCAL_EXPORTS.c.state)).scalars()) <= {"COPYING", "PENDING"}
+    assert len(copied) == 1
+    candidate.runtime.close()
+    reopened = lab.make(candidate.runtime.root.path, username="restoreadmin")
+    assert reopened.runtime.maintenance.status()["state"] == "DORMANT"
+    export = reopened.runtime.files.export
+
+    def copy_remaining(file_id, destination):
+        assert file_id not in copied
+        return export(file_id, destination)
+
+    monkeypatch.setattr(reopened.runtime.files, "export", copy_remaining)
+    assert reopened.service.repair_local_exports(reopened.actor, context) == {
+        "ready": 3,
+        "failed": 0,
+    }
+    assert_relocated_files(reopened, receipts, frozen)
+    assert reopened.runtime.maintenance.status()["state"] == "DORMANT"
+    assert not lab.transport.calls
+    assert_preserved_inputs(inputs)
+
+
+def test_revoked_activation_admin_cannot_finalize_or_replay_local_repair(
+    lab, tmp_path, monkeypatch
+):
+    row, receipts, frozen = relocation_files(lab)
+    candidate = lab.prepare("move")
+    inputs = preserved_relocation_inputs(lab, candidate, tmp_path)
+    login = candidate.runtime.auth.login("restoreadmin", PASSWORD)
+    other = candidate.runtime.auth.authenticate(login["access_token"])
+    context = activation_context(candidate.runtime.root)
+    export = candidate.runtime.files.export
+
+    def revoke_after_copy(file_id, destination):
+        result = export(file_id, destination)
+        candidate.runtime.auth.update_user(
+            other,
+            candidate.actor.id,
+            role="operator",
+            active=False,
+            expected_version=candidate.actor.version,
+            request_key="revoke-local-activation-admin",
+        )
+        return result
+
+    monkeypatch.setattr(candidate.runtime.files, "export", revoke_after_copy)
+    with pytest.raises(CoreError, match="MAINTENANCE_ACTIVATION_FAILED"):
+        activate(candidate)
+    with candidate.runtime.reader() as conn:
+        assert set(conn.execute(select(LOCAL_EXPORTS.c.state)).scalars()) <= {"FAILED", "PENDING"}
+    with pytest.raises(CoreError, match="SESSION_EXPIRED"):
+        candidate.service.repair_local_exports(candidate.actor, context)
+    monkeypatch.setattr(candidate.runtime.files, "export", export)
+    assert candidate.service.repair_local_exports(other, context) == {"ready": 3, "failed": 0}
+    assert_relocated_files(candidate, receipts, frozen)
+    with candidate.runtime.reader() as conn:
+        audits = (
+            conn.execute(
+                select(AUDIT).where(
+                    AUDIT.c.entity == "reporting_local_export", AUDIT.c.actor == other.id
+                )
+            )
+            .mappings()
+            .all()
+        )
+        assert audits
+    assert candidate.service.detail(row["id"])["snapshot"] == row["snapshot"]
+    assert not lab.transport.calls
+    assert_preserved_inputs(inputs)

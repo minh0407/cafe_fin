@@ -8,6 +8,7 @@ from cafe_fin.core.db import canonical_json
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.time import utc_now
 
+from .local_exports import invalidate_relocated_copies
 from .migrations import OUTBOX, REPORTS, SETTINGS
 from .schedule_migrations import DAILY_RUNS
 
@@ -145,6 +146,9 @@ def apply_guard(service, actor, context):
                 before=old,
                 after={"version": version, **persisted},
             )
+        result["local_exports_pending"] = invalidate_relocated_copies(
+            conn, actor, context.activation_id
+        )
         AuditService.record(
             conn,
             actor=actor.id,

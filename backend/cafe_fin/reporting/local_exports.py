@@ -6,12 +6,79 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from cafe_fin.core.activation import ActivationContext, activation_context
 from cafe_fin.core.audit import AuditService
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.time import utc_now
 
 from .downloads import reference
 from .local_export_migrations import LOCAL_EXPORTS
+from .migrations import EXPORTS
+
+RELOCATION_PAGE_SIZE = 100
+
+
+def invalidate_relocated_copies(conn, actor, activation_id):
+    count = conn.execute(
+        LOCAL_EXPORTS.update().values(
+            state="PENDING",
+            error_code="LOCAL_EXPORT_RELOCATED",
+            verified_at=None,
+            updated_at=utc_now(),
+        )
+    ).rowcount
+    if count:
+        AuditService.record(
+            conn,
+            actor=actor.id,
+            entity="reporting_local_export_activation",
+            entity_id=activation_id,
+            action="invalidate_local_copies",
+            after={"pending": count},
+        )
+    return count
+
+
+def repair_relocated_copies(service, actor, context):
+    # Synchronous owner hook/reconciliation, never a privileged background actor.
+    service.runtime.writer.run(service.authorize(actor, "core.manage"))
+    if (
+        not isinstance(context, ActivationContext)
+        or activation_context(service.runtime.root) != context
+    ):
+        raise CoreError("RESTORE_CONTEXT_INVALID", "Thông tin kích hoạt không khớp dữ liệu.", 409)
+    after, ready, failed_count = "", 0, 0
+    while True:
+        with service.runtime.reader() as conn:
+            service.authorize(actor, "core.manage")(conn)
+            page = [
+                dict(row)
+                for row in conn.execute(
+                    select(EXPORTS)
+                    .where(EXPORTS.c.id > after)
+                    .order_by(EXPORTS.c.id)
+                    .limit(RELOCATION_PAGE_SIZE)
+                ).mappings()
+            ]
+        if not page:
+            return {"ready": ready, "failed": failed_count}
+        for receipt in page:
+            try:
+                # Same lock as manual export, per file; no DB transaction over IO.
+                with service.runtime.render_lock:
+                    ensure_local_copy(service, actor, receipt, permission="core.manage")
+                ready += 1
+            except CoreError as exc:
+                if exc.code in {
+                    "SESSION_EXPIRED",
+                    "PERMISSION_DENIED",
+                    "BACKGROUND_ACTOR_UNAVAILABLE",
+                }:
+                    raise
+                # The copy routine records FAILED/CONFLICT. Earlier reference
+                # failure leaves the invalidated PENDING state, never stale READY.
+                failed_count += 1
+            after = receipt["id"]
 
 
 def safe_key(report_id, first, version, format):
@@ -70,9 +137,9 @@ def record(conn, actor_id, export_id, before, after):
     )
 
 
-def finish(service, actor, export_id, attempt):
+def finish(service, actor, export_id, attempt, *, permission="reporting.write"):
     def operation(conn):
-        service.authorize(actor)(conn)
+        service.authorize(actor, permission)(conn)
         old = local_state(conn, export_id)
         if old["attempts"] != attempt or old["state"] != "COPYING":
             raise CoreError("LOCAL_EXPORT_CHANGED", "Lượt lưu local đã thay đổi; hãy thử lại.", 409)
@@ -108,7 +175,7 @@ def failed(service, export_id, attempt, code):
     service.runtime.writer.run(operation)
 
 
-def ensure_local_copy(service, actor, receipt):
+def ensure_local_copy(service, actor, receipt, *, permission="reporting.write"):
     export_id, report_id = receipt["id"], receipt["report_id"]
     pinned = reference(service, actor, report_id, export_id)
     with service.runtime.reader() as conn:
@@ -116,7 +183,7 @@ def ensure_local_copy(service, actor, receipt):
         key = safe_key(report_id, report.from_on, report.version, receipt["format"])
 
     def authorize(conn):
-        service.authorize(actor)(conn)
+        service.authorize(actor, permission)(conn)
         old = local_state(conn, export_id)
         if old is not None and any(
             old[field] != value
@@ -138,7 +205,7 @@ def ensure_local_copy(service, actor, receipt):
         if valid:
             if reference(service, actor, report_id, export_id) != pinned:
                 raise CoreError("LOCAL_EXPORT_CHANGED", "Tham chiếu bản lưu đã thay đổi.", 409)
-            service.runtime.writer.run(service.authorize(actor))
+            service.runtime.writer.run(service.authorize(actor, permission))
             return old
 
     def claim(conn):
@@ -185,7 +252,7 @@ def ensure_local_copy(service, actor, receipt):
                 raise CoreError("LOCAL_EXPORT_IO", "Chưa tạo được bản lưu local.", 409)
         if reference(service, actor, report_id, export_id) != pinned:
             raise CoreError("LOCAL_EXPORT_CHANGED", "Tham chiếu bản lưu đã thay đổi.", 409)
-        return finish(service, actor, export_id, attempt)
+        return finish(service, actor, export_id, attempt, permission=permission)
     except CoreError as exc:
         code = (
             exc.code

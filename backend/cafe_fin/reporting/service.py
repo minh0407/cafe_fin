@@ -16,7 +16,7 @@ from cafe_fin.core.time import utc_now
 
 from . import exports
 from .local_export_migrations import LOCAL_EXPORTS
-from .local_exports import ensure_local_copy, local_state
+from .local_exports import ensure_local_copy, local_state, repair_relocated_copies
 from .migrations import ATTEMPTS, EXPORTS, LOCKS, OUTBOX, REPORTS, SETTINGS
 from .models import DATE_RANGE_CONTRACT
 from .restore import REVIEW_CODE, apply_guard, held_series, require_reviewed, suspended
@@ -500,6 +500,9 @@ class ReportingService:
 
     def restore_quarantine(self, actor, context):
         return apply_guard(self, actor, context)
+
+    def repair_local_exports(self, actor, context):
+        return repair_relocated_copies(self, actor, context)
 
     def require_delivery_review(self, conn=None):
         if self.runtime.maintenance.status()["state"] != "ACTIVE":

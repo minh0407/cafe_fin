@@ -208,7 +208,10 @@ def module_manifest(
         )
 
     def activate(runtime, actor, context):
-        return service(runtime).restore_quarantine(actor, context)
+        instance = service(runtime)
+        result = instance.restore_quarantine(actor, context)
+        instance.repair_local_exports(actor, context)
+        return result
 
     return ModuleManifest(
         "reporting",
