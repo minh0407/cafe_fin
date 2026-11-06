@@ -27,6 +27,8 @@ Python 3.12.16, SQLite 3.53.1, Node 24.21.0. Dữ liệu tổng hợp, không d�
 
 App-shell thật dùng registry mặc định, tìm và lấy đối tác/cân qua API, tạo hợp đồng, preview/xuất DOCX+PDF; sửa lượng hợp đồng từ 12,345 xuống 1,125 kg vẫn giữ nguồn 12,345 kg. Cũng qua menu cài đặt thật để tạo Operator, sửa active theo version và thấy trạng thái khóa. Chỉ native invoke được stub; HTTP/auth/SQLite/module dùng thật. Các browser unit khác mock HTTP và không được tính là native acceptance.
 
+Production bundle còn được smoke riêng bằng Chromium với HTTP/native mocks: 8 checks Admin/Operator PASS, mở records mặc định, không có menu proofs, truy cập trực tiếp hai hash proofs không gọi API `/spikes`, Admin có quản lý tài khoản, Operator không thấy hoặc fetch danh sách tài khoản. Đây là kiểm chứng bundle/UI, không thay cho real API hoặc native acceptance.
+
 Reviewer độc lập đã kiểm rollback/stock của records, xuất hợp đồng crash/cross-actor, attachment ownership/revocation, stale source picker, date validation và snapshot isolation. Chi tiết cùng giới hạn nằm trong handoff từng module. Các lượt focused có giao nhau, không cộng thành một tổng test mới.
 
 ## Giới hạn phát hành
