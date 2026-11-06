@@ -3,16 +3,20 @@ import { Alert, Button, Card, Checkbox, Col, Collapse, ConfigProvider, Input, Ro
 import type { BankAccount, ContractData, ContractLine, ContractTemplate, Party, Weighing } from "./types";
 import { defaultTemplateIds, emptyAccount, emptyLine } from "./types";
 import { RecordSourcePicker } from "./RecordSourcePicker";
+import { DateInput, isDateInputValueValid } from "../../shared/DateInput";
 
 export function Field({ label, value, onChange, area = false, type = "text", hint, required = false }: {
   label: string; value: string | null | undefined; onChange: (value: string) => void;
   area?: boolean; type?: string; hint?: string; required?: boolean;
 }) {
   const id = useId();
+  const { componentDisabled } = ConfigProvider.useConfig();
+  const dateError = type !== "date" ? "" : required && !value ? "Nhập ngày theo DD/MM/YYYY." : !isDateInputValueValid(value ?? undefined) ? "Ngày không hợp lệ. Nhập DD/MM/YYYY." : "";
   return <div className="contracts-field">
     <label htmlFor={id}>{label}{required && <span aria-hidden="true"> *</span>}</label>
-    {area ? <Input.TextArea id={id} value={value ?? ""} onChange={(e) => onChange(e.target.value)} autoSize={{ minRows: 2, maxRows: 6 }} /> :
+    {type === "date" ? <DateInput id={id} value={value ?? undefined} onChange={onChange} disabled={componentDisabled} status={dateError ? "error" : undefined} aria-invalid={dateError ? true : undefined} aria-describedby={dateError ? `${id}-error` : undefined} /> : area ? <Input.TextArea id={id} value={value ?? ""} onChange={(e) => onChange(e.target.value)} autoSize={{ minRows: 2, maxRows: 6 }} /> :
       <Input id={id} type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} autoComplete="off" />}
+    {dateError && <Typography.Text type="danger" id={`${id}-error`} role="alert">{dateError}</Typography.Text>}
     {hint && <Typography.Text type="secondary" className="contracts-hint">{hint}</Typography.Text>}
   </div>;
 }
@@ -140,7 +144,7 @@ export function ContractEditor({ data, onChange, templates, disabled, onLoadPart
       {data.payment.receiving_account && <div className="contracts-subrow"><AccountEditor value={data.payment.receiving_account} onChange={(receiving_account) => onChange({ ...data, payment: { ...data.payment, receiving_account } })} /></div>}
       <Typography.Title level={5}>Lịch thanh toán theo đợt (tùy chọn)</Typography.Title>
       {data.payment.schedule.map((item, index) => <Row gutter={12} key={index} align="middle">
-        <Col span={6}><Field label={`Ngày đợt ${index + 1}`} type="date" value={item.due_on} onChange={(due_on) => onChange({ ...data, payment: { ...data.payment, schedule: data.payment.schedule.map((entry, i) => i === index ? { ...entry, due_on } : entry) } })} /></Col>
+        <Col span={6}><Field label={`Ngày đợt ${index + 1}`} required type="date" value={item.due_on} onChange={(due_on) => onChange({ ...data, payment: { ...data.payment, schedule: data.payment.schedule.map((entry, i) => i === index ? { ...entry, due_on } : entry) } })} /></Col>
         <Col span={6}><Field label={`Số tiền đợt ${index + 1} (VND)`} value={item.amount} onChange={(amount) => onChange({ ...data, payment: { ...data.payment, schedule: data.payment.schedule.map((entry, i) => i === index ? { ...entry, amount } : entry) } })} /></Col>
         <Col span={9}><Field label={`Ghi chú đợt ${index + 1}`} value={item.note} onChange={(note) => onChange({ ...data, payment: { ...data.payment, schedule: data.payment.schedule.map((entry, i) => i === index ? { ...entry, note } : entry) } })} /></Col>
         <Col span={3}><Button danger onClick={() => onChange({ ...data, payment: { ...data.payment, schedule: data.payment.schedule.filter((_, i) => i !== index) } })}>Bỏ đợt</Button></Col>

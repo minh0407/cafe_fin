@@ -7,6 +7,7 @@ import { ContractEditor, Field } from "./ContractEditor";
 import { DocumentView } from "./DocumentView";
 import type { Attachment, ContractData, ContractDTO, ContractListItem, ContractTemplate, ExportFormat, ExportVersion, Party, Preview, Weighing } from "./types";
 import { emptyLine, newContract } from "./types";
+import { contractDateIssues } from "./dateValidation";
 import "./contracts.css";
 
 type PendingCommand = { label: string; execute: () => Promise<unknown>; complete: (value: unknown) => void | Promise<void> };
@@ -161,11 +162,13 @@ function ContractsWorkspace() {
     });
   }
   function save() {
+    if (!validateDraftDates()) return;
     mutate<ContractDTO>("Đang lưu hợp đồng", selected ? `/contracts/${encoded(selected.id)}` : "/contracts", { ...(selected ? { expected_version: selected.version } : {}), data: draft }, async (result) => {
       adopt(result); setSuccess(`Đã lưu hợp đồng ${result.data.number || "chưa có số"} · phiên bản ${result.version}.`); setReload((value) => value + 1); await loadExtras(result.id);
     }, selected ? "PATCH" : "POST");
   }
   function buildPreview() {
+    if (!validateDraftDates()) return;
     const payload = JSON.stringify(draft);
     void read("Đang tính và dựng bản xem trước", async () => {
       const result = await api<Preview>("/contracts/preview", { method: "POST", body: JSON.stringify({ data: draft }) });
@@ -173,10 +176,20 @@ function ContractsWorkspace() {
     });
   }
   function exportCurrent() {
+    if (!validateDraftDates()) return;
     if (!selected || dirty) return;
     mutate<ExportVersion>("Đang xuất Word và PDF", `/contracts/${encoded(selected.id)}/exports`, { expected_version: selected.version, formats: ["docx", "pdf"] }, async (result) => {
       setHistory(result); setActiveTab("history"); setSuccess("Đã lưu snapshot xuất. Xem trạng thái từng định dạng bên dưới."); await loadExtras(selected.id);
     });
+  }
+  function validateDraftDates() {
+    const issues = contractDateIssues(draft);
+    if (!issues.length) return true;
+    setError("Kiểm tra ngày trong hợp đồng trước khi lưu, xem trước hoặc xuất.");
+    setFieldErrors(issues);
+    setSuccess("");
+    setActiveTab("edit");
+    return false;
   }
   function retryFormat(version: ExportVersion, format: ExportFormat) {
     mutate<ExportVersion>(`Đang tạo lại ${format.toUpperCase()} từ snapshot`, `/contracts/${encoded(version.contract_id)}/versions/${encoded(version.id)}/files`, { formats: [format] }, async (result) => {

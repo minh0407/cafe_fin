@@ -1,4 +1,5 @@
-import { test, expect } from "../../frontend/node_modules/@playwright/test/index.mjs";
+import { test, expect, type Page } from "../../frontend/node_modules/@playwright/test/index.mjs";
+import type { ContractDTO } from "../../frontend/src/features/contracts/types";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -49,6 +50,7 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     await page.getByLabel("Số hợp đồng").focus();
     await page.keyboard.press("Tab");
     await expect(page.getByLabel("Ngày lập")).toBeFocused();
+    await expect(page.getByLabel("Ngày lập")).toHaveValue(/^\d{2}\/\d{2}\/\d{4}$/);
     await page.getByLabel("Nơi lập").fill("Buôn Ma Thuột");
     await page.getByLabel("Tên đầy đủ").nth(0).fill("Công ty tổng hợp Cafe Fin");
     await page.getByLabel("Tên đầy đủ").nth(1).fill("Đối tác nhập thủ công");
@@ -75,6 +77,7 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     await expect(page.getByText("Chưa xác nhận thao tác đã hoàn tất", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Số hợp đồng")).toBeDisabled();
     await expect(page.getByRole("combobox", { name: "Loại hợp đồng", exact: true })).toBeDisabled();
+    for (const button of await page.getByRole("button", { name: "Mở lịch chọn ngày", exact: true }).all()) await expect(button).toBeDisabled();
     await page.getByRole("button", { name: "Thử lại yêu cầu đã gửi" }).click();
     await expect(page.getByText("Đã lưu hợp đồng HD-TONG-HOP-001 · phiên bản 1.", { exact: true })).toBeVisible();
     expect(createPayloads).toHaveLength(2);
@@ -193,7 +196,7 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     await page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").getByText("Kết hợp", { exact: true }).click();
     await page.getByLabel("Nội dung và thỏa thuận thanh toán").fill("Kết hợp tiền mặt và chuyển khoản, do hai bên thỏa thuận.");
     await page.getByRole("button", { name: "Thêm đợt thanh toán" }).click();
-    await page.getByLabel("Ngày đợt 1").fill("2026-11-20");
+    await page.getByLabel("Ngày đợt 1").fill("20/11/2026");
     await page.getByLabel("Số tiền đợt 1 (VND)").fill("100.00");
     await page.getByLabel("Ghi chú đợt 1").fill("Đợt một đã thỏa thuận");
     // Either a denied records module or an absent module leaves manual contracts usable.
@@ -241,6 +244,7 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     expect(salesVersions.items[0].snapshot.data.kind).toBe("sale");
     expect(salesVersions.items[0].snapshot.data.source_refs).toEqual([]);
     expect(salesVersions.items[0].snapshot.data.payment.method).toBe("mixed");
+    expect(salesVersions.items[0].snapshot.data.payment.schedule[0].due_on).toBe("2026-11-20");
     expect(salesVersions.items[0].files.pdf.status).toBe("succeeded");
 
     // Superseded searches and malformed pages cannot replace the latest bounded results.
@@ -318,4 +322,122 @@ test("real contracts UI preserves exported snapshots, exact retries, sources and
     }
     await rm(root, { recursive: true, force: true });
   }
+});
+
+async function mountDateWorkspace(page: Page) {
+  const apiBase = "http://127.0.0.1:19097/api/v1";
+  const company = { type: "company", name: "Công ty ngày tổng hợp", address: null, tax_code: null, contacts: [], bank_details: [], representative: null };
+  const state: { detail: ContractDTO; commands: { path: string; payload: any }[] } = {
+    detail: {
+      id: "bce08e7a-2d32-488d-a4cd-877418149b30", version: 1,
+      data: {
+        kind: "purchase", number: "HD-DATE", occurred_on: "2026-11-06", place: "Đắk Lắk", template_id: "be33fbce-4a0d-50eb-b203-895a24102ce1",
+        company, counterparty: { ...company, name: "Đối tác ngày tổng hợp" },
+        lines: [{ description: "Cà phê", quantity_kg: "1.000", unit_price: "100.00", gross_kg: null, tare_kg: null, net_kg: null, quantity_source: null, note: null, product_id: null, source: null, source_snapshot: null }],
+        tax: { mode: "none", rate: null }, terms: { delivery: "", packaging: "", quality: "", deadline: "", responsibilities: "", additional: "" },
+        payment: { method: "cash", description: "", receiving_account: null, due_on: "2026-11-20", deposit_amount: null, recorded_paid_amount: null, schedule: [{ due_on: "2026-11-25", amount: "100.00", note: "" }] }, source_refs: [],
+      },
+    }, commands: [],
+  };
+  await page.clock.setFixedTime(new Date("2026-11-07T08:00:00+07:00"));
+  await page.route(`${apiBase}/**`, async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1", "");
+    const headers = { "Access-Control-Allow-Origin": "http://127.0.0.1:1420", "Access-Control-Allow-Headers": "Authorization,Content-Type,X-App-Session", "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS" };
+    const fulfill = (json: unknown) => route.fulfill({ json, headers });
+    if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    if (request.method() !== "GET") {
+      const payload = request.postDataJSON();
+      state.commands.push({ path, payload });
+      if (path === `/contracts/${state.detail.id}`) { state.detail = { ...state.detail, version: state.detail.version + 1, data: payload.data }; return fulfill(state.detail); }
+      const document = { title: "Hợp đồng ngày tổng hợp", subtitle: "", fields: [], paragraphs: [], column_headers: [], rows: [] };
+      if (path === "/contracts/preview") return fulfill({ document, totals: {} });
+      return fulfill({ id: "633768c1-eed2-4c92-985b-ad1eb65d788b", contract_id: state.detail.id, contract_version: state.detail.version, snapshot_sha256: "synthetic-date-snapshot", snapshot: { document, totals: {}, data: state.detail.data }, files: {} });
+    }
+    if (path === "/contracts/templates") return fulfill({ items: [{ id: state.detail.data.template_id, kind: "purchase", version: 1, title: "Mẫu ngày tổng hợp" }] });
+    if (path === "/contracts") return fulfill({ items: [state.detail], total: 1, page: 1, page_size: 20 });
+    if (path === `/contracts/${state.detail.id}`) return fulfill(state.detail);
+    return fulfill({ items: [], total: 0, page: 1, page_size: 20 });
+  });
+  await page.addInitScript((settings) => { (window as any).__CONTRACTS_BOOT__ = settings; }, { boot: { protocol_version: 1, api_base: apiBase, session_token: "synthetic-date-session-0123456789abcdef", data_root: "D:\\SyntheticContractDates" }, token: "synthetic-date-admin-token", user: { id: "date-admin", username: "dateadmin", role: "admin", permissions: ["*"], version: 1 } });
+  await page.goto("/tests/contracts/browser.html");
+  await page.getByRole("button", { name: /HD-DATE Mua/ }).click();
+  await expect(page.getByLabel("Ngày lập")).toHaveValue("06/11/2026");
+  return state;
+}
+
+test("contract date drafts retain invalid text, block requests, and send corrected ISO dates", async ({ page }) => {
+  const state = await mountDateWorkspace(page);
+  const occurred = page.getByLabel("Ngày lập");
+  const due = page.getByLabel("Hạn thanh toán", { exact: true });
+  const schedule = page.getByLabel("Ngày đợt 1");
+  async function rejectsDraft(field: ReturnType<Page["getByLabel"]>, raw: string) {
+    const before = state.commands.length;
+    await field.fill(raw);
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    await page.getByRole("button", { name: "Lưu hợp đồng", exact: true }).click();
+    await page.getByRole("button", { name: "Xem trước", exact: true }).click();
+    await expect(page.getByText("Kiểm tra ngày trong hợp đồng trước khi lưu, xem trước hoặc xuất.", { exact: true })).toBeVisible();
+    await expect(field).toHaveValue(raw);
+    expect(state.commands).toHaveLength(before);
+  }
+  async function saveCorrected() {
+    const before = state.commands.length;
+    await page.getByRole("button", { name: "Lưu hợp đồng", exact: true }).click();
+    await expect.poll(() => state.commands.length).toBe(before + 1);
+    await expect(page.getByRole("button", { name: "Lưu hợp đồng", exact: true })).toBeDisabled();
+    return state.commands.at(-1)!.payload.data;
+  }
+  for (const raw of ["31/02/2026", "20/11/", ""]) await rejectsDraft(occurred, raw);
+  await occurred.fill("07/11/2026");
+  expect((await saveCorrected()).occurred_on).toBe("2026-11-07");
+  for (const raw of ["31/02/2026", "20/11/"]) await rejectsDraft(due, raw);
+  await due.fill("21/11/2026");
+  expect((await saveCorrected()).payment.due_on).toBe("2026-11-21");
+  const dueField = page.locator(".contracts-field").filter({ has: due });
+  await dueField.getByRole("button", { name: "Xóa", exact: true }).click();
+  expect((await saveCorrected()).payment.due_on).toBeNull();
+  await rejectsDraft(due, "31/02/2026");
+  const beforeCalendar = state.commands.length;
+  await dueField.getByRole("button", { name: "Mở lịch chọn ngày", exact: true }).click();
+  await page.locator('[title="2026-11-22"]').click();
+  await expect(due).toHaveValue("22/11/2026");
+  expect(state.commands).toHaveLength(beforeCalendar);
+  expect((await saveCorrected()).payment.due_on).toBe("2026-11-22");
+  for (const raw of ["25/11/", "31/02/2026", ""]) await rejectsDraft(schedule, raw);
+  await schedule.fill("30/11/2026");
+  expect((await saveCorrected()).payment.schedule[0].due_on).toBe("2026-11-30");
+  await page.getByRole("button", { name: "Xem trước", exact: true }).click();
+  await expect.poll(() => state.commands.at(-1)!.path).toBe("/contracts/preview");
+  expect(state.commands.at(-1)!.payload.data.occurred_on).toBe("2026-11-07");
+});
+
+test("current export validates persisted required, optional, schedule and copied-source dates", async ({ page }) => {
+  const state = await mountDateWorkspace(page);
+  const original = structuredClone(state.detail);
+  const invalidCases: { message: string; mutate: (detail: ContractDTO) => void }[] = [
+    { message: "Ngày lập", mutate: (detail) => { detail.data.occurred_on = "31/02/2026"; } },
+    { message: "Hạn thanh toán", mutate: (detail) => { detail.data.payment.due_on = "20/11/"; } },
+    { message: "Ngày đợt 1", mutate: (detail) => { detail.data.payment.schedule[0].due_on = ""; } },
+    { message: "Ngày phiếu cân nguồn dòng 1", mutate: (detail) => { detail.data.lines[0].source = { type: "weighing", id: "7836b8e8-366a-4d09-9ffc-36b6d8356385", version: 1, line_index: 0, code: "CÂN-NGÀY", occurred_on: "2026-02-31" }; } },
+  ];
+  for (const { message, mutate } of invalidCases) {
+    state.detail = structuredClone(original);
+    mutate(state.detail);
+    await page.getByRole("button", { name: /HD-DATE Mua/ }).click();
+    const exportButton = page.getByRole("button", { name: "Xuất Word + PDF", exact: true });
+    await expect(exportButton).toBeEnabled(); // pristine persisted data: dirty/disabled cannot protect this action.
+    const before = state.commands.length;
+    await exportButton.click();
+    await expect(page.getByText("Kiểm tra ngày trong hợp đồng trước khi lưu, xem trước hoặc xuất.", { exact: true })).toBeVisible();
+    await expect(page.locator(".ant-alert-error")).toContainText(message);
+    expect(state.commands).toHaveLength(before);
+  }
+  state.detail = structuredClone(original);
+  state.detail.data.payment.due_on = null;
+  state.detail.data.lines[0].source = { type: "weighing", id: "7836b8e8-366a-4d09-9ffc-36b6d8356385", version: 1, line_index: 0, code: "CÂN-NGÀY", occurred_on: null };
+  await page.getByRole("button", { name: /HD-DATE Mua/ }).click();
+  await page.getByRole("button", { name: "Xuất Word + PDF", exact: true }).click();
+  await expect.poll(() => state.commands.length).toBe(1);
+  expect(state.commands[0].path).toMatch(/\/exports$/);
 });
