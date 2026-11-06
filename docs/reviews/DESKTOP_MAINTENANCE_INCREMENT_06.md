@@ -45,6 +45,7 @@ on this baseline rather than reporting simulated completion.
 | Final frontend production build | PASS; Vite reports the existing large bundle warning |
 | Owner restore series fix | PASS: 10 restore and 29 sender/daily cases |
 | Independent final series fix with all four modules | PASS: both automatic modes make zero provider calls/attempts; new days and explicit manual sends work; two regression cases PASS in 4.25 s |
+| Actual private-wire restore with all four modules | PASS: one end-to-end case, 7.18 s; original/report bytes, inventory, cash-book row and contract retained; dormant login, quarantine and reviewed restart verified |
 | Backend Ruff and compile checks | PASS after qualifying the new integrated reporting fixture import |
 | Native product compile | PASS: cargo check, locked/offline, 59.02 s; genuine local sidecar built first |
 | Native executable tests on this host | NOT RUN: previously blocked by Device Guard; no policy/path workaround |
