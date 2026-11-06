@@ -2,6 +2,7 @@ import { defineConfig } from "../../../frontend/node_modules/vite/dist/node/inde
 import react from "../../../frontend/node_modules/@vitejs/plugin-react/dist/index.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { port } from "./settings.mjs";
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 export default defineConfig({
   root: path.join(repo, "frontend"),
@@ -14,6 +15,6 @@ export default defineConfig({
       response.end(html);
     });
   } }],
-  server: { host: "127.0.0.1", port: 80, strictPort: true, hmr: false, allowedHosts: ["tauri.localhost"], fs: { allow: [repo] } },
+  server: { host: "127.0.0.1", port, strictPort: true, hmr: false, allowedHosts: ["127.0.0.1"], fs: { allow: [repo] } },
   resolve: { alias: Object.fromEntries(["react", "react-dom", "@tanstack/react-query", "antd"].map((name) => [name, path.join(repo, "frontend/node_modules", name)])), dedupe: ["react", "react-dom"] },
 });
