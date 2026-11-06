@@ -1,0 +1,35 @@
+--- a/backend/cafe_fin/registry.py
++++ b/backend/cafe_fin/registry.py
+@@ -2,7 +2,8 @@
+
+ from cafe_fin.core.example import module_manifest
+ from cafe_fin.core.modules import ModuleRegistry
++from cafe_fin.records.module import module_manifest as records_manifest
+
+
+ def registered_modules() -> ModuleRegistry:
+-    return ModuleRegistry((module_manifest(),))
++    return ModuleRegistry((module_manifest(), records_manifest()))
+--- a/frontend/src/app/registry.tsx
++++ b/frontend/src/app/registry.tsx
+@@ -1,5 +1,6 @@
+ import type { ComponentType } from "react";
+ import { Empty } from "antd";
++import { recordsModule } from "../features/records";
+
+ export interface FeatureRoute {
+   path: string;
+@@ -32,12 +33,7 @@
+ );
+ // Coordinator adds feature-owned index.ts exports here after the foundation gate.
+ export const modules = defineModules([
+-  {
+-    id: "records",
+-    title: "Ghi nhận cà phê",
+-    permission: "records.read",
+-    routes: [{ path: "/records", component: Pending }],
+-  },
++  recordsModule,
+   {
+     id: "contracts",
+     title: "Hợp đồng",
