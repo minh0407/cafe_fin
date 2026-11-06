@@ -1,0 +1,10 @@
+.accounting-grid { height: 520px; min-height: 250px; }
+[aria-label="Kế toán độc lập"] { font-family: "Segoe UI", Arial, sans-serif; }
+.accounting-grid { font-size: 13px; }
+.accounting-cell-error { color: #a61d24; text-decoration: underline dotted; }
+.accounting-range-cell { background-color: #e6f4ff; box-shadow: inset 0 0 0 1px #91caff; }
+.accounting-preview { max-height: 350px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.accounting-counts { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.accounting-new-field { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
+[aria-label="Kế toán độc lập"] details { margin: 16px 0; padding: 12px; border: 1px solid #d9d9d9; border-radius: 6px; }
+[aria-label="Kế toán độc lập"] pre { white-space: pre-wrap; overflow-wrap: anywhere; }

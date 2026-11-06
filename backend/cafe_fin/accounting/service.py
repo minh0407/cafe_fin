@@ -1507,6 +1507,8 @@ class AccountingService:
                 "DATE_RANGE_INVALID", "Khoảng ngày có điểm cuối loại trừ và phải sau ngày đầu."
             )
         with self.rt.reader() if connection is None else nullcontext(connection) as conn:
+            if connection is None:
+                conn.exec_driver_sql("BEGIN")
             self.rt.auth.authorize(conn, actor, "accounting.read")
             book = _book(conn, book_id)
             semantics = json.loads(book["semantics_json"])
@@ -1625,6 +1627,13 @@ class AccountingService:
                     {k: format(v, ".2f") if isinstance(v, Decimal) else v for k, v in group.items()}
                     for group in groups.values()
                 ],
+                metric_meanings=semantics.get("metric_meanings", {}),
+                metric_keys=[
+                    key
+                    for key in ("income", "expense")
+                    if semantics.get(key + "_column")
+                    or (semantics.get("direction_column") and semantics.get("amount_column"))
+                ],
                 data_revision=book["data_revision"],
                 schema_revision=book["schema_revision"],
                 coverage="entered_records_only",
@@ -1670,24 +1679,50 @@ class AccountingReadProvider:
             raise CoreError(
                 "HISTORICAL_SNAPSHOT_REQUIRED", "Cần snapshot đã đóng băng cho cutoff lịch sử.", 409
             )
-        metrics = (
-            tuple(
-                MappedBookMetricDTO(
-                    key=key,
-                    amount_vnd=result["totals"].get("VND", {}).get(key, "0.00"),
-                    mapping_revision=result["schema_revision"],
+        metrics, flags = [], list(result["validation_flags"])
+        if result["has_valid_money_mapping"]:
+            if set(result["totals"]) - {"VND"}:
+                flags.append("NON_VND_CURRENCIES_OMITTED")
+            for key in result["metric_keys"]:
+                amount = result["totals"].get("VND", {}).get(key, "0.00")
+                meaning = result["metric_meanings"].get(key)
+                if meaning in (None, "other"):
+                    flags.append("METRIC_MEANING_UNKNOWN:" + key)
+                elif Decimal(amount) < 0:
+                    # Preserve signed source amount; don't claim a known positive cash
+                    # measure for a net refund/reversal that hasn't been classified.
+                    meaning = None
+                    flags.append("NEGATIVE_METRIC_REQUIRES_CLASSIFICATION:" + key)
+                metrics.append(
+                    MappedBookMetricDTO(
+                        key=key,
+                        amount_vnd=amount,
+                        mapping_revision=result["schema_revision"],
+                        meaning=meaning,
+                    )
                 )
-                for key in ("income", "expense")
-            )
-            if result["has_valid_money_mapping"]
-            else ()
-        )
+            by_meaning = {m.meaning: m for m in metrics if m.meaning not in (None, "other")}
+            for subset, total in (
+                ("cash_receipt_deposits", "cash_receipts"),
+                ("cash_payment_deposits", "cash_payments"),
+            ):
+                if (
+                    subset in by_meaning
+                    and total in by_meaning
+                    and Decimal(by_meaning[subset].amount_vnd)
+                    > Decimal(by_meaning[total].amount_vnd)
+                ):
+                    flags.append("METRIC_SUBSET_EXCEEDS_TOTAL:" + subset)
+                    metrics = [
+                        m.model_copy(update={"meaning": None}) if m.meaning == subset else m
+                        for m in metrics
+                    ]
         return BookSummaryDTO(
             book_id=book_id,
             from_on=from_on,
             through_on=through_on,
             cutoff=cutoff,
             has_valid_money_mapping=result["has_valid_money_mapping"],
-            metrics=metrics,
-            validation_flags=tuple(result["validation_flags"]),
+            metrics=tuple(metrics),
+            validation_flags=tuple(flags),
         )

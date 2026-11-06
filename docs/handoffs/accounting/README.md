@@ -63,6 +63,15 @@ Provider neither opens another reader nor commits/rolls back/closes the supplied
 connection. Core DTO v1 remains unchanged; `through_on` is exclusive VN business
 date, cutoff belongs to the capture. Reporting freezes DTOs/files before sending.
 
+Approved root bridge-v2 commit `57a2ed26bf70b8d6b3c4d2c7a30620d3d6b3033a`
+is cherry-picked as `0da9c87` on this branch. Provider now emits explicit v2
+`metric.meaning` only from configured `semantics.metric_meanings`. Missing meaning
+remains null with a flag; an absent expense mapping does not invent a zero metric.
+Non-VND is retained separately and omitted from VND DTO metrics with a flag.
+Negative/refund or invalid deposit-subset classification keeps the signed exact
+amount but clears known meaning and flags it for review. Multiple same-meaning
+columns must first use one explicit derived total column, avoiding double counts.
+
 ## Formula and operational limits shown to users
 
 The supported engine/grammar/blank/criteria/round/copy semantics are documented in

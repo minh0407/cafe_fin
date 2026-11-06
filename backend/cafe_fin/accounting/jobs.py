@@ -620,6 +620,13 @@ class AccountingJobs:
                 .one()
             )
         pins = json.loads(manifest["pins_json"])
+        # Conservative headroom for snapshot JSON, pending entries, cell indexes,
+        # WAL and one derived export, beyond originals/staging already on disk.
+        if manifest["state"] == "BUILDING":
+            width = max(1, len(pins["book_snapshot"]["columns"]))
+            self.rt.root.check_writable(
+                max(512 * 1024**2, manifest["expected_count"] * (2048 + width * 768))
+            )
         if manifest["state"] == "BUILDING":
             offset = manifest["row_count"]
             while offset < manifest["expected_count"]:

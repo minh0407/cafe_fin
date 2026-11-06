@@ -145,6 +145,33 @@ def normalize_schema(columns, semantics, previous=()):
             "CURRENCY_UNSUPPORTED",
             "Core Money hiện chỉ hỗ trợ VND; có thể ghi đơn vị khác ở cột text mà không cộng tiền.",
         )
+    meanings = semantics.get("metric_meanings", {})
+    known_meanings = {
+        "cash_receipts",
+        "cash_payments",
+        "cash_receipt_deposits",
+        "cash_payment_deposits",
+        "noncash_offsets",
+        "other",
+        None,
+    }
+    if (
+        not isinstance(meanings, dict)
+        or set(meanings) - {"income", "expense"}
+        or any(
+            not isinstance(v, (str, type(None))) or v not in known_meanings
+            for v in meanings.values()
+        )
+    ):
+        raise CoreError(
+            "METRIC_MEANING_INVALID", "Ý nghĩa chỉ tiêu phải thuộc read bridge v2 hoặc để trống."
+        )
+    known = [v for v in meanings.values() if v not in (None, "other")]
+    if len(known) != len(set(known)):
+        raise CoreError(
+            "METRIC_MEANING_DUPLICATE",
+            "Một ý nghĩa chỉ có một tổng. Tạo cột công thức tổng hợp trước khi ánh xạ.",
+        )
     return result, semantics
 
 
