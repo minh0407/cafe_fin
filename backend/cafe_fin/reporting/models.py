@@ -21,7 +21,9 @@ class Period(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     from_on: str = Field(description="Ngày đầu được bao gồm, YYYY-MM-DD theo giờ Việt Nam.")
-    through_on: str = Field(description="Ngày cuối được bao gồm; báo cáo một ngày dùng cùng from_on.")
+    through_on: str = Field(
+        description="Ngày cuối được bao gồm; báo cáo một ngày dùng cùng from_on."
+    )
     book_ids: list[str] = Field(default_factory=list, max_length=100)
 
     @field_validator("from_on", "through_on")
@@ -81,6 +83,23 @@ class DeliverySettings(Command):
     timezone: str = "Asia/Ho_Chi_Minh"
     send_at: str | None = None
     attachments_enabled: bool = False
+    auto_generate_daily: bool = False
+    daily_book_ids: list[str] = Field(default_factory=list, max_length=100)
+    daily_export_formats: list[Literal["pdf", "xlsx", "txt"]] = Field(
+        default_factory=lambda: ["pdf", "xlsx", "txt"], max_length=3
+    )
+
+    @field_validator("daily_book_ids")
+    @classmethod
+    def daily_books(cls, value):
+        return Period.books(value)
+
+    @field_validator("daily_export_formats")
+    @classmethod
+    def formats(cls, value):
+        if len(set(value)) != len(value):
+            raise ValueError("Định dạng xuất không được lặp.")
+        return sorted(value)
 
     @field_validator("timezone")
     @classmethod
@@ -102,7 +121,12 @@ class DeliverySettings(Command):
 
     @model_validator(mode="after")
     def configured(self):
-        if self.enabled and (not self.group_id or not self.oa_id or not self.send_at):
+        if self.auto_generate_daily and not self.daily_export_formats:
+            raise ValueError("Chọn ít nhất một định dạng báo cáo local.")
+        if self.enabled and (
+            not self.send_at
+            or (not self.auto_generate_daily and (not self.group_id or not self.oa_id))
+        ):
             raise ValueError("Bật lịch cần OA, nhóm và giờ gửi.")
         return self
 

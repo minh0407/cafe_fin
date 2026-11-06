@@ -11,6 +11,7 @@ from cafe_fin.core.modules import ModuleManifest
 
 from . import models
 from .migrations import MIGRATIONS
+from .schedule_migrations import MIGRATIONS as SCHEDULE_MIGRATIONS
 from .sender import check_connection, reconcile
 from .service import ReportingService
 
@@ -167,6 +168,14 @@ def module_manifest(
             authorize=instance.authorize(actor),
         )
 
+    @router.get("/scheduler/daily-runs")
+    def daily_runs(
+        request: Request, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=500)
+    ):
+        from .schedule import list_runs
+
+        return list_runs(current(request)[0], page, page_size)
+
     def run_dispatch(context, payload):
         instance = None
         # Runtime is held by registration closure, not a private JobService extension.
@@ -193,7 +202,7 @@ def module_manifest(
         "reporting",
         "/reporting",
         permissions=("reporting.read", "reporting.write"),
-        migrations=MIGRATIONS,
+        migrations=MIGRATIONS + SCHEDULE_MIGRATIONS,
         router=router,
         job_handlers={"reporting.dispatch": JobHandler(run_dispatch, resumable=False)},
         on_startup=startup,

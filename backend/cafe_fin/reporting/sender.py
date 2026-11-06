@@ -140,6 +140,10 @@ def dispatch_one(service):
         config = service.settings()
         if not config["enabled"]:
             return {"state": "DISABLED"}
+        try:
+            scheduled_actor = service.resolve_scheduled_actor(config)
+        except CoreError:
+            return {"state": "BLOCKED", "code": "SCHEDULE_ACTOR_BLOCKED"}
 
         def claim(conn):
             row = (
@@ -196,6 +200,9 @@ def dispatch_one(service):
             token = access_token(service, config)
             service.transport.verify(token, row["oa_id"], row["destination"])
             if not row["message_id"]:
+                service.runtime.writer.run(
+                    lambda conn: service.guard_schedule(conn, config, scheduled_actor)
+                )
                 phase = "text"
                 receipt = service.transport.send_text(
                     token, row["destination"], json.loads(row["payload_json"])["text"]
@@ -227,10 +234,16 @@ def dispatch_one(service):
                     )
                 with service.runtime.files.read(export.file_id) as source:
                     content = source.read(5 * 1024 * 1024 + 1)
+                service.runtime.writer.run(
+                    lambda conn: service.guard_schedule(conn, config, scheduled_actor)
+                )
                 upload = service.transport.upload(
                     token, content, "CafeFin-summary." + export.format
                 )
                 phase = "attachment"
+                service.runtime.writer.run(
+                    lambda conn: service.guard_schedule(conn, config, scheduled_actor)
+                )
                 receipt = service.transport.send_file(token, row["destination"], upload)
                 if not isinstance(receipt, str) or not re.fullmatch(
                     r"[A-Za-z0-9_-]{1,256}", receipt

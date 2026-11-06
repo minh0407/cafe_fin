@@ -78,6 +78,7 @@ class ReportingService:
         secret_store=None,
         transport=None,
         heartbeat_bound=False,
+        clock=None,
     ):
         from .zalo import MissingSecrets, OfficialGMF
 
@@ -89,6 +90,7 @@ class ReportingService:
         self.secrets = secret_store or MissingSecrets()
         self.transport = transport or OfficialGMF()
         self.heartbeat_bound = heartbeat_bound
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def authorize(self, actor, permission="reporting.write"):
         return lambda conn: self.runtime.auth.authorize(conn, actor, permission)
@@ -125,7 +127,7 @@ class ReportingService:
         result["short_message"] = exports.short_message(result["snapshot"], row.version, row.sha256)
         return result
 
-    def preview(self, actor, command):
+    def preview(self, actor, command, *, capture_metadata=None):
         payload = command.model_dump()
         payload.pop("request_key")
         series = hashlib.sha256(
@@ -153,7 +155,19 @@ class ReportingService:
             if self.actor_source_factory
             else self.source
         )
-        snapshot = build_snapshot(source, command, datetime.now(timezone.utc))
+        capture_time = self.clock().astimezone(timezone.utc)
+        if (
+            capture_metadata is not None
+            and capture_metadata.get("kind") == "scheduled_daily"
+            and command.from_on
+            != capture_time.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date().isoformat()
+        ):
+            raise CoreError(
+                "SCHEDULE_DAY_MISSED", "Đã sang ngày mới; không tự tạo số ngày cũ.", 409
+            )
+        snapshot = build_snapshot(source, command, capture_time)
+        if capture_metadata is not None:
+            snapshot["generation"] = capture_metadata
         encoded = canonical_json(snapshot)
         if len(encoded.encode()) > 2 * 1024 * 1024:
             raise CoreError("REPORT_TOO_LARGE", "Báo cáo quá lớn; chọn khoảng ngắn hơn.", 413)
@@ -304,19 +318,36 @@ class ReportingService:
             with self.runtime.reader() as read:
                 return self.settings(read)
         row = conn.execute(select(SETTINGS).where(SETTINGS.c.id == "delivery")).mappings().first()
-        return (
-            {"version": row.version, **json.loads(row.config_json)}
-            if row
-            else {
-                "version": 0,
-                "group_id": "",
-                "oa_id": "",
-                "enabled": False,
-                "timezone": "Asia/Ho_Chi_Minh",
-                "send_at": None,
-                "attachments_enabled": False,
-            }
-        )
+        defaults = {
+            "version": 0,
+            "group_id": "",
+            "oa_id": "",
+            "enabled": False,
+            "timezone": "Asia/Ho_Chi_Minh",
+            "send_at": None,
+            "attachments_enabled": False,
+            "auto_generate_daily": False,
+            "daily_book_ids": [],
+            "daily_export_formats": ["pdf", "xlsx", "txt"],
+            "scheduled_actor_id": None,
+            "auto_activated_on": None,
+        }
+        return defaults | ({"version": row.version, **json.loads(row.config_json)} if row else {})
+
+    def resolve_scheduled_actor(self, config):
+        if not config.get("scheduled_actor_id"):
+            raise CoreError("SCHEDULE_ACTOR_UNCONFIGURED", "Admin cần lưu lại cấu hình lịch.", 409)
+        with self.runtime.reader() as conn:
+            return self.runtime.auth.resolve_actor(
+                conn, config["scheduled_actor_id"], "core.manage"
+            )
+
+    def guard_schedule(self, conn, config, actor):
+        self.runtime.auth.authorize(conn, actor, "core.manage")
+        if self.settings(conn)["version"] != config["version"]:
+            raise CoreError(
+                "SCHEDULE_CONFIG_CHANGED", "Cấu hình lịch đã đổi; giữ nguyên bản đã tạo.", 409
+            )
 
     def public_settings(self):
         config = self.settings()
@@ -331,6 +362,11 @@ class ReportingService:
             else "UNCONFIGURED"
         )
         config["scheduler_mode"] = "APP_RUNTIME" if self.heartbeat_bound else "REPORTING_SCREEN"
+        try:
+            self.resolve_scheduled_actor(config)
+            config["schedule_actor_status"] = "ACTIVE"
+        except CoreError:
+            config["schedule_actor_status"] = "BLOCKED"
         config["scheduler_limit"] = (
             "Lịch chạy khi ứng dụng đang mở. "
             if self.heartbeat_bound
@@ -354,11 +390,35 @@ class ReportingService:
         value = command.model_dump(exclude={"request_key", "expected_version"})
 
         def operation(conn):
-            if conn.execute(select(LOCKS.c.id)).first():
+            if conn.execute(select(LOCKS.c.id).where(LOCKS.c.id == "sender")).first():
                 raise CoreError("SENDER_BUSY", "Đợi bộ gửi hoàn tất trước khi đổi cấu hình.", 409)
             old = self.settings(conn)
             version = require_version(old["version"], command.expected_version)
-            values = dict(version=version, config_json=canonical_json(value), updated_at=utc_now())
+            active = value["enabled"] and value["auto_generate_daily"]
+            was_active = old["enabled"] and old["auto_generate_daily"]
+            activated = old["auto_activated_on"]
+            if active and not was_active:
+                activated = self.clock().astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date().isoformat()
+                from .schedule_migrations import DAILY_CURSOR
+
+                cursor = conn.execute(
+                    select(DAILY_CURSOR).where(DAILY_CURSOR.c.profile_id == "delivery")
+                ).first()
+                cursor_values = dict(next_unchecked_on=activated, updated_at=utc_now())
+                if cursor:
+                    conn.execute(
+                        DAILY_CURSOR.update()
+                        .where(DAILY_CURSOR.c.profile_id == "delivery")
+                        .values(**cursor_values)
+                    )
+                else:
+                    conn.execute(
+                        DAILY_CURSOR.insert().values(profile_id="delivery", **cursor_values)
+                    )
+            persisted = value | {"scheduled_actor_id": actor.id, "auto_activated_on": activated}
+            values = dict(
+                version=version, config_json=canonical_json(persisted), updated_at=utc_now()
+            )
             if old["version"]:
                 conn.execute(SETTINGS.update().where(SETTINGS.c.id == "delivery").values(**values))
             else:
@@ -370,9 +430,9 @@ class ReportingService:
                 entity_id="delivery",
                 action="update",
                 before=old,
-                after={"version": version, **value},
+                after={"version": version, **persisted},
             )
-            return {"version": version, **value}
+            return {"version": version, **persisted}
 
         return self.command(
             actor,
@@ -485,7 +545,7 @@ class ReportingService:
         conn.execute(OUTBOX.insert().values(**row))
         return outbox_dto(row)
 
-    def enqueue(self, actor, identity, command):
+    def enqueue(self, actor, identity, command, *, expected_config_version=None):
         configured = self.settings()
         ready = self.credential_ready(configured)  # OS access stays outside writer.
 
@@ -494,6 +554,11 @@ class ReportingService:
             if row.state != "SAVED":
                 raise CoreError("REPORT_NOT_SAVED", "Lưu báo cáo trước khi xếp gửi.", 409)
             current = self.settings(conn)
+            if (
+                expected_config_version is not None
+                and current["version"] != expected_config_version
+            ):
+                raise CoreError("SCHEDULE_CONFIG_CHANGED", "Cấu hình lịch đã đổi.", 409)
             if current["version"] != configured["version"]:
                 raise CoreError(
                     "DELIVERY_CONFIG_CHANGED",
@@ -616,6 +681,13 @@ class ReportingService:
                 )
             )
             conn.execute(LOCKS.delete())
+            from .schedule_migrations import DAILY_RUNS
+
+            conn.execute(
+                DAILY_RUNS.update()
+                .where(DAILY_RUNS.c.state == "RUNNING")
+                .values(state="PENDING", error_code="PROCESS_INTERRUPTED", updated_at=utc_now())
+            )
 
         self.runtime.writer.run(operation)
 
@@ -624,6 +696,11 @@ class ReportingService:
         if now.tzinfo is None:
             raise ValueError("Aware scheduler time required")
         configured = self.settings()
+        if configured["enabled"]:
+            try:
+                scheduled_actor = self.resolve_scheduled_actor(configured)
+            except CoreError:
+                return 0
         ready = self.credential_ready(configured)
 
         def operation(conn):
@@ -632,6 +709,7 @@ class ReportingService:
                 return 0
             if not config["enabled"] or not config["send_at"]:
                 return 0
+            self.guard_schedule(conn, configured, scheduled_actor)
             if ready:
                 # Safe to resume only entries that never entered a send because
                 # credentials were absent. UNKNOWN/FAILED are never auto-retried.
@@ -651,6 +729,10 @@ class ReportingService:
                         updated_at=utc_now(),
                     )
                 )
+            if config["auto_generate_daily"]:
+                # Daily orchestrator owns selected-series creation/export/queue.
+                # Do not bypass a failed export or queue another manual version.
+                return 0
             local_now = now.astimezone(ZoneInfo(config["timezone"]))
             clock = time.fromisoformat(config["send_at"])
             # SQL selects only unscheduled latest saved versions, bounded to 100
@@ -698,11 +780,16 @@ class ReportingService:
 
         return self.runtime.writer.run(operation)
 
-    def tick(self):
+    def tick(self, now=None):
+        from .schedule import generate_daily
         from .sender import dispatch_one
 
-        queued = self.catch_up()
-        return {"queued": queued, "delivery": dispatch_one(self)}
+        now = now or self.clock()
+        generation = generate_daily(self, now)
+        if generation["state"] in {"FAILED", "BLOCKED", "NEEDS_MANUAL", "BUSY"}:
+            return {"generation": generation, "queued": 0, "delivery": {"state": "BLOCKED"}}
+        queued = self.catch_up(now)
+        return {"generation": generation, "queued": queued, "delivery": dispatch_one(self)}
 
     def retry(self, actor, identity, command):
         def operation(conn):
