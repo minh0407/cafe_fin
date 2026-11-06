@@ -144,6 +144,7 @@ def dispatch_one(service):
             scheduled_actor = service.resolve_scheduled_actor(config)
         except CoreError:
             return {"state": "BLOCKED", "code": "SCHEDULE_ACTOR_BLOCKED"}
+        ready = service.credential_ready(config)
 
         def claim(conn):
             row = (
@@ -158,6 +159,31 @@ def dispatch_one(service):
             )
             if not row:
                 return None
+            if not ready or not row.oa_id or not row.destination:
+                # Configuration absence is not an external delivery attempt.
+                # Also repair WAITING rows left by older catch-up/retry behavior.
+                conn.execute(
+                    OUTBOX.update()
+                    .where(OUTBOX.c.id == row.id)
+                    .values(
+                        state="UNCONFIGURED",
+                        error_code="ZALO_UNCONFIGURED",
+                        version=row.version + 1,
+                        updated_at=utc_now(),
+                    )
+                )
+                AuditService.record(
+                    conn,
+                    actor="reporting.sender",
+                    entity="reporting_outbox",
+                    entity_id=row.id,
+                    action="unconfigured",
+                    before={"state": row.state, "version": row.version},
+                    after={"state": "UNCONFIGURED", "version": row.version + 1},
+                )
+                return outbox_dto(
+                    conn.execute(select(OUTBOX).where(OUTBOX.c.id == row.id)).mappings().one()
+                )
             conn.execute(
                 OUTBOX.update()
                 .where(OUTBOX.c.id == row.id)
@@ -183,7 +209,13 @@ def dispatch_one(service):
 
         row = service.runtime.writer.run(claim)
         if not row:
-            return {"state": "IDLE"}
+            return (
+                {"state": "IDLE"}
+                if ready
+                else {"state": "UNCONFIGURED", "code": "ZALO_UNCONFIGURED"}
+            )
+        if row["state"] == "UNCONFIGURED":
+            return row
         identity, phase = row["id"], "preflight"
         confirmed_text = confirmed_file = None
         try:

@@ -397,7 +397,9 @@ class ReportingService:
 
     def credential_ready(self, config):
         try:
-            return bool(config["oa_id"] and self.secrets.has(self.secret_key(config)))
+            return bool(
+                config["oa_id"] and config["group_id"] and self.secrets.has(self.secret_key(config))
+            )
         except Exception:
             return False
 
@@ -818,6 +820,9 @@ class ReportingService:
         return {"generation": generation, "queued": queued, "delivery": dispatch_one(self)}
 
     def retry(self, actor, identity, command):
+        configured = self.settings()
+        ready = self.credential_ready(configured)  # OS access stays outside writer.
+
         def operation(conn):
             row = conn.execute(select(OUTBOX).where(OUTBOX.c.id == identity)).mappings().first()
             if not row:
@@ -830,15 +835,23 @@ class ReportingService:
                     409,
                 )
             config = self.settings(conn)
+            if config["version"] != configured["version"]:
+                raise CoreError(
+                    "SCHEDULE_CONFIG_CHANGED", "Cấu hình lịch đã đổi; hãy thử lại.", 409
+                )
             if row.destination != config["group_id"] or row.oa_id != config["oa_id"]:
                 raise CoreError(
                     "DESTINATION_CHANGED", "Đích đã đổi; xếp một bản gửi cho đích mới.", 409
                 )
+            next_state = "WAITING" if ready else "UNCONFIGURED"
             conn.execute(
                 OUTBOX.update()
                 .where(OUTBOX.c.id == identity)
                 .values(
-                    state="WAITING", error_code=None, version=row.version + 1, updated_at=utc_now()
+                    state=next_state,
+                    error_code=None if ready else "ZALO_UNCONFIGURED",
+                    version=row.version + 1,
+                    updated_at=utc_now(),
                 )
             )
             AuditService.record(
@@ -848,9 +861,9 @@ class ReportingService:
                 entity_id=identity,
                 action="retry",
                 before={"state": row.state, "version": row.version},
-                after={"state": "WAITING", "version": row.version + 1},
+                after={"state": next_state, "version": row.version + 1},
             )
-            return {"id": identity, "state": "WAITING"}
+            return {"id": identity, "state": next_state}
 
         return self.command(
             actor,

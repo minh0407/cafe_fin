@@ -5,6 +5,9 @@ merge or READY tag has been made by this lane.
 
 Latest integration follow-ups:
 
+- [Empty-target preflight correction](empty-destination.md): missing OA/group/
+  credential stays UNCONFIGURED with zero new external attempts; catch-up,
+  manual retry, legacy WAITING and restart covered. **62 focused cases PASS**.
 - [Human-readable local copies](local-exports.md): real PDF/XLSX/TXT filenames in
   reports, non-overwriting hash-verified retry, durable per-export state and
   append-only migration v3. **272 full-suite PASS + separate backup case PASS;
