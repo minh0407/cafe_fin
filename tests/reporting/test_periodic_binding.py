@@ -221,7 +221,15 @@ threading.Event().wait(90)
         restored = ReportingService(runtime, secret_store=env.secrets, transport=env.transport)
         item = restored.list("deliveries")["items"][0]
         assert item["state"] == "UNKNOWN" and item["message_id"] is None
-        assert dispatch_one(restored)["state"] == "IDLE"
+
+        def idle_after_startup():
+            state = dispatch_one(restored)["state"]
+            # The finite startup job may briefly own the singleton sender lock.
+            assert state in {"BUSY", "IDLE"}
+            return state == "IDLE"
+
+        until(idle_after_startup)
+        assert restored.list("deliveries")["items"][0]["state"] == "UNKNOWN"
         assert not env.transport.texts
         assert restored.list("reports")["total"] == restored.list("deliveries")["total"] == 1
     finally:

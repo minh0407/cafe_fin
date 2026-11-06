@@ -207,6 +207,9 @@ def module_manifest(
             "reporting.scheduler", "reporting.dispatch", {}, "startup-" + uuid4().hex
         )
 
+    def activate(runtime, actor, context):
+        return service(runtime).restore_quarantine(actor, context)
+
     return ModuleManifest(
         "reporting",
         "/reporting",
@@ -215,6 +218,7 @@ def module_manifest(
         router=router,
         job_handlers={"reporting.dispatch": JobHandler(run_dispatch, resumable=False)},
         on_startup=startup,
+        on_activate=activate,
         periodic_tasks={
             "reporting.tick": PeriodicTask(lambda runtime: service(runtime).tick(), 60)
         },

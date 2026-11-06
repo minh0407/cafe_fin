@@ -328,7 +328,10 @@ def test_revoked_actor_after_copy_cannot_mark_ready_and_new_authorized_retry_reu
 def test_real_backup_restore_recreates_derived_copy_from_preserved_canonical(
     env, tmp_path, monkeypatch
 ):
+    from uuid import uuid4
+
     from cafe_fin.core.backup import BackupService
+    from cafe_fin.core.maintenance_operations import MaintenanceOperations
 
     report = saved(env)
     item = env.service.export(
@@ -339,19 +342,33 @@ def test_real_backup_restore_recreates_derived_copy_from_preserved_canonical(
     backup = tmp_path / "synthetic-backup"
     env.runtime.backups.create(backup)
     BackupService.verify(backup)
-    restored_root = BackupService.restore(backup, tmp_path / "restored-root")
-    assert not restored_root.resolve_key(key).exists()
-    runtime = Runtime(restored_root.path, modules=env.registry)
+    operation_id, generation = str(uuid4()), str(uuid4())
+    login = env.runtime.auth.login("reportadmin", "synthetic-report-password")
+    env.runtime.quiesce(operation_id, access_token=login["access_token"])
+    target = tmp_path / ("CafeFinData-" + operation_id)
+    MaintenanceOperations(env.runtime, generation=generation).prepare(
+        operation_id,
+        "restore",
+        access_token=login["access_token"],
+        origin_generation=generation,
+        destination=target,
+        backup_source=backup,
+    )
+    runtime = Runtime(target, modules=env.registry)
     try:
+        assert runtime.maintenance.status()["state"] == "DORMANT"
+        assert not runtime.root.resolve_key(key).exists()
         service = ReportingService(runtime)
         monkeypatch.setattr(exports, "render", no_render)
         login = runtime.auth.login("reportadmin", "synthetic-report-password")
         actor = runtime.auth.authenticate(login["access_token"])
+        runtime.activate(operation_id, access_token=login["access_token"])
+        assert service.settings()["restore_review"]["required"]
         result = service.export(
             actor, report["id"], models.Export(request_key="restored-copy", format="txt")
         )
         assert result["id"] == item["id"] and result["file_id"] == item["file_id"]
-        assert restored_root.resolve_key(key).read_bytes() == expected
+        assert runtime.root.resolve_key(key).read_bytes() == expected
         assert count(runtime, FILES) == count(runtime, EXPORTS) == 1
         assert service.detail(report["id"])["sha256"] == report["sha256"]
         assert env.source.calls == 1

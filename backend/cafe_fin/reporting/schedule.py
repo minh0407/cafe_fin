@@ -15,6 +15,7 @@ from cafe_fin.core.time import utc_now
 
 from . import models
 from .migrations import LOCKS, OUTBOX, REPORTS
+from .restore import REVIEW_CODE, held_report, suspended
 from .schedule_migrations import DAILY_CURSOR, DAILY_RUNS
 from .service import new_id
 
@@ -121,6 +122,7 @@ def manual_report(conn, day, config):
             .join(OUTBOX, OUTBOX.c.report_id == REPORTS.c.id)
             .where(
                 REPORTS.c.series_key == series,
+                ~held_report(REPORTS.c.id),
                 OUTBOX.c.destination == config["group_id"],
                 OUTBOX.c.oa_id == config["oa_id"],
                 func.json_extract(REPORTS.c.snapshot_json, "$.period.date_range_contract")
@@ -140,6 +142,7 @@ def manual_report(conn, day, config):
             .where(
                 REPORTS.c.series_key == series,
                 REPORTS.c.state == "SAVED",
+                ~held_report(REPORTS.c.id),
                 func.json_extract(REPORTS.c.snapshot_json, "$.period.date_range_contract")
                 == models.DATE_RANGE_CONTRACT,
             )
@@ -149,14 +152,25 @@ def manual_report(conn, day, config):
         .mappings()
         .first()
     )
-    return saved, "REUSED_SAVED_MANUAL" if saved else "GENERATED_CURRENT_DAY"
+    if saved:
+        return saved, "REUSED_SAVED_MANUAL"
+    held = conn.execute(
+        select(REPORTS.c.id)
+        .where(REPORTS.c.series_key == series, held_report(REPORTS.c.id))
+        .limit(1)
+    ).first()
+    # Do not sidestep an uncertain restored delivery by creating an automatic
+    # replacement version of the same day/book selection.
+    return None, "RESTORE_REQUIRES_MANUAL" if held else "GENERATED_CURRENT_DAY"
 
 
 def insert_run(conn, day, config, *, missed=False, scheduled_due_at=None):
     report, policy = manual_report(conn, day, config)
     identity, now = new_id(), utc_now()
     state = "MISSED" if missed and report is None else "PENDING"
-    if state == "MISSED":
+    if policy == "RESTORE_REQUIRES_MANUAL":
+        state = "NEEDS_MANUAL"
+    elif state == "MISSED":
         policy = "MISSED_NO_SNAPSHOT"
     conn.execute(
         DAILY_RUNS.insert().values(
@@ -172,7 +186,11 @@ def insert_run(conn, day, config, *, missed=False, scheduled_due_at=None):
             outbox_id=None,
             policy=policy,
             attempts=0,
-            error_code="MISSED_REQUIRES_MANUAL" if state == "MISSED" else None,
+            error_code=REVIEW_CODE
+            if state == "NEEDS_MANUAL"
+            else "MISSED_REQUIRES_MANUAL"
+            if state == "MISSED"
+            else None,
             created_at=now,
             updated_at=now,
         )
@@ -210,7 +228,11 @@ def prepare(service, actor, config, now):
             )
             if existing is None:
                 insert_run(conn, next_day.isoformat(), config, missed=True)
-            elif existing.report_id is None and existing.state not in {"COMPLETED", "MISSED"}:
+            elif (
+                existing.report_id is None
+                and existing.state not in {"COMPLETED", "MISSED"}
+                and existing.error_code != REVIEW_CODE
+            ):
                 captured = captured_report(conn, existing)
                 if captured is not None:
                     conn.execute(
@@ -326,6 +348,8 @@ def generate_daily(service, now):
     if now.tzinfo is None:
         raise ValueError("Aware scheduler time required")
     config = service.settings()
+    if suspended(config):
+        return {"state": "RESTORE_SUSPENDED"}
     if not config["enabled"] or not config["auto_generate_daily"]:
         return {"state": "DISABLED"}
     try:

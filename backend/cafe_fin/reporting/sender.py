@@ -12,6 +12,7 @@ from cafe_fin.core.time import utc_now
 
 from .migrations import ATTEMPTS, EXPORTS, LOCKS, OUTBOX
 from .models import DATE_RANGE_CONTRACT
+from .restore import REVIEW_CODE, suspended
 from .service import new_id, outbox_dto
 from .zalo import DeliveryError, access_token
 
@@ -134,10 +135,16 @@ def finish(
 
 
 def dispatch_one(service):
+    if service.runtime.maintenance.status()["state"] != "ACTIVE":
+        return {"state": "BLOCKED", "code": "RUNTIME_NOT_ACTIVE"}
+    if suspended(service.settings()):
+        return {"state": "SUSPENDED", "code": REVIEW_CODE}
     with sender_lock(service) as locked:
         if not locked:
             return {"state": "BUSY"}
         config = service.settings()
+        if suspended(config):
+            return {"state": "SUSPENDED", "code": REVIEW_CODE}
         if not config["enabled"]:
             return {"state": "DISABLED"}
         try:
@@ -308,7 +315,11 @@ def dispatch_one(service):
 
 
 def check_connection(service, actor):
-    service.runtime.writer.run(service.authorize(actor, "core.manage"))
+    def authorize(conn):
+        service.authorize(actor, "core.manage")(conn)
+        service.require_delivery_review(conn)
+
+    service.runtime.writer.run(authorize)
     with sender_lock(service) as locked:
         if not locked:
             raise CoreError("SENDER_BUSY", "Bộ gửi đang bận.", 409)
@@ -329,7 +340,11 @@ def check_connection(service, actor):
 
 
 def reconcile(service, actor, identity, command):
-    service.runtime.writer.run(service.authorize(actor, "core.manage"))
+    def authorize(conn):
+        service.authorize(actor, "core.manage")(conn)
+        service.require_delivery_review(conn)
+
+    service.runtime.writer.run(authorize)
     with sender_lock(service) as locked:
         if not locked:
             raise CoreError("SENDER_BUSY", "Bộ gửi đang bận.", 409)
@@ -361,13 +376,13 @@ def reconcile(service, actor, identity, command):
                 "SENT",
                 "complete",
                 message_id=receipt,
-                authorize=service.authorize(actor, "core.manage"),
+                authorize=authorize,
                 expected_version=command.expected_version,
                 expected_state="UNKNOWN",
             )
 
         def unresolved(conn):
-            service.authorize(actor, "core.manage")(conn)
+            authorize(conn)
             current = conn.execute(select(OUTBOX).where(OUTBOX.c.id == identity)).mappings().one()
             require_version(current.version, command.expected_version)
             return outbox_dto(current)

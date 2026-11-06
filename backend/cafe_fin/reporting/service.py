@@ -19,6 +19,7 @@ from .local_export_migrations import LOCAL_EXPORTS
 from .local_exports import ensure_local_copy, local_state
 from .migrations import ATTEMPTS, EXPORTS, LOCKS, OUTBOX, REPORTS, SETTINGS
 from .models import DATE_RANGE_CONTRACT
+from .restore import REVIEW_CODE, apply_guard, held_report, require_reviewed, suspended
 from .sources import UnboundSources, build_snapshot
 
 
@@ -99,13 +100,18 @@ class ReportingService:
         return lambda conn: self.runtime.auth.authorize(conn, actor, permission)
 
     def command(self, actor, action, request_key, payload, operation, *, admin=False):
+        def authorize(conn):
+            self.authorize(actor, "core.manage" if admin else "reporting.write")(conn)
+            if action in {"enqueue", "retry"}:
+                self.require_delivery_review(conn)
+
         return self.runtime.writer.execute(
             actor.id,
             "reporting." + action,
             request_key,
             payload,
             operation,
-            authorize=self.authorize(actor, "core.manage" if admin else "reporting.write"),
+            authorize=authorize,
         )
 
     @staticmethod
@@ -335,6 +341,7 @@ class ReportingService:
             "daily_export_formats": ["pdf", "xlsx", "txt"],
             "scheduled_actor_id": None,
             "auto_activated_on": None,
+            "restore_review": None,
         }
         return defaults | ({"version": row.version, **json.loads(row.config_json)} if row else {})
 
@@ -348,6 +355,7 @@ class ReportingService:
 
     def guard_schedule(self, conn, config, actor):
         self.runtime.auth.authorize(conn, actor, "core.manage")
+        self.require_delivery_review(conn)
         if self.settings(conn)["version"] != config["version"]:
             raise CoreError(
                 "SCHEDULE_CONFIG_CHANGED", "Cấu hình lịch đã đổi; giữ nguyên bản đã tạo.", 409
@@ -356,12 +364,18 @@ class ReportingService:
     def public_settings(self):
         config = self.settings()
         config["credential_store_available"] = self.secrets.available
+        config["restore_review_required"] = suspended(config)
         try:
-            config["credential_configured"] = self.secrets.has(self.secret_key(config))
+            if suspended(config):
+                config["credential_configured"] = None  # Deliberately not read during restore hold.
+            else:
+                config["credential_configured"] = self.secrets.has(self.secret_key(config))
         except Exception:
             config["credential_configured"] = False
         config["sender_status"] = (
-            "CONFIGURED"
+            "RESTORE_SUSPENDED"
+            if suspended(config)
+            else "CONFIGURED"
             if (config["group_id"] and config["oa_id"] and config["credential_configured"])
             else "UNCONFIGURED"
         )
@@ -398,7 +412,10 @@ class ReportingService:
     def credential_ready(self, config):
         try:
             return bool(
-                config["oa_id"] and config["group_id"] and self.secrets.has(self.secret_key(config))
+                not suspended(config)
+                and config["oa_id"]
+                and config["group_id"]
+                and self.secrets.has(self.secret_key(config))
             )
         except Exception:
             return False
@@ -438,7 +455,19 @@ class ReportingService:
                     conn.execute(
                         DAILY_CURSOR.insert().values(profile_id="delivery", **cursor_values)
                     )
-            persisted = value | {"scheduled_actor_id": actor.id, "auto_activated_on": activated}
+            review = old.get("restore_review")
+            if suspended(old) and value["enabled"]:
+                review = {
+                    **review,
+                    "required": False,
+                    "reviewed_at": utc_now(),
+                    "reviewed_by": actor.id,
+                }
+            persisted = value | {
+                "scheduled_actor_id": actor.id,
+                "auto_activated_on": activated,
+                "restore_review": review,
+            }
             values = dict(
                 version=version, config_json=canonical_json(persisted), updated_at=utc_now()
             )
@@ -457,7 +486,7 @@ class ReportingService:
             )
             return {"version": version, **persisted}
 
-        return self.command(
+        self.command(
             actor,
             "settings",
             command.request_key,
@@ -465,6 +494,25 @@ class ReportingService:
             operation,
             admin=True,
         )
+        with self.runtime.reader() as conn:
+            self.authorize(actor, "core.manage")(conn)
+            return self.settings(conn)
+
+    def restore_quarantine(self, actor, context):
+        return apply_guard(self, actor, context)
+
+    def require_delivery_review(self, conn=None):
+        if self.runtime.maintenance.status()["state"] != "ACTIVE":
+            raise CoreError("RUNTIME_NOT_ACTIVE", "Dữ liệu chưa hoàn tất kích hoạt.", 503)
+        require_reviewed(self.settings(conn))
+
+    def delivery_result(self, actor, identity):
+        with self.runtime.reader() as conn:
+            conn.exec_driver_sql("BEGIN")
+            self.authorize(actor)(conn)
+            self.require_delivery_review(conn)
+            row = conn.execute(select(OUTBOX).where(OUTBOX.c.id == identity)).mappings().one()
+            return outbox_dto(row)
 
     def set_credentials(self, actor, command):
         from .sender import sender_lock
@@ -601,13 +649,14 @@ class ReportingService:
             )
             return result
 
-        return self.command(
+        result = self.command(
             actor,
             "enqueue",
             command.request_key,
             {"report_id": identity, "attachment": command.attachment_export_id},
             operation,
         )
+        return self.delivery_result(actor, result["id"])
 
     def list(self, kind, *, page=1, page_size=25, search="", sort="created_at:desc", state=None):
         table = {"reports": REPORTS, "deliveries": OUTBOX}[kind]
@@ -688,6 +737,7 @@ class ReportingService:
                     OUTBOX.c.state.in_(("SENDING", "UNKNOWN")),
                     OUTBOX.c.message_id.is_not(None),
                     OUTBOX.c.attachment_export_id.is_(None),
+                    (OUTBOX.c.error_code.is_(None) | (OUTBOX.c.error_code != REVIEW_CODE)),
                 )
                 .values(
                     state="SENT",
@@ -724,6 +774,8 @@ class ReportingService:
         if now.tzinfo is None:
             raise ValueError("Aware scheduler time required")
         configured = self.settings()
+        if suspended(configured) or self.runtime.maintenance.status()["state"] != "ACTIVE":
+            return 0
         if configured["enabled"]:
             try:
                 scheduled_actor = self.resolve_scheduled_actor(configured)
@@ -770,6 +822,7 @@ class ReportingService:
                 select(REPORTS)
                 .where(
                     REPORTS.c.state == "SAVED",
+                    ~held_report(REPORTS.c.id),
                     func.json_extract(REPORTS.c.snapshot_json, "$.period.date_range_contract")
                     == DATE_RANGE_CONTRACT,
                     REPORTS.c.through_on <= local_now.date().isoformat(),
@@ -813,6 +866,18 @@ class ReportingService:
         from .sender import dispatch_one
 
         now = now or self.clock()
+        if self.runtime.maintenance.status()["state"] != "ACTIVE":
+            return {
+                "generation": {"state": "BLOCKED"},
+                "queued": 0,
+                "delivery": {"state": "BLOCKED", "code": "RUNTIME_NOT_ACTIVE"},
+            }
+        if suspended(self.settings()):
+            return {
+                "generation": {"state": "RESTORE_SUSPENDED"},
+                "queued": 0,
+                "delivery": {"state": "SUSPENDED", "code": REVIEW_CODE},
+            }
         generation = generate_daily(self, now)
         if generation["state"] in {"FAILED", "BLOCKED", "NEEDS_MANUAL", "BUSY"}:
             return {"generation": generation, "queued": 0, "delivery": {"state": "BLOCKED"}}
@@ -865,10 +930,11 @@ class ReportingService:
             )
             return {"id": identity, "state": next_state}
 
-        return self.command(
+        result = self.command(
             actor,
             "retry",
             command.request_key,
             {"id": identity, "version": command.expected_version},
             operation,
         )
+        return self.delivery_result(actor, result["id"])
