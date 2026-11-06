@@ -67,6 +67,12 @@ The five retries were compiler-internal DLL load retries, not additional build a
 
 **Remaining gate:** authorized resolution of the host trust policy, or an approved build/test environment that can run the normal Rust build artifacts. Then rebuild the final frozen sidecar, run Tauri NSIS build with its hash captured, install/test on Windows, exercise actual native folder picker/handshake/lifecycle and clean-Windows Word/PDF/grid. The development-browser tests below do not satisfy those native/clean-machine gates.
 
+This is a release gate under coordinator-owned
+`docs/adr/20261106_COORDINATION_GATES.md`. It does not replace the independently
+reviewed tracked-code/API/browser requirements for a development baseline.
+Only coordination publishes that baseline tag; no native result is promoted to
+PASS by the policy split.
+
 ## PASS: browser + real sidecar API
 
 ```powershell
