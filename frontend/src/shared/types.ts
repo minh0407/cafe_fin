@@ -19,6 +19,16 @@ export interface Page<T> {
   page: number;
   page_size: number;
 }
+export type FileCategory = "workbooks" | "documents" | "imports" | "reports";
+export interface FileDTO {
+  id: string;
+  sha256: string;
+  size: number;
+  category: FileCategory;
+  original_name: string;
+  media_type: string;
+  created_at: string;
+}
 export interface User {
   id: string;
   username: string;

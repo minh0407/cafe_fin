@@ -64,6 +64,16 @@ class DataRootDTO(ResponseDTO):
     available: bool
 
 
+class FileDTO(ResponseDTO):
+    id: str
+    sha256: str
+    size: int = Field(ge=0)
+    category: Literal["workbooks", "documents", "imports", "reports"]
+    original_name: str
+    media_type: str
+    created_at: str
+
+
 class JobSubmittedDTO(ResponseDTO):
     job_id: str
     state: Literal["WAITING"]

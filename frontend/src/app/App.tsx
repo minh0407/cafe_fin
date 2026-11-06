@@ -153,8 +153,9 @@ export function App() {
         <Layout.Content className="setup">
           <Card title="Chọn nơi lưu dữ liệu" className="setup-card">
             <Typography.Paragraph>
-              Chọn thư mục trên ổ local. Chương trình và dữ liệu được lưu riêng.
-              Thư mục đã cấu hình bị mất sẽ không tự tạo dữ liệu rỗng.
+              Chọn thư mục trên ổ local, ngoài OneDrive, Dropbox và các thư mục
+              đồng bộ cloud. Chương trình và dữ liệu được lưu riêng. Thư mục đã
+              cấu hình bị mất sẽ không tự tạo dữ liệu rỗng.
             </Typography.Paragraph>
             {path && <Typography.Paragraph code>{path}</Typography.Paragraph>}
             <Space orientation="vertical" className="full">
