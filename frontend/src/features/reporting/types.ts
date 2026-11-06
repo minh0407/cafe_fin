@@ -85,6 +85,13 @@ export interface ExportFile {
   file_id: string;
   sha256: string;
   size: number;
+  local_export?: {
+    state: "COPYING" | "PENDING" | "READY" | "FAILED" | "CONFLICT";
+    relative_key: string;
+    error_code: string | null;
+    verified_at: string | null;
+    attempts: number;
+  } | null;
 }
 export interface ReportDetail extends Report {
   snapshot: Snapshot;

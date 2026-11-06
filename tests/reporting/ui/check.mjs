@@ -89,7 +89,17 @@ const exportFile = {
   file_id: "service-owned-file",
   sha256: "d".repeat(64),
   size: 24,
+  local_export: {
+    state: "READY",
+    relative_key:
+      "reports/CafeFin-2026-11-06-v1-11111111-1111-4111-8111-111111111111.pdf",
+    error_code: null,
+    verified_at: "2026-11-06T11:00:00Z",
+    attempts: 1,
+  },
 };
+let summaryExported = false;
+let failNextLocalExport = false;
 await page.route("**/api/v1/**", async (route) => {
   const url = new URL(route.request().url());
   const resource = url.pathname.replace("/api/v1", "");
@@ -100,6 +110,25 @@ await page.route("**/api/v1/**", async (route) => {
     body: route.request().postData(),
   });
   let result = {};
+  if (
+    resource === "/reporting/reports/demo-report/exports" &&
+    failNextLocalExport
+  ) {
+    failNextLocalExport = false;
+    exportFile.local_export.state = "FAILED";
+    exportFile.local_export.error_code = "LOCAL_EXPORT_IO";
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          code: "LOCAL_EXPORT_IO",
+          message: "Không lưu được bản local.",
+        },
+      }),
+    });
+    return;
+  }
   if (
     resource ===
     "/reporting/reports/demo-report/exports/demo-summary-export/content"
@@ -172,16 +201,19 @@ await page.route("**/api/v1/**", async (route) => {
       page: Number(url.searchParams.get("page")),
       page_size: 25,
     };
-  else if (resource === "/reporting/reports/demo-report/exports")
+  else if (resource === "/reporting/reports/demo-report/exports") {
+    summaryExported = true;
+    exportFile.local_export.state = "READY";
+    exportFile.local_export.error_code = null;
     result = exportFile;
-  else if (resource === "/reporting/reports/preview") result = row;
+  } else if (resource === "/reporting/reports/preview") result = row;
   else if (resource === "/reporting/reports/demo-report")
     result = {
       ...row,
       snapshot,
       short_message:
         "Cafe Fin 2026-11-06 - bản 1\nChỉ tổng hợp dữ liệu đã nhập",
-      exports: [],
+      exports: summaryExported ? [exportFile] : [],
     };
   else if (resource === "/reporting/deliveries")
     result = { items: [delivery], total: 1, page: 1, page_size: 25 };
@@ -278,6 +310,30 @@ try {
     ),
   );
   assert(!calls.some((x) => x.resource.startsWith("/files/")));
+  await page
+    .getByText(exportFile.local_export.relative_key, { exact: true })
+    .waitFor();
+  const downloadRequests = () =>
+    calls.filter((x) =>
+      x.resource.endsWith("/exports/demo-summary-export/content"),
+    ).length;
+  assert.equal(downloadRequests(), 1);
+  failNextLocalExport = true;
+  await page.getByRole("button", { name: "Xuất PDF", exact: true }).click();
+  await page
+    .getByText(/PDF — bản trong thư mục dữ liệu: Lưu local lỗi/)
+    .waitFor();
+  await page
+    .getByText("Mã lỗi local: LOCAL_EXPORT_IO", { exact: true })
+    .waitFor();
+  assert.equal(downloadRequests(), 1);
+  const retryDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Xuất PDF", exact: true }).click();
+  await retryDownload;
+  await page
+    .getByText(/PDF — bản trong thư mục dữ liệu: Đã xác minh/)
+    .waitFor();
+  assert.equal(downloadRequests(), 2);
   await page.waitForFunction(
     () =>
       getComputedStyle(document.querySelector(".ant-modal")).opacity === "1",
@@ -455,6 +511,8 @@ try {
         "invalid, partial and empty required dates block preview API",
         "corrected date posts new ISO inclusive bounds rather than stale date",
         "summary export downloads through authorized reporting route, no raw file URL",
+        "Explorer copy relative folder and verification state visible",
+        "local copy failure stays visible, retries without premature download",
         "unmarked legacy cannot enqueue",
         "snapshot exact kg/missing mapping",
         "v2 components and deposit subset labels",

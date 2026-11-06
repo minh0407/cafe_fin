@@ -946,6 +946,43 @@ function ReportingView() {
             <Typography.Paragraph style={{ whiteSpace: "pre-wrap" }}>
               {detail.short_message}
             </Typography.Paragraph>
+            {detail.exports.map((file) => (
+              <Alert
+                key={file.id}
+                type={file.local_export?.state === "READY" ? "info" : "warning"}
+                title={`${file.format.toUpperCase()} — bản trong thư mục dữ liệu: ${
+                  file.local_export?.state === "READY"
+                    ? "Đã xác minh"
+                    : file.local_export?.state === "CONFLICT"
+                      ? "Trùng tên, không ghi đè"
+                      : file.local_export?.state === "FAILED"
+                        ? "Lưu local lỗi; giữ bản canonical"
+                        : file.local_export?.state === "COPYING"
+                          ? "Đang tạo bản local"
+                          : "Chưa hoàn tất; bấm Xuất để thử lại từ bản canonical"
+                }`}
+                description={
+                  file.local_export && (
+                    <Space orientation="vertical">
+                      <Typography.Text copyable>
+                        {file.local_export.relative_key}
+                      </Typography.Text>
+                      {file.local_export.verified_at && (
+                        <Typography.Text>
+                          Lần xác minh thành công gần nhất:{" "}
+                          {file.local_export.verified_at}
+                        </Typography.Text>
+                      )}
+                      {file.local_export.error_code && (
+                        <Typography.Text>
+                          Mã lỗi local: {file.local_export.error_code}
+                        </Typography.Text>
+                      )}
+                    </Space>
+                  )
+                }
+              />
+            ))}
             <Space wrap>
               {detail.state === "PREVIEW" && (
                 <Button
@@ -972,11 +1009,15 @@ function ReportingView() {
                     disabled={busy}
                     onClick={() =>
                       void action(async () => {
-                        const file = await mutate<ExportFile>(
-                          `/reporting/reports/${detail.id}/exports`,
-                          { format },
-                        );
-                        await openReport(detail.id);
+                        let file: ExportFile;
+                        try {
+                          file = await mutate<ExportFile>(
+                            `/reporting/reports/${detail.id}/exports`,
+                            { format },
+                          );
+                        } finally {
+                          if (live()) await openReport(detail.id);
+                        }
                         await download(file);
                       })
                     }

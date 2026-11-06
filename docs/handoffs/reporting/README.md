@@ -5,6 +5,10 @@ merge or READY tag has been made by this lane.
 
 Latest integration follow-ups:
 
+- [Human-readable local copies](local-exports.md): real PDF/XLSX/TXT filenames in
+  reports, non-overwriting hash-verified retry, durable per-export state and
+  append-only migration v3. **272 full-suite PASS + separate backup case PASS;
+  final local module 11 PASS; 20 browser cases PASS**.
 - [Authorized shared-summary download](export-downloads.md): dedicated report/export
   route, verified frozen bytes and fresh authorization; generic file ACL unchanged.
   Latest validation: **262 tests (88 reporting + 174 core), 18 browser cases PASS**.
@@ -135,11 +139,14 @@ Files: backend `models.py` (commands), `migrations.py` (schema v1),
 `ReportingPage.tsx`, `types.ts`, `index.ts`; all regression and synthetic UI/evidence
 helpers are under `tests/reporting/**`.
 
-Migration: namespace `reporting`, versions 1 and 2, checksummed DDL and immutable triggers.
+Migration: namespace `reporting`, versions 1, 2 and 3, checksummed DDL and immutable triggers.
 Tables: `reporting_reports`, `reporting_exports`, `reporting_settings`,
 `reporting_outbox`, `reporting_attempts`, `reporting_locks`. No central version
 table or another lane's migration was modified. V2 adds `reporting_daily_runs`
-and `reporting_daily_cursor`; the v1 file/checksum is unchanged.
+and `reporting_daily_cursor`. V3 adds `reporting_local_exports`; the v1/v2
+files/checksums are unchanged. Human copies are derived filesystem outputs, with
+canonical FileStore references retained for backup/download; see the local-copy
+handoff for restore/reconcile implications and last-verification semantics.
 
 ## Delivery guarantees and limits
 
