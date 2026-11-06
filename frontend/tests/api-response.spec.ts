@@ -1,5 +1,108 @@
 import { test, expect } from "@playwright/test";
 
+test("HTTP errors preserve accounting details, field errors, and request IDs", async ({
+  page,
+}) => {
+  await page.route("**/error-details-test", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<!doctype html><html><body></body></html>",
+    }),
+  );
+  const cases = [
+    {
+      path: "/accounting/invalid-cell",
+      status: 422,
+      envelope: {
+        error: {
+          code: "CELL_VALIDATION_FAILED",
+          message: "Kiểm tra ô bị lỗi trước khi nhập.",
+          field_errors: [
+            { field: "rows.2.amount", code: "INVALID_MONEY", message: "Số tiền không hợp lệ." },
+          ],
+          details: {
+            cell_issues: [{ sheet: "Sổ thử", row: 3, column: "D", code: "INVALID_MONEY" }],
+          },
+        },
+        request_id: "synthetic-cell-request",
+      },
+    },
+    {
+      path: "/accounting/duplicate-upload",
+      status: 409,
+      envelope: {
+        error: {
+          code: "FILE_ALREADY_UPLOADED",
+          message: "Tệp đã có trong phiên nhập trước.",
+          field_errors: [],
+          details: { batch_id: "synthetic-existing-batch" },
+        },
+        request_id: "synthetic-upload-request",
+      },
+    },
+    {
+      path: "/accounting/without-details",
+      status: 400,
+      envelope: {
+        error: { code: "INVALID_INPUT", message: "Dữ liệu không hợp lệ.", field_errors: [] },
+        request_id: "synthetic-plain-request",
+      },
+    },
+  ];
+  for (const item of cases) {
+    await page.route(`**/api/v1${item.path}`, (route) =>
+      route.fulfill({ status: item.status, json: item.envelope }),
+    );
+  }
+  await page.goto("/error-details-test");
+  const result = await page.evaluate(async (paths) => {
+    const apiModule = "/src/shared/api.ts";
+    const sessionModule = "/src/shared/session.ts";
+    const { api, ApiError } = await import(apiModule);
+    const { useSession } = await import(sessionModule);
+    useSession.getState().setBoot({
+      protocol_version: 1,
+      api_base: `${window.location.origin}/api/v1`,
+      session_token: "synthetic-details-app-session",
+      data_root: "D:\\Synthetic",
+    });
+    const failures = [];
+    for (const path of paths) {
+      try {
+        await api(path);
+      } catch (error) {
+        const failure = error as {
+          code: string;
+          message: string;
+          requestId: string;
+          fields: unknown;
+          details: unknown;
+        };
+        failures.push({
+          isApiError: error instanceof ApiError,
+          code: failure.code,
+          message: failure.message,
+          requestId: failure.requestId,
+          fields: failure.fields,
+          details: failure.details,
+          connected: useSession.getState().connected,
+        });
+      }
+    }
+    return { failures, defaultDetails: new ApiError("SYNTHETIC", "Lỗi thử.").details };
+  }, cases.map((item) => item.path));
+  expect(result.failures).toEqual(cases.map(({ envelope }) => ({
+    isApiError: true,
+    code: envelope.error.code,
+    message: envelope.error.message,
+    requestId: envelope.request_id,
+    fields: envelope.error.field_errors,
+    details: "details" in envelope.error ? envelope.error.details : {},
+    connected: true,
+  })));
+  expect(result.defaultDetails).toEqual({});
+});
+
 test("response bodies complete before connected status, and body failures stay sanitized", async ({
   page,
 }) => {
