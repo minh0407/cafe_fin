@@ -37,6 +37,20 @@ export async function api<T>(
     throw new ApiError("BACKEND_UNAVAILABLE", "Chưa kết nối dữ liệu local.");
   if (!/^\/[a-z0-9/_?=&%.,:+-]*$/i.test(path) || path.includes(".."))
     throw new ApiError("INVALID_API_PATH", "Đường dẫn API không hợp lệ.");
+  const assertCurrent = () => {
+    if (
+      session.generation !== useSession.getState().generation ||
+      session.generationSignal.aborted
+    )
+      throw new ApiError(
+        "STALE_SESSION",
+        "Phiên dữ liệu đã thay đổi; phản hồi cũ đã bị bỏ qua.",
+      );
+  };
+  const signal = AbortSignal.any([
+    session.generationSignal,
+    init.signal ?? AbortSignal.timeout(15000),
+  ]);
   const headers = new Headers(init.headers);
   headers.set("X-App-Session", session.boot.session_token);
   if (auth && session.token)
@@ -50,15 +64,17 @@ export async function api<T>(
       headers,
       credentials: "omit",
       redirect: "error",
-      signal: init.signal ?? AbortSignal.timeout(15000),
+      signal,
     });
   } catch {
+    assertCurrent();
     useSession.getState().connection(false);
     throw new ApiError(
       "BACKEND_UNAVAILABLE",
       "Mất kết nối dữ liệu local. Chưa xác nhận thao tác đã được lưu; kiểm tra lại trước khi gửi lại.",
     );
   }
+  assertCurrent();
   if (!response.ok) {
     let envelope: ErrorEnvelope | undefined;
     let bodyComplete = false;
@@ -68,7 +84,9 @@ export async function api<T>(
     } catch {
       /* never expose a raw server response */
     }
+    assertCurrent();
     useSession.getState().connection(bodyComplete);
+    assertCurrent();
     if (response.status === 401 && auth) useSession.getState().logout();
     throw new ApiError(
       envelope?.error?.code ?? "API_ERROR",
@@ -78,15 +96,20 @@ export async function api<T>(
     );
   }
   if (response.status === 204) {
+    assertCurrent();
     useSession.getState().connection(true);
+    assertCurrent();
     return undefined as T;
   }
   try {
     const result =
       responseType === "blob" ? await response.blob() : await response.json();
+    assertCurrent();
     useSession.getState().connection(true);
+    assertCurrent();
     return result as T;
   } catch {
+    assertCurrent();
     useSession.getState().connection(false);
     throw new ApiError(
       "INVALID_API_RESPONSE",
@@ -134,6 +157,8 @@ export async function uploadOriginal(
       signal,
     });
   } catch (error) {
+    if (error instanceof ApiError && error.code === "STALE_SESSION")
+      throw error;
     if (signal.aborted)
       throw new ApiError(
         "UPLOAD_TIMEOUT",
