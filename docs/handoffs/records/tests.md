@@ -229,3 +229,54 @@ git diff --check
 Một warning nền Starlette/httpx vẫn có. Core/shared/migration/frontend không đổi;
 không chạy lại core suite hoặc browser/build cho patch guard backend này. Kết quả
 187 core+records và browser v2 trước patch là bằng chứng mốc c82044d riêng.
+
+## Fix instrumentation concurrency sau Windows CI 42255278298
+
+Root đã đọc CI: một test lỗi khi hook engine-wide BEGIN IMMEDIATE thu ba physical
+connection IDs, gồm transaction poll của JobRunner. Stock behavior vẫn đúng;
+đây là lỗi instrumentation, không phải bằng chứng xuất âm. Không đổi application
+source hoặc dừng background worker để làm test pass.
+
+Test `test_two_real_connections_cannot_consume_the_same_stock` nay wrap public
+writer.execute theo đúng actor/action/request_key của hai lệnh xuất mục tiêu.
+Lệnh đầu được capture ở authorize callback, trên worker thật sau khi core đã
+BEGIN IMMEDIATE; callback chờ nhả khóa rồi vẫn gọi original authorizer. Không
+dùng caller-thread-local, không thay executor hoặc WriteCoordinator.run/_submit.
+Writer thứ hai riêng không có JobRunner; wrapper chỉ đánh dấu exact target đã
+enqueue, listener before/after BEGIN kiểm SQLite attempt và acquisition thực.
+
+Trước hai target, test bắt buộc chạy các transaction không liên quan qua cả
+run() và execute() trên hai writer. Chúng phải thực sự BEGIN nhưng không bật
+first_locked/second_attempted/second_acquired, không enqueue target và không thêm
+connection ID. JobRunner thật của runtime đầu vẫn chạy trong toàn bộ test.
+
+Giữ nguyên assertion đúng hai physical connections (không nới thành >=2), giữ
+strong references để tránh ID reuse, ghi đúng worker thread IDs. Khi khóa đầu
+đang giữ, second transaction chưa active, before-BEGIN đã tới, after-BEGIN chưa
+tới trong bounded wait và future chưa hoàn tất. Sau nhả khóa, first success,
+second nhận STOCK_NEGATIVE sau khi đã lấy BEGIN; tồn3kg, đúng hai phiếu/movement,
+đúng hai audit và hai records-create receipts, không có receipt của lệnh thất bại.
+
+Kế hoạch focused repeat được chốt trước khi chạy:20 subprocess độc lập, mỗi lượt
+fixture/DB/JobRunner mới; dừng và xuất lỗi ngay ở failure đầu tiên, không retry.
+Kết quả20/20 PASS trong45.89s. Không rerun CI để che lỗi cũ; CI recovery do root
+quản lý sau cherry-pick. Quan sát khóa nằm tại ranh giới before/after BEGIN và
+authorize callback, không instrument busy-handler bên trong SQLite. Review chỉ
+đọc không thấy test bị làm yếu hoặc source production bị thay.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/records/test_records_transactions.py::test_two_real_connections_cannot_consume_the_same_stock -q -o faulthandler_timeout=20
+# PASS: 1 passed /0.77s; sau đó20 subprocess mới chạy chính node này đều PASS.
+.\.venv\Scripts\python.exe -m pytest tests/records -q -o faulthandler_timeout=30
+# PASS: 131 passed, 1 warning in64.40s.
+.\.venv\Scripts\ruff.exe check tests/records/test_records_transactions.py
+# PASS
+.\.venv\Scripts\python.exe -m compileall -q tests/records/test_records_transactions.py
+# PASS
+git diff --check
+# PASS
+```
+
+Chỉ đổi test instrumentation và tài liệu. Không đổi backend/frontend/core,
+migration/dependency hoặc private executor/queue implementation. Không chạy lại
+core/UI/build vì không đổi source ứng dụng; không tuyên bố CI recovery đã PASS.
