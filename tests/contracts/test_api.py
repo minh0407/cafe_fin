@@ -15,8 +15,10 @@ from uuid import uuid4
 
 import pytest
 from cafe_fin.contracts.migrations.v001 import DRAFTS, LINES, OUTPUTS
+from cafe_fin.contracts.migrations.v002 import OUTPUT_STORAGE
 from cafe_fin.contracts.module import module_manifest
 from cafe_fin.contracts.schemas import TEMPLATE_IDS
+from cafe_fin.contracts.service import ContractService
 from cafe_fin.core.api import create_app
 from cafe_fin.core.contracts import (
     InventorySummaryDTO,
@@ -25,6 +27,7 @@ from cafe_fin.core.contracts import (
     WeighingDTO,
     WeightLineInput,
 )
+from cafe_fin.core.db import REQUESTS
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.core.renderers import DocumentRenderer
@@ -263,6 +266,321 @@ def test_concurrent_same_key_export_produces_one_version_and_one_file(api):
     with api.runtime.reader() as conn:
         assert len(conn.execute(select(FILES)).all()) == 1
         assert len(conn.execute(select(OUTPUTS)).all()) == 1
+
+
+def test_uppercase_uuid_version_listing_download_and_retry_are_canonical(api):
+    contract = create(api)
+    version = export(api, contract)
+    canonical_path = f"{PREFIX}/{contract['id']}/versions/{version['id']}"
+    uppercase_path = f"{PREFIX}/{contract['id'].upper()}/versions/{version['id'].upper()}"
+    assert ok(api.client.get(uppercase_path)) == ok(api.client.get(canonical_path)) == version
+    assert ok(api.client.get(f"{PREFIX}/{contract['id'].upper()}/versions"))["items"] == [version]
+    assert ok(api.client.get(f"{PREFIX}/{contract['id'].upper()}/history")) == ok(
+        api.client.get(f"{PREFIX}/{contract['id']}/history")
+    )
+    for format in ("docx", "pdf"):
+        canonical = api.client.get(f"{canonical_path}/files/{format}")
+        uppercase = api.client.get(f"{uppercase_path}/files/{format}")
+        assert uppercase.status_code == canonical.status_code == 200
+        assert uppercase.content == canonical.content
+        assert uppercase.headers["x-content-sha256"] == version["files"][format]["sha256"]
+    command = {"request_key": "uppercase-retry", "formats": ["docx", "pdf"]}
+    assert ok(api.client.post(uppercase_path + "/files", json=command)) == version
+    assert ok(api.client.post(canonical_path + "/files", json=command)) == version
+    upper_contract = contract | {"id": contract["id"].upper()}
+    assert export(api, upper_contract) == version
+    with api.runtime.reader() as conn:
+        assert len(conn.execute(select(FILES)).all()) == 2
+        assert len(conn.execute(select(OUTPUTS)).all()) == 2
+    assert ok(api.client.get(f"{PREFIX}/{contract['id']}/versions"))["total"] == 1
+
+
+@pytest.mark.parametrize("restart", [False, True])
+@pytest.mark.parametrize("recovering_user", ["operator-b", "admin"])
+@pytest.mark.parametrize("legacy_owner", [False, True])
+def test_cross_actor_recovery_reuses_file_after_put_interruption(
+    tmp_path, monkeypatch, restart, recovering_user, legacy_owner
+):
+    root = tmp_path / "cross-actor-recovery"
+    with running(root) as api:
+        admin_token = api.client.headers["Authorization"]
+        users = {}
+        for username in ("operator-a", "operator-b"):
+            users[username] = ok(
+                api.client.post(
+                    "/api/v1/users",
+                    json={
+                        "username": username,
+                        "password": PASSWORD,
+                        "role": "operator",
+                        "request_key": "create-" + username,
+                    },
+                )
+            )
+        if legacy_owner:
+            # Version creator differs from the actor who first stored this format.
+            contract = create(api)
+
+            def unavailable_renderer(*args, **kwargs):
+                raise CoreError("RENDER_TEST_UNAVAILABLE", "Synthetic initial render failure", 503)
+
+            with monkeypatch.context() as initial_failure:
+                initial_failure.setattr(DocumentRenderer, "docx", unavailable_renderer)
+                prepared = export(api, contract, formats=["docx"])
+            assert prepared["files"]["docx"]["status"] == "failed"
+            # A v1 failed attempt had no module-owned storage reservation at all.
+            api.runtime.writer.run(
+                lambda conn: conn.execute(
+                    OUTPUT_STORAGE.delete().where(OUTPUT_STORAGE.c.version_id == prepared["id"])
+                )
+            )
+        actor_a_login = ok(
+            api.client.post(
+                "/api/v1/auth/login",
+                json={
+                    "username": "operator-a",
+                    "password": PASSWORD,
+                },
+            )
+        )
+        api.client.headers["Authorization"] = "Bearer " + actor_a_login["access_token"]
+        if not legacy_owner:
+            contract = create(api)
+        original_put = api.runtime.files.put
+        original_run = api.runtime.writer.run
+        stored_files = []
+        failed = False
+
+        def intercepted_put(*args, **kwargs):
+            stored = original_put(*args, **kwargs)
+            stored_files.append(stored)
+            return stored
+
+        def interrupted_finish(effect, *args, **kwargs):
+            nonlocal failed
+            if stored_files and not failed and effect.__name__ == "finish":
+                failed = True
+                raise OSError("Synthetic interruption after original actor stored file")
+            return original_run(effect, *args, **kwargs)
+
+        with monkeypatch.context() as interruption:
+            interruption.setattr(api.runtime.files, "put", intercepted_put)
+            interruption.setattr(api.runtime.writer, "run", interrupted_finish)
+            if legacy_owner:
+                partial = ok(
+                    api.client.post(
+                        f"{PREFIX}/{contract['id']}/versions/{prepared['id']}/files",
+                        json={
+                            "request_key": "initial-format-owner",
+                            "formats": ["docx"],
+                        },
+                    )
+                )
+            else:
+                partial = export(api, contract, formats=["docx"])
+        assert failed and len(stored_files) == 1
+        assert partial["files"]["docx"]["status"] == "failed"
+        assert partial["files"]["docx"]["file_id"] is None
+        original_file = stored_files[0]
+        with api.runtime.files.read(original_file.id) as source:
+            original_bytes = source.read()
+        if legacy_owner:
+            # Model a staged v1 output without touching the genuine core receipt.
+            api.runtime.writer.run(
+                lambda conn: conn.execute(
+                    OUTPUT_STORAGE.delete().where(
+                        OUTPUT_STORAGE.c.version_id == partial["id"],
+                        OUTPUT_STORAGE.c.format == "docx",
+                    )
+                )
+            )
+        with api.runtime.reader() as conn:
+            original_receipts = [
+                dict(row)
+                for row in conn.execute(
+                    select(REQUESTS).where(REQUESTS.c.action == "files.put")
+                ).mappings()
+            ]
+        assert len(original_receipts) == 1
+        api.client.headers["Authorization"] = admin_token
+        if recovering_user == "admin":
+            actor_a = users["operator-a"]
+            ok(
+                api.client.patch(
+                    "/api/v1/users/" + actor_a["id"],
+                    json={
+                        "request_key": "disable-original-actor",
+                        "expected_version": actor_a["version"],
+                        "role": "operator",
+                        "active": False,
+                    },
+                )
+            )
+
+        def recover(current):
+            login = ok(
+                current.client.post(
+                    "/api/v1/auth/login",
+                    json={
+                        "username": recovering_user,
+                        "password": PASSWORD,
+                    },
+                )
+            )
+            current.client.headers["Authorization"] = "Bearer " + login["access_token"]
+
+            def no_render(*args, **kwargs):
+                raise AssertionError("Recovery must retain original rendered bytes")
+
+            with monkeypatch.context() as recovery_patch:
+                recovery_patch.setattr(DocumentRenderer, "docx", no_render)
+                recovered = ok(
+                    current.client.post(
+                        f"{PREFIX}/{contract['id']}/versions/{partial['id']}/files",
+                        json={
+                            "request_key": "cross-actor-recovery",
+                            "formats": ["docx"],
+                        },
+                    )
+                )
+            assert recovered["files"]["docx"]["status"] == "succeeded"
+            assert recovered["files"]["docx"]["file_id"] == original_file.id
+            assert recovered["files"]["docx"]["sha256"] == original_file.sha256
+            assert recovered["id"] == partial["id"]
+            assert recovered["snapshot"] == partial["snapshot"]
+            assert recovered["snapshot_sha256"] == partial["snapshot_sha256"]
+            assert download(current, contract, recovered, "docx") == original_bytes
+            assert ok(current.client.get(f"{PREFIX}/{contract['id']}/versions"))["total"] == 1
+            with current.runtime.reader() as conn:
+                assert len(conn.execute(select(FILES)).all()) == 1
+                assert len(conn.execute(select(OUTPUTS)).all()) == 1
+                assert conn.execute(select(OUTPUTS.c.rendered_bytes)).scalar_one() is None
+                assert [
+                    dict(row)
+                    for row in conn.execute(
+                        select(REQUESTS).where(REQUESTS.c.action == "files.put")
+                    ).mappings()
+                ] == original_receipts
+                owner = conn.execute(
+                    select(OUTPUT_STORAGE.c.owner_actor).where(
+                        OUTPUT_STORAGE.c.version_id == partial["id"],
+                        OUTPUT_STORAGE.c.format == "docx",
+                    )
+                ).scalar_one()
+                assert owner == users["operator-a"]["id"]
+
+        if not restart:
+            recover(api)
+    if restart:
+        with running(root, initialize=False) as reopened:
+            recover(reopened)
+
+
+@pytest.mark.parametrize(
+    "output_ready,revocation_phase",
+    [
+        (False, "before_render"),
+        (True, "before_render"),
+        (True, "file_verification"),
+        (False, "rendering"),
+    ],
+)
+def test_recovering_actor_revocation_cannot_stage_mutate_or_report_false_success(
+    api, monkeypatch, output_ready, revocation_phase
+):
+    admin_token = api.client.headers["Authorization"][7:]
+    admin = api.runtime.auth.authenticate(admin_token)
+    operator = ok(
+        api.client.post(
+            "/api/v1/users",
+            json={
+                "username": "recovering-operator",
+                "password": PASSWORD,
+                "role": "operator",
+                "request_key": "create-recovering-operator",
+            },
+        )
+    )
+    contract = create(api)
+    if output_ready:
+        version = export(api, contract, formats=["docx"])
+    else:
+
+        def initial_render_failure(*args, **kwargs):
+            raise CoreError("RENDER_TEST_UNAVAILABLE", "Synthetic pending recovery", 503)
+
+        with monkeypatch.context() as initial_failure:
+            initial_failure.setattr(DocumentRenderer, "docx", initial_render_failure)
+            version = export(api, contract, formats=["docx"])
+    path = f"{PREFIX}/{contract['id']}/versions/{version['id']}/files"
+    command = {"request_key": "revoked-recovery", "formats": ["docx"]}
+    unauthenticated = api.client.post(path, json=command, headers={"Authorization": ""})
+    assert unauthenticated.status_code == 401
+    login = ok(
+        api.client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "recovering-operator",
+                "password": PASSWORD,
+            },
+        )
+    )
+    api.client.headers["Authorization"] = "Bearer " + login["access_token"]
+    with api.runtime.reader() as conn:
+        output_before = dict(conn.execute(select(OUTPUTS)).mappings().one())
+        files_before = [dict(row) for row in conn.execute(select(FILES)).mappings()]
+        owners_before = [dict(row) for row in conn.execute(select(OUTPUT_STORAGE)).mappings()]
+    original_render = ContractService._render
+    revoked = False
+
+    def revoke_current_actor():
+        nonlocal revoked
+        api.runtime.auth.update_user(
+            admin,
+            operator["id"],
+            role="operator",
+            active=False,
+            expected_version=operator["version"],
+            request_key="revoke-before-recovery",
+        )
+        revoked = True
+
+    def revoke_after_command_prepared(self, actor, identity, version_id, formats):
+        assert actor.id == operator["id"]
+        revoke_current_actor()
+        return original_render(self, actor, identity, version_id, formats)
+
+    if revocation_phase == "before_render":
+        monkeypatch.setattr(ContractService, "_render", revoke_after_command_prepared)
+    elif revocation_phase == "rendering":
+        original_docx = DocumentRenderer.docx
+
+        def revoke_during_render(self, snapshot):
+            revoke_current_actor()
+            return original_docx(self, snapshot)
+
+        monkeypatch.setattr(DocumentRenderer, "docx", revoke_during_render)
+    else:
+        original_read = api.runtime.files.read
+
+        @contextmanager
+        def revoke_during_file_verification(file_id):
+            with original_read(file_id) as source:
+                revoke_current_actor()
+                yield source
+
+        monkeypatch.setattr(api.runtime.files, "read", revoke_during_file_verification)
+    denied = api.client.post(path, json=command)
+    assert revoked
+    assert denied.status_code == 401, denied.text
+    assert denied.json()["error"]["code"] == "SESSION_EXPIRED"
+    assert api.client.post(path, json=command).status_code == 401
+    with api.runtime.reader() as conn:
+        assert dict(conn.execute(select(OUTPUTS)).mappings().one()) == output_before
+        assert [dict(row) for row in conn.execute(select(FILES)).mappings()] == files_before
+        assert [
+            dict(row) for row in conn.execute(select(OUTPUT_STORAGE)).mappings()
+        ] == owners_before
 
 
 @pytest.mark.parametrize("recovery", ["same_key", "add_formats"])
@@ -660,7 +978,12 @@ def test_file_or_db_failure_recovers_exact_staged_bytes_after_runtime_restart(
 
         def intercepted_run(effect, *args, **kwargs):
             nonlocal failed
-            if failure == "finalization" and stored_files and not failed:
+            if (
+                failure == "finalization"
+                and stored_files
+                and not failed
+                and effect.__name__ == "finish"
+            ):
                 failed = True
                 raise OSError("Synthetic database failure after FileStore.put")
             return original_run(effect, *args, **kwargs)

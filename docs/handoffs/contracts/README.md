@@ -3,6 +3,10 @@
 Development implementation on reviewed foundation; this is not native Windows
 release acceptance. No push, merge, PR or READY tag was created by this lane.
 
+Independent-review patch: [review-fixes.md](review-fixes.md) documents cross-actor
+storage receipt recovery, canonical UUID handling, the appended v2 migration and
+the latest validation. The original candidate evidence below remains historical.
+
 - Worktree: `C:\Users\NC\.codex\worktrees\cafe-fin-contracts\cafe_fin`
 - Branch: `codex/cafe-fin-contracts`
 - Baseline: `cafe-fin-foundation-ready-v1`

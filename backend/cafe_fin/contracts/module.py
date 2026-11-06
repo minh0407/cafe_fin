@@ -360,7 +360,7 @@ def module_manifest(records: RecordsReadBridge | None = None) -> ModuleManifest:
         from cafe_fin.core.db import AUDIT
 
         runtime = request.app.state.runtime
-        service(request).read(contract_id)
+        contract_id = service(request).read(contract_id)["id"]
         with runtime.reader() as conn:
             rows = AuditService.page(conn, "contracts.draft", contract_id, page, page_size)
             count = conn.execute(
