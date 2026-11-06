@@ -848,11 +848,29 @@ class AccountingService:
                     condition = or_(s.cells.c.text_value.is_(None), s.cells.c.text_value == "")
                 elif col["kind"] in ("integer", "decimal", "money", "formula") and op != "contains":
                     _, scaled = normalize_value(val, col)
-                    condition = {
-                        "eq": s.cells.c.scaled_value == scaled,
-                        "gte": s.cells.c.scaled_value >= scaled,
-                        "lte": s.cells.c.scaled_value <= scaled,
-                    }[op]
+                    if scaled is None and op != "eq":
+                        raise CoreError(
+                            "FILTER_INVALID", "Giá trị lọc so sánh số không được trống."
+                        )
+                    if op == "eq":
+                        condition = s.cells.c.scaled_value == scaled
+                    elif op == "gte":
+                        condition = s.cells.c.scaled_value >= scaled
+                    else:
+                        condition = s.cells.c.scaled_value <= scaled
+                    # Missing newly added cells do not match, as with EXISTS.
+                    # Their entries remain visible without this numeric filter;
+                    # equality to null matches only an existing nullable cell.
+                    predicates.append(
+                        s.entries.c.id.in_(
+                            select(s.cells.c.row_id).where(
+                                s.cells.c.book_id == book_id,
+                                s.cells.c.column_id == col["id"],
+                                condition,
+                            )
+                        )
+                    )
+                    continue
                 else:
                     text = str(val or "")
                     condition = {
