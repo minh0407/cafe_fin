@@ -2,6 +2,8 @@
 
 Đây là contract thiết kế v1. Foundation cụ thể hóa bằng models/types và test schema trước tag foundation; mọi đổi ngữ nghĩa sau đó cần điều phối duyệt và cập nhật tất cả consumer. Không tự coi endpoint mới chưa có code là đã chạy được.
 
+Điều phối bổ sung [read bridge revision 2](handoffs/foundation/read-bridge-v2.md) sau baseline: phân loại biến động kho và ý nghĩa chỉ tiêu tiền là optional typed fields. Các lane áp commit cập nhật do điều phối cung cấp; không đổi tag foundation hoặc tự sửa shared types. Đây là phiên bản DTO read bridge, không đổi prefix REST `/api/v1`.
+
 ## Quy ước chung
 
 - REST local `/api/v1`, loopback session auth; file native qua IPC allowlist hoặc file ID. Không đưa absolute file path bất kỳ từ client vào hàm đọc tệp.
