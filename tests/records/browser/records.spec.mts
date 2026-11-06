@@ -146,6 +146,8 @@ test("desktop real-API records flow, immutable weighing history and stock reject
     expect(inventoryV2.movement_breakdown).toEqual([{
       product_id: weighing.lines[0].product_id,
       warehouse_id: inventoryV2.items[0].warehouse_id,
+      product_name: "Cà phê tổng hợp",
+      warehouse_name: "Kho tổng hợp",
       purchased_kg: "100.125",
       sold_kg: "10.001",
       production_input_kg: "0.000",

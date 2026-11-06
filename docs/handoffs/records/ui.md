@@ -235,3 +235,52 @@ read-only source review found no missing date guard or stale-date path. The shar
 widget's independent11 cases are root's prior evidence, not claimed as rerun by
 this lane. Backend tests are not rerun for this UI-only adoption; no backend/API/
 migration semantics changed. CI recovery and native acceptance remain root gates.
+
+## Latest verification after shared Form-disabled fix
+
+Applied only the approved shared commit3aa94c601dbf878f07b46b0902fc71b0f388c40c as
+localb5cbfa569430c00eab35f8e6f09071c5b98d9a70. Its exact three files are shared
+DateInput, root's widget tests and foundation handoff. No lane implementation,
+dependency, port or policy change was needed. The existing records editor already
+uses Form disabled={busy}; the fixed widget now inherits that public context for
+calendar/clear/navigation as well as text, including pending popup callbacks.
+
+Latest local consumer verification (supersedes timings above for this source):
+
+```powershell
+npm --prefix frontend run typecheck
+# PASS
+node tests/records/browser/build-feature.mjs
+# PASS:28 modules80.03KB/gzip21.74KB,302ms.
+frontend/node_modules/.bin/playwright.cmd test --config tests/records/browser/playwright.config.mts
+# PASS:1 test20.8s /22.2s total, real HTTP/browser/WAL on1421.
+git diff --check
+# PASS
+```
+
+The consumer flow retained all date-draft no-POST/no-GET checks, ISO saved values,
+stock classification, overdraw/history and request-key assertions. No new busy-
+request injection was added to this lane; the13 disabled/calendar/widget cases
+are root's approved prior evidence, not claimed as rerun here. Shared tests
+reserve1420 and this harness reserves1421, strictPort/readiness/CORS origin remain
+aligned. Root already owns source3aa94c6 and should not cherry-pick the local copy
+again. Only lane evidence documentation changed after the shared cherry-pick;
+no new feature, production Origin/CSP change, CI retry, push or native claim.
+
+## Read bridge v3 consumer check
+
+After approved shared206a7e3 (local7575b28), records producer fills real
+product_name/warehouse_name. Only the browser's exact JSON expectation changed
+to include the product and warehouse names created by its existing UI steps.
+No feature UI, port, date or production policy changed.
+
+```powershell
+frontend/node_modules/.bin/playwright.cmd test --config tests/records/browser/playwright.config.mts
+# PASS:1 test18.5s /20.0s total, actual browser/API/WAL on1421.
+```
+
+The same v2 numeric components,90.124kg closing stock, invalid-date no-POST/no-GET,
+weighing/history, overspend and request-key checks still pass. This verifies the
+current records consumer tolerates v3 names; report rendering/escaping and full
+cross-lane integration remain root's work. Backend label/cutoff/batch and saved
+payload/hash evidence is in tests.md and read-bridge-v3.md.

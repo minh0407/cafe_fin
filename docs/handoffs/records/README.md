@@ -9,6 +9,10 @@ Thay đổi lane chỉ trong bốn vùng ownership records. Các ngoại lệ sh
 commit root đã được cho phép cherry-pick: source `57a2ed26bf70b8d6b3c4d2c7a30620d3d6b3033a`
 → local `1cd2da5`, read bridge v2; source DateInput
 `6098a1111432995ed5b6be96fd0650af382a15e2` → local `999b2a6` (đúng năm file root).
+Patch disabled-context `3aa94c601dbf878f07b46b0902fc71b0f388c40c` → local
+`b5cbfa569430c00eab35f8e6f09071c5b98d9a70` (đúng ba file shared/test/doc root).
+Read bridge v3 `206a7e30ce702d8064084c90296aed3634ef28b7` → local `7575b28`
+(đúng bốn file core/contract/test/doc root).
 Không tự sửa core/shared, push/merge/tag hoặc source/DB cũ.
 Backend đăng ký qua `cafe_fin.records.module.module_manifest()`. UI export
 `recordsModule` tại `frontend/src/features/records/index.ts`. Registry nền vẫn
@@ -169,6 +173,20 @@ ngày sai, không gửi lại ISO cũ. Readback cũng DD/MM/YYYY; transport vẫ
 through_on inclusive, ngày Việt Nam và occurred_at timestamp không đổi.
 Browser date regression thực PASS1/20.6s; build/typecheck/feature build PASS.
 Root đã có shared6098a11 nên chỉ lấy commit adoption lane, không lấy lại local999b2a6.
+
+Sau disabled-context patch3aa94c6, records consumer flow thực trên1421 tiếp tục
+PASS1/22.2s tổng, typecheck và feature bundle PASS80.03KB/gzip21.74KB. Chỉ nhận
+shared fix được duyệt và cập nhật bằng chứng; không thêm feature/source lane.
+Root đã có source3aa94c6 nên không áp lại localb5cbfa5. Root shared tests giữ1420,
+records harness giữ1421; không đổi cổng hoặc production Origin/CSP. Chi tiết ui.md.
+
+Bridge v3 hiện thêm product_name/warehouse_name cho inventory items và component
+breakdown, từ đúng master kind/name trong cùng read transaction và cutoff. Lookup
+theo batch500 unique IDs, không N+1 theo movement hoặc join làm mất scope khi
+master thiếu/ngừng/xóa. Tên không đạt kiểu label trả None; IDs/tổng và bytes/hash
+snapshot cũ giữ nguyên. Xem read-bridge-v3.md; root chỉ lấy delta lane sau shared206a7e3.
+Focused35 PASS/16.77s; full156 records PASS/70.58s; browser/API/WAL1 PASS/20.0s;
+Ruff/compileall/diff PASS. Một warning nền Starlette/httpx vẫn có. Chưa push/merge.
 
 Native Tauri GUI/installer/Windows sạch và workflow sau root integration chưa
 nghiệm thu ở lane này. Browser harness riêng dùng API/DB thật sẽ ghi tách biệt

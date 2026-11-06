@@ -40,7 +40,7 @@ def components(summary):
     assert len(parts) == len(summary.movement_breakdown) == len(summary.items)
     result = {}
     for scope, row in parts.items():
-        data = row.model_dump(exclude={"product_id", "warehouse_id"})
+        data = row.model_dump(exclude={"product_id", "warehouse_id", "product_name", "warehouse_name"})
         assert set(data) == set(COMPONENTS)
         assert all(isinstance(value, str) and not value.startswith("-") for value in data.values())
         total = totals[scope]

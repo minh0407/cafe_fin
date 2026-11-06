@@ -280,3 +280,74 @@ git diff --check
 Chỉ đổi test instrumentation và tài liệu. Không đổi backend/frontend/core,
 migration/dependency hoặc private executor/queue implementation. Không chạy lại
 core/UI/build vì không đổi source ứng dụng; không tuyên bố CI recovery đã PASS.
+
+## Bổ sung read bridge v3: tên hiển thị cùng snapshot
+
+Shared patch được điều phối phê duyệt tại source
+`206a7e30ce702d8064084c90296aed3634ef28b7`, cherry-pick local `7575b28`;
+`core.contracts.CONTRACT_VERSION=3`. Nhóm này thêm
+`tests/records/test_records_read_bridge_v3.py` và chỉ sửa helper v2 để loại
+`product_name`/`warehouse_name` khỏi so sánh đúng tám thành phần số. Các kiểm tra
+component, scope ID, đối soát và chuỗi decimal giữ nguyên.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/records/test_records_read_bridge_v3.py tests/records/test_records_read_bridge_v2.py -q -o faulthandler_timeout=30
+# PASS: 35 passed, 1 warning in 16.77s (25 v3 +10 v2).
+.\.venv\Scripts\python.exe -m ruff check tests/records/test_records_read_bridge_v2.py tests/records/test_records_read_bridge_v3.py
+# PASS
+```
+
+Các tests dùng SQLite file thật và public provider/API:
+
+- Tên Unicode, text giống markup, khoảng trắng bao quanh và tên dài đúng 256
+  ký tự được giữ nguyên literal trên cả items và movement_breakdown, kể cả HTTP.
+  Product/warehouse notes, entry note, tên khách, ngân hàng/tài khoản sentinel
+  không được dùng làm nhãn hoặc xuất hiện trong summary.
+- Bốn scope có cùng tên sản phẩm/kho nhưng ID khác vẫn giữ riêng bốn số dư và
+  tám component chính xác. Tên không là khóa nhóm hoặc nguồn tính số.
+- Khi writer đổi tên cả sản phẩm/kho và kg sau bound capture, provider cũ vẫn
+  thấy đồng thời cả tên và lượng cũ; provider mới thấy tên/lượng mới. Cutoff
+  trước rename lấy đúng revision tên cũ trên snapshot mới. Caller transaction
+  vẫn còn sống.
+- Raw DTO JSON v3 và payload legacy v2 không có name fields được lưu thật qua
+  immutable FileStore trong data root tổng hợp. Sau rename/new capture, đọc lại
+  giữ nguyên từng byte, size/hash SHA-256 và stored hash. Decoder v3 nhận payload
+  v2 với None defaults nhưng không ghi lại/enrich file v2 hoặc đổi hash cũ.
+- Product/warehouse ngừng sử dụng vẫn có lịch sử, số dư và nhãn. Synthetic legacy
+  deleted revisions cũng giữ scope và nhãn nguồn cũ; test không đổi chính sách
+  HTTP cấm xóa master đang tham chiếu.
+- Tên 257 và 300 ký tự vẫn được source API chấp nhận nhưng thành None trong
+  summary; không cắt ngắn, không phá số liệu. Legacy JSON null, số, boolean,
+  array, object, thiếu name, whitespace-only và malformed JSON được kiểm cho cả
+  product lẫn warehouse: nhãn unavailable, không ép chuỗi/fallback notes và
+  không làm rơi ledger hoặc thay numeric payload.
+
+Kiểm truy vấn dùng 501 product IDs và hai warehouse IDs, tổng 503 ID duy nhất,
+501 scope và 1.503 movements thật từ sáu phiếu. Provider bound phát đúng hai
+query metadata có alias `records_summary_masters`, mỗi batch tối đa 500 ID và
+không lặp ID giữa batch. Cả hai query dùng nguyên connection caller, tách khỏi
+query numeric ledger, không join labels vào movements; monkeypatch fail nếu mở
+`runtime.reader` khác. Mọi scope giữ received/closing `0.003` kg và tên đúng ID.
+Đây là bằng chứng query count theo unique IDs, không là benchmark tốc độ lớn.
+
+Fixture legacy chỉ append revisions tổng hợp rồi chuyển mutable document version
+pointer; không sửa/xóa immutable revisions cũ. Fixture batch seed master tổng hợp
+trong DB tạm rồi dùng API ghi phiếu thực. Không đổi backend/core/schema/migration,
+UI, dependency hoặc dữ liệu vận hành trong phần fixture/test. Parent lane đã
+chạy final full sau freeze:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/records -q -o faulthandler_timeout=30
+# PASS: 156 passed, 1 warning in70.58s.
+.\.venv\Scripts\ruff.exe check backend/cafe_fin/records tests/records
+# PASS
+.\.venv\Scripts\python.exe -m compileall -q backend/cafe_fin/records tests/records
+# PASS
+git diff --check
+# PASS
+```
+
+Browser consumer API thật còn PASS1/20.0s với hai tên thực trong movement payload;
+chi tiết ui.md. Không suy báo cáo XML/HTML escaping, liên module accounting/
+reporting hoặc native release đã nghiệm thu. Core v3 label tests vẫn là shared
+patch đã được root duyệt; lane không tự sửa hoặc tuyên bố chạy lại toàn core.

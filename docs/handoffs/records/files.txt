@@ -10,6 +10,7 @@ docs/handoffs/records/backend-candidate.md
 docs/handoffs/records/files.txt
 docs/handoffs/records/raw-snapshot-fix.md
 docs/handoffs/records/read-bridge-v2.md
+docs/handoffs/records/read-bridge-v3.md
 docs/handoffs/records/shared-change-request.md
 docs/handoffs/records/snapshot-reader.md
 docs/handoffs/records/tests.md
@@ -37,5 +38,6 @@ tests/records/test_records_api.py
 tests/records/test_records_history_security.py
 tests/records/test_records_raw_snapshot.py
 tests/records/test_records_read_bridge_v2.py
+tests/records/test_records_read_bridge_v3.py
 tests/records/test_records_shared_snapshot.py
 tests/records/test_records_transactions.py

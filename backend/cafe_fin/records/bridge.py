@@ -7,7 +7,8 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from weakref import ref
 
-from sqlalchemy import event
+from pydantic import TypeAdapter, ValidationError
+from sqlalchemy import case, event, func, select
 from sqlalchemy.engine import Connection
 
 from cafe_fin.core.contracts import (
@@ -17,6 +18,7 @@ from cafe_fin.core.contracts import (
     PartyDTO,
     ReceivableLineDTO,
     ReceivableSummaryDTO,
+    SummaryDisplayName,
     WeighingDTO,
 )
 from cafe_fin.core.errors import CoreError
@@ -62,6 +64,38 @@ _SQL_PREFIX = re.compile(r"(?:\s+|\ufeff|;+|--[^\n]*(?:\n|$)|/\*.*?\*/)*", re.S)
 _SQL_WORD = re.compile(r"[A-Za-z]+")
 _QUERY_ONLY_NAME = re.compile(r"\bquery_only\b", re.I)
 _EPOCH_KEY = "cafe_fin.records.borrowed_snapshot_epoch"
+_DISPLAY_NAME = TypeAdapter(SummaryDisplayName)
+
+
+def _inventory_labels(conn: Connection, scopes, *, cutoff: datetime):
+    """Read only entity names in bounded batches, preserving every numeric scope.
+
+    No active/deleted filter and no join into the ledger: missing/old masters
+    cannot remove movements. Master revisions follow the same cutoff and SQLite
+    transaction as the quantities. Notes, contacts and party data are not read.
+    """
+    identities = sorted({identity for scope in scopes for identity in scope})
+    labels = {}
+    masters = current_query(cutoff=cutoff).subquery("records_summary_masters")
+    valid_json = func.json_valid(masters.c.data_json)
+    name = case((valid_json, func.json_extract(masters.c.data_json, "$.name")), else_=None)
+    name_type = case((valid_json, func.json_type(masters.c.data_json, "$.name")), else_=None)
+    for start in range(0, len(identities), 500):
+        query = select(
+            masters.c.id, masters.c.kind, name.label("name"), name_type.label("name_type")
+        ).where(
+            masters.c.id.in_(identities[start : start + 500]),
+            masters.c.kind.in_(("products", "warehouses")),
+        )
+        for row in conn.execute(query).mappings():
+            label = None
+            if row.name_type == "text":
+                try:
+                    label = _DISPLAY_NAME.validate_python(row.name)
+                except ValidationError:
+                    pass  # Legacy-invalid display metadata must not fail quantities.
+            labels[(row.kind, row.id)] = label
+    return labels
 
 
 class _SnapshotEpoch:
@@ -220,7 +254,7 @@ class RecordsReadProvider:
     def inventory_breakdown(
         self, from_on: date, through_on: date, *, cutoff: datetime
     ) -> InventoryBreakdownDTO:
-        """V2 core summary plus retained local entry-type detail for desktop clients."""
+        """Core summary plus retained local entry-type detail for desktop clients."""
         summary, breakdown = self._inventory(from_on, through_on, cutoff=cutoff)
         return InventoryBreakdownDTO(
             **summary.model_dump(),
@@ -256,10 +290,13 @@ class RecordsReadProvider:
                     else:
                         components[key][component] += abs(delta)
                         period_opening |= row.entry_type == "opening"
+            labels = _inventory_labels(conn, values, cutoff=cutoff)
             items = tuple(
                 InventoryLineDTO(
                     product_id=p,
                     warehouse_id=w,
+                    product_name=labels.get(("products", p)),
+                    warehouse_name=labels.get(("warehouses", w)),
                     opening_kg=decimal_total(v[0], 3),
                     received_kg=decimal_total(v[1], 3),
                     issued_kg=decimal_total(v[2], 3),
@@ -279,6 +316,8 @@ class RecordsReadProvider:
                     InventoryMovementSummaryDTO(
                         product_id=p,
                         warehouse_id=w,
+                        product_name=labels.get(("products", p)),
+                        warehouse_name=labels.get(("warehouses", w)),
                         **{
                             field: decimal_total(value, 3)
                             for field, value in components[(p, w)].items()
