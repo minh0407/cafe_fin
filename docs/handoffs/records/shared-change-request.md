@@ -19,9 +19,10 @@ khoản đối tác còn phải trả, âm là khoản doanh nghiệp còn phả
 tiền đã thanh toán từ accounting, không tự sinh thu/chi. Summary luôn có flags
 commercial_balances_only và accounting_not_reconciled.
 
-Core InventorySummaryDTO giữ nguyên. HTTP stock-balances bổ sung breakdown theo
-entry_type để tách mua/bán, sản xuất, chuyển kho, mở sổ và điều chỉnh. Không đổi
-DTO bridge của consumer. Concrete provider export RecordsReadProvider(runtime,
+Đề nghị phân loại kho đã được root giải quyết qua read bridge v2 commit57a2ed2.
+Provider chuẩn inventory_summary nay trả core movement_breakdown tám thành phần;
+HTTP stock-balances còn giữ local breakdown theo entry_type cho client cũ. Không
+tự sửa shared DTO. Concrete provider export RecordsReadProvider(runtime,
 principal) cùng module_manifest() tại cafe_fin.records.module; read permissions
 được revalidate trong reader snapshot, không sửa module khác.
 

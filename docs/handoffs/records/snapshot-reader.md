@@ -1,7 +1,8 @@
 # Capture records bằng connection snapshot do caller cấp
 
-Theo yêu cầu bổ sung của điều phối sau candidate3e6f0a9; không đổi core DTO,
-migration hoặc reader protocol của foundation.
+Theo yêu cầu bổ sung của điều phối sau candidate3e6f0a9. Snapshot binding không
+đổi migration hoặc reader protocol; DTO hiện dùng read bridge v2 qua shared
+commit57a2ed2 đã được root phê duyệt.
 
 ```python
 from cafe_fin.records.module import RecordsReadProvider
@@ -12,7 +13,7 @@ with runtime.reader() as conn:
     bound_records = records.bind_connection(conn)
     # Root binds its accounting provider to THIS SAME conn as well.
     inventory = bound_records.inventory_summary(from_on, through_on, cutoff=cutoff)
-    classified = bound_records.inventory_breakdown(from_on, through_on, cutoff=cutoff)
+    classified = inventory.movement_breakdown  # v2, nullable khi chưa biết nguồn
     receivables = bound_records.receivable_summary(as_of, cutoff=cutoff)
     # accounting_summary = bound_accounting.book_summary(...)
 ```
@@ -20,7 +21,7 @@ with runtime.reader() as conn:
 Constructor `RecordsReadProvider(runtime, principal, connection=conn)` cũng được
 hỗ trợ. Factory bind_connection kiểm trạng thái và quyền ngay lúc bind. Mỗi lần
 đọc đều revalidate quyền records.read trên đúng conn/snapshot đó. Các method trả
-core DTO (hoặc extension typed InventoryBreakdownDTO cho breakdown); không lộ
+core DTO v2 (hoặc extension typed InventoryBreakdownDTO cho HTTP local detail); không lộ
 private ORM, không tự mở runtime.reader khi đã được cấp connection.
 
 Caller phải bắt đầu SQLite BEGIN thực, giữ PRAGMA query_only=1 và quản lý lifetime.

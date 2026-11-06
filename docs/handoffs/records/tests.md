@@ -112,3 +112,59 @@ Nhóm này chỉ xác nhận backend records trên nền trong worktree riêng.
 Browser flow, root wiring liên module, native Tauri GUI và Windows sạch không
 được chứng minh bởi các backend cases này. Native installer/release acceptance giữ
 gate riêng của điều phối. Không commit hoặc áp migration vào runtime chung.
+
+## Bổ sung read bridge v2
+
+Shared contract được điều phối phê duyệt tại source `57a2ed2`, cherry-pick local
+`1cd2da5`; `core.contracts.CONTRACT_VERSION=2`. Không đổi migration hoặc interface
+ghi trong nhóm bổ sung này. File mới:
+`tests/records/test_records_read_bridge_v2.py`.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/records/test_records_read_bridge_v2.py -q -o faulthandler_timeout=20
+# PASS: 10 passed, 1 warning in 5.06s
+.\.venv\Scripts\python.exe -m ruff check tests/records/test_records_read_bridge_v2.py
+# PASS
+```
+
+Các cases dùng SQLite file thật, records writer/provider và HTTP router thật:
+
+- Đủ tám thành phần: mua, bán, nguyên liệu/sản phẩm sản xuất có hao hụt, chuyển
+  hai kho, điều chỉnh vào/ra; opening trong kỳ vào adjustment_in và có flag
+  `opening_entries_in_adjustments`. Mỗi scope có đúng một dòng decomposition,
+  tất cả thành phần là chuỗi không âm, khớp received/issued/closing. API giữ cả
+  standard v2 và extension `.breakdown` cũ cho desktop.
+- Empty summary có version 1/tuple rỗng. Scope chỉ có tồn đầu từ trước kỳ vẫn
+  có đủ tám zero đã xác định trong kỳ; sản phẩm chỉ xuất hiện sau through_on
+  không bị tạo scope giả. Opening ngoài kỳ không mang flag opening trong kỳ.
+- Cutoff tái dựng đúng phiên bản trước/sau sửa, hủy, post lại, xóa và khôi phục;
+  hủy/xóa không bị phân loại thành thành phần âm hoặc tác động hai lần.
+- Hai chu kỳ nhập hết/xuất hết, mỗi dòng nằm trong int64, cho tổng bought/sold
+  `18446744073709551.614` kg trên cùng scope, đối soát chính xác mà không SQLite
+  integer SUM overflow hoặc float. Tồn trung gian vẫn không âm và trong miền.
+- Bốn trường hợp movement legacy chưa biết type/direction hoặc dấu không khớp
+  làm cả breakdown_version/movement_breakdown null với flag
+  `inventory_movement_classification_unknown`, kể cả khi scope khác phân loại
+  được. Không thay phần chưa biết bằng zero hoặc đoán là mua. Legacy chỉ ở
+  trước kỳ được giữ trong opening, không đoán thêm thành phần trong kỳ.
+- Provider bound vẫn là concrete class cũ, giữ decomposition của snapshot
+  caller khi writer đã sửa phiếu receipt thành adjustment; provider mới thấy
+  đúng decomposition mới. Caller connection/transaction còn sống.
+
+Fixture legacy chỉ append synthetic DOCUMENTS/REVISIONS/MOVEMENTS trong DB tạm,
+không update/delete lịch sử bất biến hoặc sửa schema. Nó chủ động mô phỏng nguồn
+cũ chưa phân loại; không tuyên bố HTTP cho phép tạo entry_type không được hỗ trợ.
+Đây là kiểm records producer v2 thực, chưa chứng minh reporting/accounting đã
+được ghép liên module. Lượt final do parent lane chạy sau freeze:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/core tests/records -q -o faulthandler_timeout=30
+# PASS: 187 passed, 1 warning in 76.74s (108 core +79 records).
+.\.venv\Scripts\ruff.exe check backend/cafe_fin/records tests/records
+# PASS
+.\.venv\Scripts\python.exe -m compileall -q backend/cafe_fin/records tests/records
+# PASS
+```
+
+Migration và các mutation không thay đổi. Không suy báo cáo/accounting/native
+integration PASS từ các tests producer này.

@@ -117,3 +117,38 @@ to settle. Ignored local proof:
 
 No production data, workbook, credentials, runtime database or screenshot is
 committed. Only source and the synthetic test harness belong to this candidate.
+
+## Read bridge v2 follow-up
+
+Applied against the coordinator-approved core bridge v2 (`1cd2da5` locally),
+following `docs/handoffs/foundation/read-bridge-v2.md`. The feature's
+`InventorySummary` now types `breakdown_version: 1 | null` and nullable
+`movement_breakdown` with eight explicit string components. The canonical UI
+table uses those fields directly, grouped into purchase/sale, production,
+transfer and adjustment. It scrolls horizontally on narrower windows. The old
+HTTP `breakdown` extension is retained in the response type but is not used to
+infer this classification.
+
+Null, absent or unsupported classification shows an explicit unknown warning;
+the UI does not substitute zeroes or treat unclassified movements as purchases.
+The `inventory_movement_classification_unknown` flag is translated for the user.
+The `opening_entries_in_adjustments` flag explains that opening entries within
+the selected period appear in adjustment increases, rather than purchases.
+
+V2 verification supersedes the earlier feature-build/browser timings above:
+
+- `npm --prefix frontend run typecheck`: PASS.
+- `node tests/records/browser/build-feature.mjs`: PASS, 12 modules,
+  54.60 kB / 14.05 kB gzip, 190 ms.
+- The same real-API browser command: PASS on its first v2 run, 1 test,
+  18.4 seconds test / 19.9 seconds total. In addition to the existing desktop
+  workflow and retry proof, the test verifies the real summary's v2 version,
+  all eight component values for its product/warehouse scope, all eight UI
+  component headers and the purchase/sale figures. No domain API mocking.
+- Scoped `git diff --check`: PASS.
+- The final v2 screenshot at the same ignored proof path was opened and checked.
+
+The runtime-generated unknown-classification and opening-entry flag branches
+were reviewed in source; this browser fixture does not manufacture unknown
+legacy ledger data. Provider classification/cutoff coverage remains the parent
+lane's API tests. Native and registry integration limits above still apply.

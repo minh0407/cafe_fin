@@ -88,7 +88,27 @@ test("desktop real-API records flow, immutable weighing history and stock reject
     await issue("PX-UI", "10.001"); await save(page, "PX-UI"); await closeDetail(page);
     await page.getByRole("tab", { name: "Tổng hợp tồn", exact: true }).click();
     await expect(page.getByRole("cell", { name: "90,124", exact: true })).toBeVisible();
-    expect((await get(balancePath)).items[0].closing_kg).toBe("90.124");
+    const inventoryV2 = await get(balancePath);
+    expect(inventoryV2.items[0].closing_kg).toBe("90.124");
+    expect(inventoryV2.breakdown_version).toBe(1);
+    expect(inventoryV2.movement_breakdown).toEqual([{
+      product_id: weighing.lines[0].product_id,
+      warehouse_id: inventoryV2.items[0].warehouse_id,
+      purchased_kg: "100.125",
+      sold_kg: "10.001",
+      production_input_kg: "0.000",
+      production_output_kg: "0.000",
+      transfer_in_kg: "0.000",
+      transfer_out_kg: "0.000",
+      adjustment_in_kg: "0.000",
+      adjustment_out_kg: "0.000",
+    }]);
+    const classification = page.getByRole("region", { name: "Phân loại biến động kho" });
+    for (const label of ["Mua vào", "Bán ra", "Nguyên liệu tiêu thụ", "Thành phẩm thu được", "Chuyển vào", "Chuyển ra", "Điều chỉnh tăng", "Điều chỉnh giảm"]) {
+      await expect(classification.getByRole("columnheader", { name: label, exact: true })).toBeVisible();
+    }
+    await expect(classification.getByRole("cell", { name: "100,125", exact: true })).toBeVisible();
+    await expect(classification.getByRole("cell", { name: "10,001", exact: true })).toBeVisible();
     await expect(page.locator(".ant-spin-blur")).toHaveCount(0);
     await expect(page.getByRole("tab", { name: "Tổng hợp tồn", exact: true })).toHaveAttribute("aria-selected", "true");
     await page.screenshot({ path: info.outputPath("records-real-api-inventory.png"), fullPage: true, animations: "disabled" });

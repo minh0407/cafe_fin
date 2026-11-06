@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 
 from cafe_fin.core.contracts import (
     InventoryLineDTO,
+    InventoryMovementSummaryDTO,
     InventorySummaryDTO,
     PartyDTO,
     ReceivableLineDTO,
@@ -26,6 +27,30 @@ from .service import (
     decimal_total,
     effective_movements,
     get_record,
+)
+
+# Classification is explicit source semantics, never inferred from a delta's sign.
+_MOVEMENT_COMPONENTS = {
+    ("receipt", "in"): "purchased_kg",
+    ("issue", "out"): "sold_kg",
+    ("production", "out"): "production_input_kg",
+    ("production", "in"): "production_output_kg",
+    ("transfer", "in"): "transfer_in_kg",
+    ("transfer", "out"): "transfer_out_kg",
+    ("adjustment", "in"): "adjustment_in_kg",
+    ("adjustment", "out"): "adjustment_out_kg",
+    # An explicitly entered opening is a stock adjustment, never a new purchase.
+    ("opening", "in"): "adjustment_in_kg",
+}
+_COMPONENT_FIELDS = (
+    "purchased_kg",
+    "sold_kg",
+    "production_input_kg",
+    "production_output_kg",
+    "transfer_in_kg",
+    "transfer_out_kg",
+    "adjustment_in_kg",
+    "adjustment_out_kg",
 )
 
 
@@ -140,7 +165,7 @@ class RecordsReadProvider:
     def inventory_breakdown(
         self, from_on: date, through_on: date, *, cutoff: datetime
     ) -> InventoryBreakdownDTO:
-        """Additive HTTP/public extension pending root's typed shared DTO addition."""
+        """V2 core summary plus retained local entry-type detail for desktop clients."""
         summary, breakdown = self._inventory(from_on, through_on, cutoff=cutoff)
         return InventoryBreakdownDTO(
             **summary.model_dump(),
@@ -152,6 +177,9 @@ class RecordsReadProvider:
             raise CoreError("INVALID_RANGE", "Khoảng ngày báo cáo không hợp lệ.", 422)
         cutoff_text(cutoff)
         values, breakdown = defaultdict(lambda: [0, 0, 0]), defaultdict(lambda: [0, 0])
+        components = defaultdict(lambda: dict.fromkeys(_COMPONENT_FIELDS, 0))
+        unknown = False
+        period_opening = False
         with self._read() as conn:
             query = effective_movements(cutoff=cutoff).where(
                 M.c.occurred_on <= through_on.isoformat()
@@ -164,6 +192,15 @@ class RecordsReadProvider:
                 else:
                     values[key][1 if delta > 0 else 2] += abs(delta)
                     breakdown[key + (row.entry_type,)][0 if delta > 0 else 1] += abs(delta)
+                    component = _MOVEMENT_COMPONENTS.get((row.entry_type, row.direction))
+                    direction_valid = (row.direction == "in" and delta > 0) or (
+                        row.direction == "out" and delta < 0
+                    )
+                    if component is None or not direction_valid:
+                        unknown = True
+                    else:
+                        components[key][component] += abs(delta)
+                        period_opening |= row.entry_type == "opening"
             items = tuple(
                 InventoryLineDTO(
                     product_id=p,
@@ -175,12 +212,34 @@ class RecordsReadProvider:
                 )
                 for (p, w), v in sorted(values.items())
             )
+            flags = ["entered_records_only"]
+            if period_opening:
+                flags.append("opening_entries_in_adjustments")
+            if unknown:
+                flags.append("inventory_movement_classification_unknown")
+            movement_breakdown = (
+                None
+                if unknown
+                else tuple(
+                    InventoryMovementSummaryDTO(
+                        product_id=p,
+                        warehouse_id=w,
+                        **{
+                            field: decimal_total(value, 3)
+                            for field, value in components[(p, w)].items()
+                        },
+                    )
+                    for p, w in sorted(values)
+                )
+            )
             result = InventorySummaryDTO(
                 from_on=from_on,
                 through_on=through_on,
                 cutoff=cutoff,
                 items=items,
-                validation_flags=("entered_records_only",),
+                validation_flags=tuple(flags),
+                breakdown_version=None if unknown else 1,
+                movement_breakdown=movement_breakdown,
             )
             parts = [
                 {

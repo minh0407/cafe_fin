@@ -5,15 +5,20 @@ Branch: `codex/cafe-fin-records-20261106`.
 Baseline duy nhất: `cafe-fin-foundation-ready-v1` →
 `e668355c227322994902f7e2e38ed7ffb19ff647`.
 
-Chỉ sửa bốn vùng ownership records. Không push/merge/tag, không sửa source/DB cũ.
+Thay đổi lane chỉ trong bốn vùng ownership records. Ngoại lệ shared duy nhất là
+commit root đã được cho phép cherry-pick: source `57a2ed26bf70b8d6b3c4d2c7a30620d3d6b3033a`
+→ local `1cd2da5`, read bridge v2. Không tự sửa core, push/merge/tag hoặc source/DB cũ.
 Backend đăng ký qua `cafe_fin.records.module.module_manifest()`. UI export
 `recordsModule` tại `frontend/src/features/records/index.ts`. Registry nền vẫn
 chưa ghép records; không coi build shell stub là bằng chứng UI nghiệp vụ.
 
 Candidate lane đã hoàn tất trên baseline phát triển, chờ điều phối tích hợp.
 Cherry-pick theo thứ tự: backend ledger `3e6f0a9d0ef4d096ae78302a428e4eb479bd60d6`,
-snapshot extension `ba60228cf188f65bb76f1c39fe568d4536a0fc2e`, rồi commit UI/handoff
-chứa README này. Danh sách đầy đủ file thay đổi ở files.txt.
+snapshot extension `ba60228cf188f65bb76f1c39fe568d4536a0fc2e`, UI/handoff
+`e6f3847aa59165803e9ace7ffec9faaf6d3f92d2`, rồi update v2 sau khi root đã có shared
+commit nói trên. Root đã sở hữu `57a2ed2` nên không cherry-pick lại local `1cd2da5`.
+Danh sách file thuộc lane ở files.txt; bốn file shared của root được ghi riêng
+trong read-bridge-v2.md.
 
 ## Ledger và dữ liệu
 
@@ -85,10 +90,14 @@ reader từ chối đọc tiếp với READ_ONLY_SNAPSHOT_REQUIRED. Authorizatio
 trong cùng snapshot, lúc bind và mỗi lần đọc. Không dùng reader này qua thread
 khác hoặc dùng nhiều unbound providers thay cho capture chung.
 
-inventory_summary giữ nguyên InventorySummaryDTO foundation. Extension typed
-inventory_breakdown trả InventoryBreakdownDTO (subtype, không đổi core), dùng
-cùng snapshot để tách receipt/issue/production/transfer/opening/adjustment. Root
-có thể bind extension hoặc duyệt additive shared DTO theo shared-change-request.
+inventory_summary trả InventorySummaryDTO read bridge v2 với breakdown_version=1
+và movement_breakdown đủ tám thành phần cho từng scope. Root/reporting dùng
+method chuẩn này, không cần đọc extension/private ORM. Extension inventory_breakdown
+giữ local detail theo entry_type cho HTTP tương thích UI cũ; nó cũng chứa fields v2.
+Unknown source/type/direction/sign trong kỳ giữ cả hai fields phân loại null và
+flag inventory_movement_classification_unknown. Tồn đầu trong kỳ thuộc adjustment_in,
+có flag opening_entries_in_adjustments. Xem read-bridge-v2.md để biết mapping,
+reconciliation và giới hạn phiên bản decoder.
 coverage luôn entered_records_only. Công nợ là signed commercial_amount_vnd
 người nhập ghi, không phải tiền thu/chi và không tự đối chiếu accounting;
 flags commercial_balances_only/accounting_not_reconciled luôn có.
@@ -114,7 +123,7 @@ hoàn toàn tổng hợp, SQLite file/WAL thật trong temp. Dependency riêng w
 được tạo từ lockfile bằng uv sync --frozen và npm ci --offline --ignore-scripts;
 không sửa venv chat khác, package/lockfile hoặc shared config.
 
-Kết quả final sau mọi fix: `python -m pytest tests/core tests/records -q
+Mốc v1 trước shared v2: `python -m pytest tests/core tests/records -q
 -o faulthandler_timeout=30`:155 PASS/64.19s (86 core+69 records), một warning nền
 Starlette/httpx. Ruff/compileall/diff check PASS. Browser real API:1 PASS/17.1s
 test,18.4s tổng; nhập100.125→xuất10.001→tồn90.124, overdraw rollback, cân/history
@@ -123,6 +132,12 @@ build PASS; feature build riêng12 modules52.50KB/gzip13.50KB PASS. Cảnh báo 
 shell>500KB vẫn có. Frontend lint không có command/config ở nền nên NOT RUN.
 `git apply --check docs/handoffs/records/wiring.patch` PASS trên baseline lane;
 chỉ kiểm patch, chưa áp vào file chung.
+
+Mốc v2 mới nhất: cùng lệnh core+records đạt187 PASS/76.74s (108 core+79 records),
+một warning Starlette/httpx. Focused producer v2:10 PASS/5.06s; browser v2 real
+API:1 PASS/19.9s tổng. Build/typecheck, Ruff/compileall/diff đều PASS. Feature
+v2 bundle12 modules54.60KB/gzip14.05KB PASS. Không đổi migration/dependency.
+Chi tiết semantics và shared commit prerequisite ở read-bridge-v2.md.
 
 Native Tauri GUI/installer/Windows sạch và workflow sau root integration chưa
 nghiệm thu ở lane này. Browser harness riêng dùng API/DB thật sẽ ghi tách biệt

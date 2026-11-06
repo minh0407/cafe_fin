@@ -6,7 +6,7 @@ import { useSession } from "../../shared/session";
 import type { Page } from "../../shared/types";
 import { Coverage, decimal, ErrorNotice, todayVN } from "./helpers";
 import { ReferenceText } from "./RecordDetail";
-import { entryLabels, type Entry, type InventorySummary, type Receivables, type StockMovement } from "./types";
+import { entryLabels, type Entry, type InventoryMovementLine, type InventorySummary, type Receivables, type StockMovement } from "./types";
 
 function DateRange({ from, through, onChange }: { from: string; through: string; onChange: (from: string, through: string) => void }) {
   return <Space wrap><label>Từ ngày <Input aria-label="Từ ngày báo cáo" type="date" value={from} onChange={(event) => onChange(event.target.value, through)} /></label><label>Đến ngày <Input aria-label="Đến ngày báo cáo" type="date" value={through} onChange={(event) => onChange(from, event.target.value)} /></label></Space>;
@@ -16,10 +16,57 @@ function rangeDefaults() {
   return { from: today.slice(0, 8) + "01", through: today };
 }
 function Flags({ flags }: { flags?: string[] }) {
-  const messages: Record<string, string> = { commercial_balances_only: "Chỉ gồm số dư thương mại người dùng ghi trên phiếu hàng.", accounting_not_reconciled: "Chưa đối chiếu với nhật ký kế toán độc lập." };
+  const messages: Record<string, string> = {
+    commercial_balances_only: "Chỉ gồm số dư thương mại người dùng ghi trên phiếu hàng.",
+    accounting_not_reconciled: "Chưa đối chiếu với nhật ký kế toán độc lập.",
+    opening_entries_in_adjustments: "Phiếu tồn đầu có căn cứ phát sinh trong kỳ được tính vào điều chỉnh tăng; không phải lượng mua mới.",
+    inventory_movement_classification_unknown: "Chưa xác định đầy đủ phân loại biến động trong kỳ. Các thành phần chưa biết không được xem là 0 hoặc lượng mua mới.",
+  };
   const visible = flags?.filter((flag) => flag !== "entered_records_only") ?? [];
   if (!visible.length) return null;
   return <Alert type="warning" showIcon title="Lưu ý phạm vi tổng hợp" description={visible.map((flag) => <div key={flag}>{messages[flag] || "Một phần dữ liệu tổng hợp cần kiểm tra thêm."}</div>)} />;
+}
+
+function InventoryClassification({ summary }: { summary: InventorySummary }) {
+  const known = summary.breakdown_version === 1 && Array.isArray(summary.movement_breakdown);
+  return <section aria-label="Phân loại biến động kho">
+    <Typography.Title level={4}>Phân loại biến động trong kỳ</Typography.Title>
+    <Typography.Paragraph type="secondary">
+      Mỗi tác động kho được tính đúng một nhóm. Sản xuất và chuyển vị trí được
+      tách khỏi mua vào, bán ra; lượng nguyên liệu sản xuất có thể khác thành phẩm.
+      Các số dưới đây cùng kỳ và thời điểm cắt với bảng tồn ở trên.
+    </Typography.Paragraph>
+    {!known ? <Alert type="warning" showIcon
+      title="Chưa xác định được phân loại biến động trong kỳ"
+      description="Chưa có số liệu đủ nghĩa để tách mua/bán, sản xuất, chuyển vị trí và điều chỉnh. Phần chưa biết được để trống; không thay bằng số 0 hoặc lượng mua mới."
+    /> : <Table<InventoryMovementLine>
+      rowKey={(row) => `${row.product_id}/${row.warehouse_id}`}
+      dataSource={summary.movement_breakdown!}
+      size="small"
+      scroll={{ x: 1900 }}
+      pagination={{ pageSize: 25, showSizeChanger: false }}
+      columns={[
+        { title: "Hàng hóa", dataIndex: "product_id", width: 240, render: (id: string) => <ReferenceText resource="products" id={id} /> },
+        { title: "Vị trí", dataIndex: "warehouse_id", width: 240, render: (id: string) => <ReferenceText resource="products/warehouses" id={id} /> },
+        { title: "Mua / bán (kg)", children: [
+          { title: "Mua vào", dataIndex: "purchased_kg", render: decimal, align: "right" },
+          { title: "Bán ra", dataIndex: "sold_kg", render: decimal, align: "right" },
+        ] },
+        { title: "Sản xuất (kg)", children: [
+          { title: "Nguyên liệu tiêu thụ", dataIndex: "production_input_kg", render: decimal, align: "right" },
+          { title: "Thành phẩm thu được", dataIndex: "production_output_kg", render: decimal, align: "right" },
+        ] },
+        { title: "Chuyển vị trí (kg)", children: [
+          { title: "Chuyển vào", dataIndex: "transfer_in_kg", render: decimal, align: "right" },
+          { title: "Chuyển ra", dataIndex: "transfer_out_kg", render: decimal, align: "right" },
+        ] },
+        { title: "Điều chỉnh (kg)", children: [
+          { title: "Điều chỉnh tăng", dataIndex: "adjustment_in_kg", render: decimal, align: "right" },
+          { title: "Điều chỉnh giảm", dataIndex: "adjustment_out_kg", render: decimal, align: "right" },
+        ] },
+      ]}
+    />}
+  </section>;
 }
 
 export function InventoryView() {
@@ -35,13 +82,7 @@ export function InventoryView() {
     { title: "Giảm trong kỳ (kg)", dataIndex: "issued_kg", render: decimal, align: "right" },
     { title: "Cuối kỳ (kg)", dataIndex: "closing_kg", render: decimal, align: "right" },
   ]} />
-    <Typography.Title level={4}>Phân loại biến động trong kỳ</Typography.Title><Typography.Paragraph type="secondary">Nhập mua, xuất bán, sản xuất, chuyển nội bộ, tồn đầu và điều chỉnh được tách theo loại phiếu đã ghi. Số tăng qua sản xuất/chuyển vị trí không được xem là lượng mua mới.</Typography.Paragraph><Table rowKey={(row) => `${row.product_id}/${row.warehouse_id}/${row.entry_type}`} dataSource={query.data?.breakdown ?? []} size="small" pagination={{ pageSize: 25, showSizeChanger: false }} columns={[
-      { title: "Hàng hóa", dataIndex: "product_id", render: (id: string) => <ReferenceText resource="products" id={id} /> },
-      { title: "Vị trí", dataIndex: "warehouse_id", render: (id: string) => <ReferenceText resource="products/warehouses" id={id} /> },
-      { title: "Loại ghi nhận", dataIndex: "entry_type", render: (kind: keyof typeof entryLabels) => entryLabels[kind] },
-      { title: "Vào (kg)", dataIndex: "in_kg", render: decimal, align: "right" },
-      { title: "Ra (kg)", dataIndex: "out_kg", render: decimal, align: "right" },
-    ]} />
+    {query.data && <InventoryClassification summary={query.data} />}
   </Space>;
 }
 
