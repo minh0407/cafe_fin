@@ -93,3 +93,18 @@ nghiệp vụ. Waiter riêng của pricing được chỉnh20 giây vì nó kh�
 click/form submit và API sản phẩm cho15 giây mỗi request. Giữ nguyên predicate
 endpoint/method/status và mọi assertion; không tăng timeout API sản phẩm hoặc
 đổi nghiệp vụ.
+
+Điều tra tiếp đã tái hiện timeout locator nút Save/Refresh. Snapshot form được
+bật lại nhưng tên truy cập còn tiền tố “loading”. Diagnostic browser xác nhận
+`disabled=false`, `ant-btn-loading=false`, icon `[aria-label=loading]` vẫn tồn tại.
+Source AntD `DefaultLoadingIcon.js` giữ icon bằng CSSMotion ở pha leave; icon
+trang trí làm đổi accessible name dù Button đã idle. Đây là nguyên nhân cụ thể
+của locator exact-name không khớp, không phải lỗi giá hoặc request treo.
+Hai nút được dùng lại sau lỗi stale nay chọn theo đuôi label trong đúng modal,
+`toBeEnabled()` và click bình thường, không force. Mọi assertion giá/nguồn/
+stale/stock giữ nguyên; thêm bằng chứng POST status200/200/409/200. Diagnostic
+chỉ ghi các boolean của control và HTTP status, không URL bí mật/payload/token.
+PASS: final integrated UI, `pricing.spec.mts --repeat-each=3`, **3 passed**,
+56,1 giây (từng test18,2 /17,9 /17,4 giây), port1423. Cả3 lần đều xác nhận
+control idle nhưng còn icon và POST200/200/409/200. Không dùng retry test để
+che lỗi; ba lượt lặp độc lập đều phải PASS.

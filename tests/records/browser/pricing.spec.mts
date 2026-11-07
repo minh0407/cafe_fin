@@ -50,7 +50,10 @@ test("real daily boards auto-price purchase and sale, retain frozen edits, rejec
     const farm = await write("parties", { code: "F009", name: "Farm kiểm thử giá", profile_kind: "farm" });
     const company = await write("parties", { code: "COMP-PRICE", name: "Công ty kiểm thử giá", profile_kind: "customer_company", tax_code: "SYNTHETIC-PRICE-MST", representative: { name: "Liên hệ tổng hợp" } });
     const observed: { endpoint: string; method: string }[] = [];
+    const tradePostStatuses: number[] = [];
     page.on("request", (request) => { if (request.url().startsWith(`${boot.api_base}/records/`)) observed.push({ endpoint: new URL(request.url()).pathname.slice("/api/v1/records/".length), method: request.method() }); });
+    page.on("response", (response) => { if (response.url() === `${boot.api_base}/records/trades` && response.request().method() === "POST") { tradePostStatuses.push(response.status()); console.log(`Pricing trade POST status ${response.status()}`); } });
+    page.on("requestfailed", (request) => { if (request.url() === `${boot.api_base}/records/trades` && request.method() === "POST") console.log("Pricing trade POST transport failed"); });
     // The app permits 15s per API call; this waiter also starts before clicking.
     const responseFor = (endpoint: string, method = "POST", status = 200) => page.waitForResponse((response) => response.url() === `${boot.api_base}/records/${endpoint}` && response.request().method() === method && response.status() === status, { timeout: 20000 });
     await page.addInitScript((context) => { Object.assign(window, { recordsTest: context }); }, { boot, auth });
@@ -167,12 +170,22 @@ test("real daily boards auto-price purchase and sale, retain frozen edits, rejec
     expect((await (await staleSave).json()).error.code).toBe("PRICE_CHANGED");
     await expect(page.getByRole("dialog", { name: "Thêm hồ sơ bán ra", exact: true })).toBeVisible();
     expect((await get("trades")).total).toBe(2);
-    await page.getByRole("button", { name: "Lấy lại giá mới", exact: true }).click();
+    // AntD may retain its loading icon during leave motion after enabling a button.
+    // Match the visible label suffix while still requiring ordinary actionability.
+    const refresh = page.getByRole("dialog", { name: "Thêm hồ sơ bán ra", exact: true }).getByRole("button", { name: /Lấy lại giá mới$/ });
+    await expect(refresh).toBeEnabled();
+    await refresh.click();
     await expect(page.getByLabel("Đơn giá (VND/kg)", { exact: true })).toHaveValue("400.00");
+    const resubmit = page.getByRole("dialog", { name: "Thêm hồ sơ bán ra", exact: true }).getByRole("button", { name: /Lưu dữ liệu$/ });
+    await expect(resubmit).toBeEnabled();
+    const controlState = await resubmit.evaluate((button) => ({ disabled: button.matches(":disabled"), loadingClass: button.classList.contains("ant-btn-loading"), loadingIcon: !!button.querySelector('[aria-label="loading"]') }));
+    console.log(`Refreshed pricing save control ${JSON.stringify(controlState)}`);
+    await info.attach("refreshed-save-control", { body: JSON.stringify(controlState), contentType: "application/json" });
     const refreshedSave = responseFor("trades");
-    await page.getByRole("dialog").getByRole("button", { name: "Lưu dữ liệu", exact: true }).click();
+    await resubmit.click();
     const refreshed = await (await refreshedSave).json();
     expect(refreshed.lines[0]).toMatchObject({ unit_price_vnd: "400.00", price_snapshot: { price_board_version: 3 } });
+    expect(tradePostStatuses).toEqual([200, 200, 409, 200]);
     expect(browserErrors).toEqual([]);
     await page.screenshot({ path: info.outputPath("pricing-real-api-frozen-source.png"), fullPage: true, animations: "disabled" });
     await info.attach("pricing-verification", { body: JSON.stringify({ mode: "real Chromium + React + authenticated HTTP + new SQLite WAL", purchase_grade3_vnd: "81.05", sale_configured_vnd: "200.01", retained_sale_price_vnd: updated.lines[0].unit_price_vnd, retained_board_version: updated.lines[0].price_snapshot.price_board_version, latest_board_version: 3, stale_save: "PRICE_CHANGED409", stock_guard: "STOCK_NEGATIVE409", no_api_mocks: true, native_tauri: "NOT RUN" }, null, 2), contentType: "application/json" });
