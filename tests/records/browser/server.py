@@ -12,12 +12,12 @@ from datetime import date, timedelta
 from unittest.mock import patch
 
 import uvicorn
-from fastapi import Request
-from fastapi.responses import JSONResponse
 from cafe_fin.core import api as core_api
 from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.core.runtime import Runtime
 from cafe_fin.records.module import module_manifest
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 
 class SyntheticMarket:
