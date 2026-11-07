@@ -59,21 +59,29 @@ def compose(*args):
     return docker("compose", "-f", str(ROOT / "compose.preview.yaml"), "-p", PROJECT, *args)
 
 
-def verify_container():
-    """Bind the destructive boundary to a single exact disposable project."""
-    ids = compose("ps", "-q", "cafe-fin").split()
+def service_container(service):
+    ids = compose("ps", "-q", service).split()
     check(len(ids) == 1, "SMOKE_CONTAINER_COUNT")
     item = json.loads(docker("inspect", ids[0]))[0]
     labels = item["Config"]["Labels"]
     check(labels.get("com.docker.compose.project") == PROJECT, "SMOKE_PROJECT_LABEL")
-    check(labels.get("com.docker.compose.service") == "cafe-fin", "SMOKE_SERVICE_LABEL")
+    check(labels.get("com.docker.compose.service") == service, "SMOKE_SERVICE_LABEL")
     check(item["State"]["Running"], "SMOKE_CONTAINER_STOPPED")
-    bindings = item["NetworkSettings"]["Ports"].get("1420/tcp")
-    check(bindings == [{"HostIp": "127.0.0.1", "HostPort": "1420"}], "LOOPBACK_BINDING")
+    check(item["Config"]["User"].split(":")[0] not in {"", "0", "root"}, "NONROOT_CONTAINER")
+    check(item["HostConfig"]["ReadonlyRootfs"], "READONLY_CONTAINER")
+    check(item["HostConfig"]["CapDrop"] == ["ALL"], "CAP_DROP_ALL")
+    check("no-new-privileges:true" in item["HostConfig"]["SecurityOpt"], "NO_NEW_PRIVILEGES")
+    return ids[0], item
+
+
+def verify_container():
+    """Bind the restart boundary to the private backend of this disposable project."""
+    backend_id, item = service_container("cafe-fin")
+    check(not item["HostConfig"].get("PortBindings"), "BACKEND_PRIVATE_PORT")
+    check(not any(item["NetworkSettings"]["Ports"].values()), "BACKEND_PRIVATE_BINDING")
     mounts = [mount for mount in item["Mounts"] if mount["Destination"] == "/data"]
     check(len(mounts) == 1, "SMOKE_DATA_MOUNT")
     check(mounts[0].get("Name") == PROJECT + "_preview-data", "SMOKE_VOLUME_NAME")
-    check(item["HostConfig"]["ReadonlyRootfs"], "READONLY_CONTAINER")
     networks = item["NetworkSettings"]["Networks"]
     check(list(networks) == [PROJECT + "_preview-local"], "SMOKE_NETWORK")
     network = json.loads(docker("network", "inspect", PROJECT + "_preview-local"))[0]
@@ -83,13 +91,52 @@ def verify_container():
         "import sys; from cafe_fin.core.secrets import WindowsCredentialStore; "
         "assert sys.platform == 'linux'; assert WindowsCredentialStore().available is False"
     )
-    docker("exec", ids[0], "python", "-c", code)
-    return ids[0]
+    docker("exec", backend_id, "python", "-c", code)
+    gateway_id, gateway = service_container("gateway")
+    bindings = {
+        port: binding for port, binding in gateway["NetworkSettings"]["Ports"].items() if binding
+    }
+    check(
+        bindings == {"1420/tcp": [{"HostIp": "127.0.0.1", "HostPort": "1420"}]},
+        "LOOPBACK_GATEWAY_BINDING",
+    )
+    check(
+        set(gateway["NetworkSettings"]["Networks"])
+        == {PROJECT + "_preview-front", PROJECT + "_preview-local"},
+        "GATEWAY_NETWORKS",
+    )
+    front = json.loads(docker("network", "inspect", PROJECT + "_preview-front"))[0]
+    check(front["Internal"] is False and front["Driver"] == "bridge", "GATEWAY_FRONT_NETWORK")
+    check(gateway["Config"]["User"] == "101:101", "GATEWAY_USER")
+    check(all(mount["Type"] == "tmpfs" for mount in gateway["Mounts"]), "GATEWAY_NO_DATA_MOUNTS")
+    check(gateway["Config"]["Entrypoint"] == ["nginx"], "GATEWAY_ENTRYPOINT")
+    check(
+        gateway["Config"]["Cmd"] == ["-c", "/etc/nginx/preview.conf", "-g", "daemon off;"],
+        "GATEWAY_FIXED_COMMAND",
+    )
+    expected_config = hashlib.sha256((ROOT / "scripts/preview/nginx.conf").read_bytes()).hexdigest()
+    actual_config = docker("exec", gateway_id, "sha256sum", "/etc/nginx/preview.conf").split()[0]
+    check(actual_config == expected_config, "GATEWAY_FIXED_CONFIG")
+    return backend_id
 
 
 class Client:
     def __init__(self):
         self.headers = {"Origin": ORIGIN}
+
+    def ready(self):
+        connection = http.client.HTTPConnection("127.0.0.1", 1420, timeout=5)
+        try:
+            connection.request("GET", "/")
+            response = connection.getresponse()
+            response.read()
+            check(response.status in {200, 502, 503}, "RESTART_HTTP_STATUS")
+            if response.status == 200:
+                self.raw("GET", "/")
+                return True
+            return False
+        finally:
+            connection.close()
 
     def raw(self, method, path, *, headers=None, body=None, expected=200):
         connection = http.client.HTTPConnection("127.0.0.1", 1420, timeout=40)
@@ -494,12 +541,13 @@ def main():
     deadline = time.monotonic() + 60
     while True:
         try:
-            client.raw("GET", "/")
-            break
+            if client.ready():
+                break
         except (OSError, http.client.HTTPException):
-            if time.monotonic() >= deadline:
-                raise SmokeFailure("RESTART_TIMEOUT") from None
-            time.sleep(0.3)
+            pass
+        if time.monotonic() >= deadline:
+            raise SmokeFailure("RESTART_TIMEOUT") from None
+        time.sleep(0.3)
     check(verify_container() == container_id, "RESTART_CONTAINER_ID")
     client.raw("GET", "/api/v1/health", headers=old_headers, expected=401)
     client.bootstrap()
