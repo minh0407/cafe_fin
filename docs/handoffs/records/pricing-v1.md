@@ -1,0 +1,28 @@
+# Bảng giá và tự điền từ số cân — increment 13
+
+Điều phối giao increment từ source `1224cce`, sau mốc integration đã có. Người dùng xác nhận **giá bán cài riêng**; giá mua/nhập phục vụ đầu vào và tham khảo, không lấy giá mua làm giá bán. Chỉ đọc source CRM cũ, không chuyển DB hoặc dữ liệu cũ.
+
+## Quy tắc và API đã chốt
+
+- Module records, prefix `/api/v1/records`. Thêm resource `price-boards` CRUD/history/delete/restore qua version/audit/idempotency hiện có; không sửa migration v1/core/read bridge.
+- PriceBoard có `code`, `name` do server sinh (command có thể bỏ qua), `price_date` YYYY-MM-DD, `price_kind: purchase_fresh|purchase_processed|sale`, `product_id` nullable (sale bắt buộc chọn hàng), `pricing_method: flat|grade`, `flat_price_vnd` nullable, `grade5_price_vnd` nullable, `active=true`, `note` nullable. Một trong hai giá đúng theo method, số VND không âm tối đa 2 số lẻ/int64. Ngày/kind/product là khóa bất biến sau tạo; code tự sinh xác định, giữ uniqueness kể cả xóa mềm. Bảng mua không chọn hàng áp dụng chung; bảng theo hàng ưu tiên bảng chung. Giá bán theo hàng, không dùng bảng mua làm fallback.
+- Method grade: Grade5 là giá nhập; Grade4 = Grade5 × 90%, tiếp xuống Grade1, ROUND_HALF_UP đến 2 số lẻ **từng bước** như CRM cũ. Đây là quy tắc tính giá được hiển thị rõ ở preview, không làm tròn kg hoặc số người nhập. Flat áp dụng một giá không cần Grade. Preset mua là grade, bán là flat.
+- `POST /price-board-preview` nhận pricing_method + flat_price_vnd/grade5_price_vnd, trả `{pricing_method, flat_price_vnd, grade_prices:[{grade,unit_price_vnd}], formula_version:1}`. Dùng đúng hàm Decimal/integer của lookup/save, không network.
+- `GET /price-quote?price_kind=...&price_date=...&product_id=...&grade=...` trả PriceSnapshot gồm `price_board_id`, `price_board_version`, `price_kind`, `price_date`, `product_id` (hàng được yêu cầu, có thể null), `grade` (yêu cầu, có thể null), `unit_price_vnd`, `formula_version:1`. Chọn bảng active chưa xóa **đúng ngày**, product cụ thể ưu tiên chung. Không lấy giá hôm qua hoặc giá bằng 0 khi thiếu. Thiếu bảng/Grade thì error rõ `PRICE_NOT_FOUND`/`PRICE_GRADE_REQUIRED`.
+- TradeLine bổ sung `pricing_mode: manual|daily` mặc định manual tương thích dữ liệu/request cũ, `price_kind` nullable, `price_date` nullable, `price_snapshot: PriceSnapshot|null`. Daily: mặc định ngày theo trade.occurred_on, outbound buộc kind=sale, inbound chỉ purchase_fresh/purchase_processed. Unit price server suy ra từ bảng; nếu client gửi giá khác snapshot/giá thật thì reject, không tin giá frontend. UI gửi snapshot đã xem. Khi bảng vừa đổi giữa xem và lưu, trả `PRICE_CHANGED`409 để người dùng lấy lại giá rồi xác nhận, không âm thầm thay.
+- Snapshot đã lưu giữ nguyên khi chỉ sửa kg/bao/ghi chú và phạm vi ngày/kind/hàng/Grade không đổi. Server kiểm snapshot là bản thật của revision gốc và unit_price không bị sửa. Bảng giá cập nhật/ngừng/xóa sau này không đổi giá đơn cũ hoặc chặn sửa kg trên đúng snapshot cũ. Đổi ngày/hàng/Grade/kind cần quote mới; snapshot giả, cũ gắn vào dòng mới hoặc sai chiều bị từ chối. Lưu snapshot không phụ thuộc bảng còn active khi sửa dòng cũ đúng phạm vi. Retry request trước nâng cấp không đổi fingerprint do default field mới.
+- API không snapshot được thì có thể cho server tra hiện tại khi tạo daily và snapshot null; UI bình thường phải xem quote trước lưu. Server không thay giá khi snapshot mà client đã xem bị stale. Khi update, không tự đổi snapshot cũ thành null để lấy giá mới nếu UI chưa nói rõ đổi.
+- Unit giá VND 2 số lẻ, kg3. Thành tiền suy ra giữ chính xác tới5 số lẻ như increment12, không tự tạo payment/công nợ/kho từ phép nhân. Entry gắn trade vẫn dùng giá đơn để hiển thị; kho vẫn chỉ quantity, guard tồn âm/cap đơn giữ nguyên.
+- List bổ sung filters price_kind, price_date, product_id cho bảng; server paging/search/sort. Shared DTO contracts/reporting không đổi.
+
+## UI
+
+Thêm `/records/prices`, “Bảng giá mua / nhập / bán” trong navigation. Chọn ngày, nhóm giá, hàng nếu cần; nhập Grade5 và xem trước đủ5Grade hoặc giá cố định; lưu/sửa/ngừng/xóa mềm/khôi phục/lịch sử. Không cần tự nhập mã/tên kỹ thuật. Hiện rõ quy tắc90% từng bước và bảng đúng ngày.
+
+TradeEditor mới mặc định daily: inbound purchase_fresh, outbound sale; chọn loại mua tươi/chế biến khi đầu vào. Có giá tự hiện sau chọn ngày/hàng/Grade; khi xuất chỉ cần nhập kg (hàng/công ty vẫn chọn theo luồng hiện có), đơn giá readonly và thành tiền cập nhật chính xác. Cho đường dẫn mở bảng giá nếu thiếu; không báo lưu thành công khi thiếu quote. Giữ mode manual cho đơn cũ, có nhãn rõ; không thay đơn cũ khi mở lại. Đổi tiêu chí thì bỏ quote cũ, chặn response chậm ghi đè dòng/tiêu chí mới. Form bị khóa vì unknown-save không được background quote thay dữ liệu đã gửi. Hiện nguồn/ngày/version giá trong chi tiết để tra cứu. “Lấy lại giá mới” là thao tác rõ ràng; sửa kg không tự lấy giá hôm nay.
+
+## Phân công
+
+Backend lane: backend/cafe_fin/records/**, tests/records/** (Python), docs/handoffs/records/pricing-backend.md. Frontend lane: frontend/src/features/records/**, frontend/tests/pricing*, docs/handoffs/records/pricing-frontend.md. Root sở hữu app sidebar và tài liệu chung/điều phối/test Docker. Không push/merge của lane khác. Chạy tests phù hợp, báo SHA và giới hạn.
+
+Kiểm thử: công thức/scale/overflow, khóa bảng trùng, đúng ngày/không fallback, ưu tiên hàng, tách giá bán với mua, Grade bắt buộc chỉ khi grade mode, stale/forged quote, snapshot không đổi sau sửa bảng, sửa kg, đổi tiêu chí, request replay cũ, server tính giá, session/asyncrace/unknownretry; giao diện/API thật và Docker sau tích hợp. Giữ volume/tài khoản đang dùng, backup nhất quán trước cập nhật.
