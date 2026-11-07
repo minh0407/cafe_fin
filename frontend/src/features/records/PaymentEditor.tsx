@@ -1,0 +1,13 @@
+import { Form, Input, Select, Typography } from "antd";
+import { DateInput, dateInputRule } from "../../shared/DateInput";
+import { CommerceFormModal } from "./CommerceShared";
+import { methodLabels, type Trade, type TradePayment } from "./commerceTypes";
+import { DecimalInput, required, todayVN } from "./helpers";
+import { ReferenceText } from "./RecordDetail";
+
+export function PaymentEditor({ trade, initial, onClose, onSaved }: { trade: Trade; initial?: TradePayment; onClose: () => void; onSaved: (value: TradePayment) => void }) {
+  const partyIds = trade.direction === "outbound" ? [trade.party_id!] : [...new Set(trade.lines.map((line) => line.farm_id).filter((id): id is string => !!id))];
+  return <CommerceFormModal<TradePayment> resource="trade-payments" initial={initial} title={`${initial ? "Sửa" : "Ghi"} ${trade.direction === "outbound" ? "thu" : "chi"} thực tế`} defaults={{ occurred_on: todayVN(), method: "cash", party_id: partyIds.length === 1 ? partyIds[0] : undefined, ...initial }} payload={(values) => ({ ...Object.fromEntries(["code", "occurred_on", "party_id", "amount_vnd", "method", "reference", "note", "physical_actor", "occurred_at"].filter((key) => values[key] !== undefined).map((key) => [key, values[key] === "" && key === "occurred_at" ? null : values[key]])), trade_id: trade.id })} onClose={onClose} onSaved={onSaved}>
+    <Typography.Paragraph>Đơn {trade.code}. Đây là ghi nhận thu/chi thực tế, không chuyển tiền và không tự ghi vào sổ Excel.</Typography.Paragraph><Form.Item label="Mã chứng từ thu/chi" name="code" rules={required}><Input /></Form.Item><Form.Item label="Ngày thu/chi" name="occurred_on" rules={[...required, dateInputRule]}><DateInput aria-label="Ngày thu/chi" /></Form.Item><Form.Item label={trade.direction === "outbound" ? "Công ty thanh toán" : "Farm nhận tiền"} name="party_id" rules={required}><Select options={partyIds.map((id) => ({ value: id, label: <ReferenceText resource="parties" id={id} /> }))} /></Form.Item><DecimalInput label="Số tiền thực tế (VND)" name="amount_vnd" money requiredValue /><Form.Item label="Phương thức" name="method" rules={required}><Select options={Object.entries(methodLabels).map(([value, label]) => ({ value, label }))} /></Form.Item><Form.Item label="Mã tham chiếu" name="reference"><Input /></Form.Item><Form.Item label="Thời điểm nghiệp vụ có múi giờ (tùy chọn)" name="occurred_at"><Input placeholder="2026-11-07T08:30:00+07:00" /></Form.Item><Form.Item label="Người thực hiện thực tế" name="physical_actor"><Input /></Form.Item><Form.Item label="Ghi chú" name="note"><Input.TextArea /></Form.Item>
+  </CommerceFormModal>;
+}

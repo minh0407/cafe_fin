@@ -15,12 +15,12 @@ export interface Entity {
 }
 export interface Contact { kind: string; value: string; label?: string | null }
 export interface BankAccount { bank_name: string; account_number: string; account_holder?: string | null; branch?: string | null }
-export interface Party extends Entity { name: string; type: string; roles: string[]; address?: string | null; tax_code?: string | null; contacts: Contact[]; bank_details: BankAccount[]; representative?: { name: string; title?: string | null; authorization_reference?: string | null } | null }
+export interface Party extends Entity { name: string; type: string; roles: string[]; address?: string | null; tax_code?: string | null; contacts: Contact[]; bank_details: BankAccount[]; representative?: { name: string; title?: string | null; authorization_reference?: string | null } | null; profile_kind?: "general" | "farm" | "customer_company"; business_license?: string | null; farm?: import("./commerceTypes").FarmProfile | null }
 export interface Product extends Entity { name: string; unit_id?: string | null }
 export interface WeighingLine { product_id?: string | null; description?: string | null; quantity_source: "gross_tare" | "direct_net"; gross_kg?: string | null; tare_kg?: string | null; net_kg?: string | null; note?: string | null }
 export interface Weighing extends Entity { occurred_on: string; occurred_at?: string | null; physical_actor?: string | null; party_id?: string | null; vehicle_plate?: string | null; lines: WeighingLine[] }
 export interface EntryLine { product_id: string; warehouse_id: string; quantity_kg: string; direction: "in" | "out"; note?: string | null }
-export interface Entry extends Entity { occurred_on: string; occurred_at?: string | null; physical_actor?: string | null; entry_type: EntryType; status: "draft" | "posted" | "cancelled"; party_id?: string | null; weighing_id?: string | null; commercial_amount_vnd?: string | null; lines: EntryLine[] }
+export interface Entry extends Entity { occurred_on: string; occurred_at?: string | null; physical_actor?: string | null; entry_type: EntryType; status: "draft" | "posted" | "cancelled"; party_id?: string | null; weighing_id?: string | null; trade_id?: string | null; commercial_amount_vnd?: string | null; lines: EntryLine[] }
 export interface InventoryLine { product_id: string; warehouse_id: string; opening_kg: string; received_kg: string; issued_kg: string; closing_kg: string }
 export interface InventoryMovementLine {
   product_id: string;
