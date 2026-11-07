@@ -8,6 +8,14 @@ This is an optional local testing surface around the real SQLite runtime and
 registered business modules. It is not the Windows installer/release gate.
 There are no schema migrations or copied CRM data in this change.
 
+This handoff describes the original preview transport. The later
+[market increment 14](../../reviews/AUTOMATIC_MARKET_INCREMENT_14.md) adds the
+records v2 migration and a private, stateless fixed-source relay. The same named
+data volume is retained. The data-bearing backend stays on the internal network;
+only the relay joins the market egress network, without data/secret mounts or a
+published port. Its only download target is the configured public price source;
+challenge responses are reported as BLOCKED, never as accepted prices.
+
 ## Run
 
 From the repository root with Docker Desktop's Linux engine running:
