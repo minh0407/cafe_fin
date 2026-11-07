@@ -22,6 +22,7 @@ async function fixture(page: Page) {
     const req = route.request(), url = new URL(req.url()), path = url.pathname.split("/records/")[1];
     const body = req.postData() ? req.postDataJSON() : null;
     requests.push({ path, method: req.method(), body, query: url.searchParams });
+    if (path === "market/processed") { await route.fulfill({ json: { price_date: url.searchParams.get("price_date") || "2026-11-07", today: "2026-11-07", enabled: true, settings_version: 1, network_available: false, status: "NETWORK_DISABLED", source_url: "https://banggianongsan.com/bang-gia-ca-phe/", board_id: null, board_version: null, attempts: 0, last_checked_at: null, next_attempt_at: null, detail: null, snapshot: null } }); return; }
     if (path === "price-quote") { await route.fulfill({ json: quote(url.searchParams) }); return; }
     if (path === "price-board-preview") { await route.fulfill({ json: { pricing_method: body.pricing_method, flat_price_vnd: body.flat_price_vnd, grade_prices: [5, 4, 3, 2, 1].map((grade, index) => ({ grade, unit_price_vnd: ["100.01", "90.01", "81.01", "72.91", "65.62"][index] })), formula_version: 1 } }); return; }
     const [resource, id, action] = path.split("/");
