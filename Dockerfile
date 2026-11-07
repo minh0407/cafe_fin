@@ -44,3 +44,13 @@ RUN mkdir /data && chown 10001:10001 /data
 USER 10001:10001
 EXPOSE 1420
 CMD ["python", "/app/scripts/preview.py"]
+
+# Only this stateless gateway joins a publishable bridge. Backend stays isolated.
+FROM nginx:1.30.6-alpine@sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311 AS gateway
+COPY scripts/preview/nginx.conf /etc/nginx/preview.conf
+USER 101:101
+# Check syntax without requiring the runtime Compose DNS name during image build.
+RUN sed 's#http://cafe-fin:1420#http://127.0.0.1:1420#' /etc/nginx/preview.conf > /tmp/preview-check.conf && nginx -t -c /tmp/preview-check.conf
+EXPOSE 1420
+ENTRYPOINT ["nginx"]
+CMD ["-c", "/etc/nginx/preview.conf", "-g", "daemon off;"]

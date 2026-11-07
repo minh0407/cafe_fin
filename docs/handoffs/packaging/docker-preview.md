@@ -35,11 +35,22 @@ canonical host/origin is deliberately fixed, not remapped through a public proxy
 
 ## Boundaries
 
-- One nonroot container (uid/gid 10001), read-only image, bounded `/tmp`, named
-  data volume, dropped capabilities and `no-new-privileges`. Docker initializes
-  the empty volume from the image-owned `/data` directory.
-- Compose publishes only `127.0.0.1:1420:1420`; the internal Docker network has
-  no WAN egress. The container listener needs `0.0.0.0` inside that network.
+- The backend is nonroot (uid/gid 10001), with a read-only image, bounded `/tmp`,
+  named data volume, dropped capabilities and `no-new-privileges`. Docker
+  initializes the empty volume from the image-owned `/data` directory.
+- The backend has **no host port** and joins only `preview-local`, an internal
+  Docker network without WAN egress. Its listener needs `0.0.0.0` inside that
+  isolated network. A secret-free healthcheck reads `/` with the canonical Host;
+  the gateway waits for the backend to be healthy.
+- A separate stateless nginx gateway (uid/gid 101) joins `preview-front` and
+  `preview-local`. Only this gateway publishes `127.0.0.1:1420:1420`. It has a
+  read-only image, 32 MiB `/tmp` tmpfs, dropped capabilities, no new privileges,
+  and no host/data volume mounts. Its fixed packaged upstream is `cafe-fin:1420`;
+  it preserves the original Host and Origin for the backend guards, disables
+  request/response buffering, redirects and access logs, and allows uploads up
+  to 2 GiB. The front network supports Docker Desktop's loopback publication;
+  the backend's network isolation remains in place. The gateway itself joins a
+  normal bridge and does not claim WAN isolation.
 - The adapter rejects other/duplicate Host or Origin headers before dispatch.
   Bootstrap is a narrow POST with `X-Preview-Bootstrap: 1`, exact same-origin
   Fetch Metadata when present, no query, no CORS/preflight allowance. All HTTP
@@ -83,6 +94,21 @@ isolated builder and copies only its private shared library and source notices.
 `LD_LIBRARY_PATH=/opt/cafe-fin-sqlite/lib` makes Python use that library; no system
 package, core gate, DB migration or Python production dependency is changed.
 The compiler and development headers stay in the builder stage.
+
+The gateway uses the verified official nginx `1.30.6-alpine` image pinned to
+manifest digest
+`sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311`.
+Its config is baked from `scripts/preview/nginx.conf` into
+`/etc/nginx/preview.conf`; no runtime config bind mount or entrypoint template
+mutation is used. PID and temporary paths are all under `/tmp`. A nonroot
+`nginx -t` check runs during image build with only the upstream DNS name replaced
+by loopback for that syntax check; the packaged actual config retains the
+constant Compose upstream.
+
+This two-container transport corrects an actual Engine 29.9.1 finding: a backend
+attached only to `internal: true` was healthy but had no published port in
+`NetworkSettings.Ports`, despite the requested HostConfig binding. The gateway
+provides host publication while the data-bearing backend remains isolated.
 
 Source: [official archive](https://sqlite.org/2026/sqlite-autoconf-3530100.tar.gz).
 Its SHA-256 is
@@ -145,6 +171,16 @@ The final Python-layer check printed `Verified Python SQLite 3.53.1` and passed
 exact source-ID/integrity assertions before image publication. Final local image
 ID is `sha256:494ca2cdc8634492560a7b313aaef15ede3643ccb5905dd6425138dc0474593a`.
 This lane built the image only and did not launch a container.
+
+Gateway correction: actual `docker build --progress=plain --target gateway -t
+cafe-fin-preview-gateway:20261107 .` and backend target builds PASS; Compose
+config and diff checks PASS. Gateway `nginx -t` passed under uid 101. Gateway
+image ID is
+`sha256:9c00e38848a39559dac4e408a7cb06430563fcb7fda06ac8058fe35e46908533`;
+the corresponding backend rebuild image ID is
+`sha256:e0300dd8126ea7fe9ad46789a0f0ef3de1b8e75a2b2a0ce5e1fae1005ecc4b70`
+(same application/config layers as the SQLite correction, new build attestation).
+Root owns actual launch/network/browser verification; this lane launches none.
 
 The reusable equivalent frontend probe is `tests/preview/browser_bridge.mjs`.
 Its syntax check passed; the persisted file was not rerun while Docker took over

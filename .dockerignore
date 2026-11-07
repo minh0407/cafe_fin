@@ -17,6 +17,8 @@
 !frontend/scripts/third-party-notices.mjs
 !scripts/
 !scripts/preview.py
+!scripts/preview/
+!scripts/preview/nginx.conf
 **/__pycache__
 **/*.pyc
 **/.env*
