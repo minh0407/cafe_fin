@@ -175,6 +175,50 @@ def test_refuse_unmarked_nonempty_directory_without_mutation(tmp_path):
     assert original.read_bytes() == b"preserve"
 
 
+@pytest.mark.parametrize("version", [(3, 40, 1), (3, 51, 2), (3, 52, 0)])
+def test_unsupported_sqlite_rejected_before_volume_initialization(tmp_path, monkeypatch, version):
+    monkeypatch.setattr(
+        preview,
+        "sqlite3",
+        SimpleNamespace(sqlite_version_info=version, sqlite_version=".".join(map(str, version))),
+    )
+    for name, present in [("new-data", False), ("empty-volume", True)]:
+        data = tmp_path / name
+        if present:
+            data.mkdir()
+        with pytest.raises(CoreError, match="SQLITE_UNSUPPORTED"):
+            preview.open_preview_runtime(data)
+        assert data.exists() is present
+        if present:
+            assert list(data.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (CoreError("SQLITE_UNSUPPORTED", "synthetic-sensitive-detail", 503), "SQLITE_UNSUPPORTED"),
+        (
+            CoreError("SYNTHETIC_UNRECOGNIZED_CODE", "synthetic-sensitive-detail", 503),
+            "PREVIEW_STARTUP_FAILED",
+        ),
+        (ValueError("synthetic-sensitive-detail"), None),
+    ],
+)
+def test_startup_error_only_discloses_fixed_allowlisted_code(monkeypatch, error, expected):
+    def fail(_path):
+        raise error
+
+    monkeypatch.setattr(preview, "open_preview_runtime", fail)
+    with pytest.raises(SystemExit) as result:
+        preview.main()
+    text = str(result.value)
+    assert "synthetic-sensitive-detail" not in text
+    assert "SYNTHETIC_UNRECOGNIZED_CODE" not in text
+    assert text == (
+        "Cafe Fin preview could not start safely" + (f" ({expected})." if expected else ".")
+    )
+
+
 def test_static_and_native_routes_do_not_leak_files_or_allow_cors(client):
     connection, _ = client
     assert connection.get("/").status_code == 200

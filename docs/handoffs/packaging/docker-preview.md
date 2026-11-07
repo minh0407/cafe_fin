@@ -76,6 +76,31 @@ dependency upgrades. The Python wheel carries the existing Noto fonts/licenses;
 the image also includes generated notices from installed locked frontend tools.
 Linux wheel license audit is still a separate distribution/release concern.
 
+The initial actual Linux startup correctly failed the unchanged core SQLite WAL
+safety gate: the pinned Bookworm Python image provides SQLite 3.40.1. The Docker
+build now compiles an unmodified official SQLite **3.53.1** amalgamation in an
+isolated builder and copies only its private shared library and source notices.
+`LD_LIBRARY_PATH=/opt/cafe-fin-sqlite/lib` makes Python use that library; no system
+package, core gate, DB migration or Python production dependency is changed.
+The compiler and development headers stay in the builder stage.
+
+Source: [official archive](https://sqlite.org/2026/sqlite-autoconf-3530100.tar.gz).
+Its SHA-256 is
+`83e6b2020a034e9a7ad4a72feea59e1ad52f162e09cbd26735a3ffb98359fc4f`, pinned with
+Docker ADD checksum. `sqlite3.c` is independently checked against the published
+SHA3-256 `414432ae5719f6cdc485f3927e12c7ad107e2b8c6b434e5df2eadb5312bfabb5`
+from the [official release](https://sqlite.org/releaselog/3_53_1.html).
+The final build also verifies Python's actual SQLite version, exact source ID
+and `PRAGMA integrity_check`; these assertions fail the image build on a bad link.
+The image includes `/app/notices/sqlite/` with original source header, identity,
+hashes and [upstream public-domain provenance](https://sqlite.org/copyright.html).
+
+Preview startup checks the exact same version condition as core **before**
+Runtime can create the data-root marker. Unsupported runtimes leave both a
+missing data directory and an empty mounted directory untouched. A partial
+volume produced by an earlier failed attempt remains untouched and still fails
+closed; use a separately named fresh preview project/volume for a new smoke.
+
 `.dockerignore` denies by default and admits only backend code/assets, minimal
 frontend build inputs, lock/manifests and preview script. Git, environment files,
 runtime, databases, workbooks, local logs, dev environments, build outputs and
@@ -103,6 +128,24 @@ PASS:
   preview banner, first Admin page and session header to real API client.
 - `git diff --check`.
 
+SQLite correction checks: `python -m pytest tests/preview/test_preview.py -q`
+passes 18 cases (the original 12 plus 3 unsupported SQLite versions and 3 safe
+startup diagnostic cases); Ruff PASS.
+The extra cases reject 3.40.1, 3.51.2 and withdrawn 3.52.0 before any directory or
+marker is created; startup errors emit only a fixed allowlisted code and generic
+failure text, never messages/details or unknown codes.
+
+Actual Docker build PASS on Docker Desktop Linux amd64 engine 29.9.1:
+
+```powershell
+docker build --progress=plain --target preview -t cafe-fin-preview-sqlite:20261107 .
+```
+
+The final Python-layer check printed `Verified Python SQLite 3.53.1` and passed
+exact source-ID/integrity assertions before image publication. Final local image
+ID is `sha256:494ca2cdc8634492560a7b313aaef15ede3643ccb5905dd6425138dc0474593a`.
+This lane built the image only and did not launch a container.
+
 The reusable equivalent frontend probe is `tests/preview/browser_bridge.mjs`.
 Its syntax check passed; the persisted file was not rerun while Docker took over
 port 1420. To rerun it, stop Docker preview, start Vite in `frontend` with
@@ -115,7 +158,7 @@ development environment from the foundation recovery worktree, locked frontend
 dependencies installed in this isolated worktree. The FastAPI TestClient emits
 an upstream httpx deprecation warning; no dependency changed to suppress it.
 
-NOT RUN by this lane: Docker build/start, real Linux credential/runtime probe,
+NOT RUN by this lane: Docker startup, real Linux credential/runtime probe,
 Docker browser business smoke, native Windows release/installer smoke and large
 import benchmarks. Coordinator runs the actual container after Docker Desktop
 starts and records machine/build/runtime evidence. Existing backend Windows CI

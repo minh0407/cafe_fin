@@ -7,6 +7,7 @@ This is a local preview, not a replacement for the Windows desktop controller.
 from __future__ import annotations
 
 import secrets
+import sqlite3
 import uuid
 from pathlib import Path
 
@@ -22,10 +23,34 @@ from starlette.staticfiles import StaticFiles
 PORT = 1420
 HOST = f"127.0.0.1:{PORT}"
 ORIGIN = f"http://{HOST}"
+STARTUP_CODES = frozenset(
+    {
+        "SQLITE_UNSUPPORTED",
+        "DATA_ROOT_INVALID",
+        "DATA_ROOT_UNAVAILABLE",
+        "DATA_ROOT_EXISTS",
+        "DATA_ROOT_INCOMPLETE",
+        "DATA_ROOT_VERSION",
+        "DATA_ROOT_LOCKED",
+        "DATABASE_MISSING",
+        "PREVIEW_UI_MISSING",
+        "MAINTENANCE_REQUIRED",
+        "DISK_SPACE_LOW",
+    }
+)
 
 
 def open_preview_runtime(data: Path) -> Runtime:
     """Only initialize an empty volume; never repair/replace unrecognized data."""
+    # Match the production Database gate before Runtime can initialize a marker.
+    # Never weaken the core check or leave a new volume partially initialized.
+    if sqlite3.sqlite_version_info < (3, 51, 3) or sqlite3.sqlite_version_info == (3, 52, 0):
+        raise CoreError(
+            "SQLITE_UNSUPPORTED",
+            "Runtime SQLite chưa có bản sửa WAL được hỗ trợ.",
+            503,
+            details={"sqlite_version": sqlite3.sqlite_version},
+        )
     if not (data / MARKER).exists():
         if data.exists() and (not data.is_dir() or any(data.iterdir())):
             raise CoreError("DATA_ROOT_INVALID", "Volume chưa có dữ liệu Cafe Fin hợp lệ.", 409)
@@ -146,6 +171,9 @@ def main() -> None:
             log_level="critical",
             log_config=None,
         )
+    except CoreError as error:
+        code = error.code if error.code in STARTUP_CODES else "PREVIEW_STARTUP_FAILED"
+        raise SystemExit(f"Cafe Fin preview could not start safely ({code}).") from None
     except BaseException:
         # Never render exception data, paths, payloads or session capabilities.
         raise SystemExit("Cafe Fin preview could not start safely.") from None
