@@ -23,6 +23,8 @@ Baseline phát triển `cafe-fin-foundation-ready-v1` và [baseline tích hợp]
 
 ## Các quyết định chính
 
+- [Farm, công ty khách hàng, Đầu vào/Đầu ra và dashboard](docs/handoffs/records/crm-parity-v1.md): giữ chức năng CRM hữu ích với dữ liệu mới, bỏ ảnh farm và chuỗi duyệt; đơn/thu chi liên kết nhưng kho vẫn qua ledger có kiểm tra.
+
 - Ghi lại nghiệp vụ, bỏ phê duyệt nhiều người, QR và chuyển theme. Vẫn kiểm dữ liệu, giữ lịch sử và chặn tồn âm.
 - Hợp đồng mua/bán tự điền theo thông tin người nhập, cho sửa điều khoản và phương thức thanh toán; xuất Word/PDF.
 - Kế toán là khu vực riêng, không ép phải ghi đủ hoặc khớp mọi nghiệp vụ CRM.

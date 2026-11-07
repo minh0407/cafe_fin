@@ -30,6 +30,10 @@ Dữ liệu bản đầu là dữ liệu mới. CRM cũ giữ nguyên để tra 
 
 ## 3 Ghi nhận mua bán và kho
 
+Bổ sung theo yêu cầu 07/11/2026: giữ chức năng mã Farm và các thuộc tính hồ sơ từ CRM cũ, bắt đầu dữ liệu mới. Farm có mã bốn ký tự, chủ farm/giấy tờ, liên hệ/ngân hàng, mã vùng, lô trồng và khảo sát; bỏ ảnh/sơ đồ/phân công. Công ty khách hàng giữ tên công ty, người liên hệ, MST, giấy phép và liên hệ. Tách trang Đầu vào (farm trên từng dòng) và Đầu ra (chọn công ty đủ thông tin trước nhập đơn/thu tiền), có chi tiết đơn, phiếu nhập/xuất liên kết và các lần ghi thu/chi. Không mang lại chuỗi duyệt. Lưu đơn hoặc thu/chi chưa làm thay tồn; phiếu kho ghi sổ mới ảnh hưởng ledger và bị chặn vượt đơn/tồn âm. Kế toán Excel vẫn độc lập.
+
+Dashboard là trang mở đầu, giữ các nhóm chỉ tiêu hữu ích từ CRM cũ nhưng lấy từ nguồn Cafe Fin: hồ sơ farm/khảo sát/công ty, đơn theo chiều, kg thực nhập/xuất, tồn và thu/chi đã ghi. Giá trị đơn được phân biệt với doanh thu/tiền đã thu; đơn thiếu giá phải hiện riêng. Các nguồn tiền không cộng chồng với sổ Excel; lỗi đọc phải hiện lỗi, không thay bằng số 0. Chi tiết contract tại [increment Farm và mua/bán](handoffs/records/crm-parity-v1.md).
+
 CRUD đối tác, khách hàng/nhà cung cấp, hàng hóa, phiếu cân, phiếu mua/bán, nhập/xuất, sản xuất hoặc chuyển đổi và ghi chú thực tế. Có tìm kiếm, lọc, sort, phân trang server; tham số xem danh sách nằm trong URL nhưng không chứa credential hoặc dữ liệu nhạy cảm.
 
 Phiếu cân do người nhập ghi: hỗ trợ số cân trực tiếp và tùy chọn các lần đầy/rỗng/tịnh, nhiều dòng khi cần. Không buộc phải có tích hợp cân vật lý, ảnh, QR hoặc phiếu khác mới được lưu bản nháp. Giá trị được tính từ đầy/rỗng phải phân biệt với kg người dùng nhập trực tiếp; không âm thầm ghi đè số người dùng đã chọn.

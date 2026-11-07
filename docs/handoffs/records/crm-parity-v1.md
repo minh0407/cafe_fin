@@ -4,6 +4,8 @@
 
 ## API module records được thống nhất
 
+Các đường dẫn bên dưới là tương đối trong module: tiền tố đầy đủ `/api/v1/records` (ví dụ `/api/v1/records/trades`, `/api/v1/records/records-dashboard`).
+
 Giữ nguyên read bridge v3, lịch sử hiện có và migration records v1. Các field mới có default tương thích bản ghi cũ. Không thay stock guard hoặc tạo tiền/kho từ Excel.
 
 - `Party` thêm `profile_kind: general|farm|customer_company` mặc định `general`, `business_license: string|null`, `farm: FarmProfile|null`.
@@ -24,5 +26,7 @@ Route `/records` giữ công cụ kho/phiếu cũ; thêm trang `/records/farms`,
 Dashboard là trang mặc định, có tuần/tháng/khoảng ngày, thẻ chỉ tiêu đúng nguồn, bảng/xu hướng theo ngày và link về danh sách đúng luồng. Không sao chép biểu đồ cộng các đơn vị khác nhau hoặc hiển thị lỗi thành số 0. Không thêm dependency biểu đồ cần phí.
 
 ## Kiểm thử bắt buộc
+
+Giá trị đơn hàng là phép nhân suy ra từ giá (2 số lẻ) và kg (3 số lẻ), giữ chính xác tối đa 5 số lẻ, tối thiểu 2; không làm tròn ngầm hoặc đưa vào actual payment. Khoản thu/chi thực tế vẫn tối đa 2 số lẻ VND.
 
 Field farm + code bất biến/trùng, công ty chưa đủ thông tin, liên kết sai chiều/party, nhiều lần giao không vượt đơn, sửa/xóa/hoàn tác không phá tồn hoặc đơn, tiền Decimal, payment retry/version/history, dashboard snapshot/ngày VN/không cộng tiền Excel; browser tạo farm/công ty, vào hai luồng và chi tiết, lỗi thực tế, build và regression có liên quan. Dữ liệu tổng hợp duy nhất. Cập nhật Docker sau khi kiểm, giữ nguyên volume đang dùng và sao lưu nhất quán trước nâng cấp.

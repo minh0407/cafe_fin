@@ -33,6 +33,12 @@ Quản lý dữ liệu chỉ khả dụng khi phiên desktop xác nhận hỗ tr
 
 ## Một ngày làm việc
 
+**Tổng quan / Đầu vào / Đầu ra:** menu mới tách hồ sơ mua từ farm và bán cho công ty. Trong **Hồ sơ farm**, nhập mã bốn ký tự (giữ số 0 đầu), chủ farm, mã vùng, lô trồng/khảo sát và thông tin liên hệ cần dùng; không yêu cầu ảnh. Mã farm không đổi sau khi tạo. Trong **Công ty khách hàng**, tên công ty khác với tên người liên hệ; nhập MST và người liên hệ trước khi tiếp tục đơn bán.
+
+**Đầu vào:** chọn hoặc tạo farm cho từng dòng, ghi hàng/kg/bao/grade/giá và xe. **Đầu ra:** chọn hoặc tạo công ty → hoàn tất tên/MST/người liên hệ → nhập đơn bán. Mở chi tiết để xem/cập nhật hồ sơ, ghi các lần thu/chi hoặc tạo phiếu nhập/xuất nháp. Chọn hàng hóa và kho trước ghi sổ; tổng các lần giao không vượt đơn và không được làm tồn âm. Đơn, phiếu cân và giao dịch tiền là các ghi nhận riêng, không tự chuyển tiền hoặc tự giảm tồn. Phiếu độc lập và sổ Excel vẫn dùng được theo nhu cầu đã nhập.
+
+**Tổng quan** có tuần/tháng/khoảng ngày và đường dẫn về đúng luồng. Kg lấy từ phiếu kho đã ghi sổ; thu/chi lấy từ giao dịch gắn đơn; giá trị đơn bán được hiển thị riêng, giữ phép tính chính xác và tách đơn chưa đủ giá. Sổ Excel kế toán được xem riêng tại Báo cáo để tránh cộng trùng. Mọi chỉ tiêu chỉ phản ánh dữ liệu đã nhập.
+
 1. **Đăng nhập local.** Kiểm tra đang mở đúng thư mục dữ liệu. Không khởi tạo
    dữ liệu mới để thay cho thư mục cũ bị mất hoặc phiên đang chờ phục hồi.
 2. **Ghi nhận cà phê:** tạo/chọn **Đối tác**, **Hàng hóa**, **Vị trí / kho**.

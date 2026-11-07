@@ -27,7 +27,7 @@ import { DataManagementPanel } from "./DataManagementPanel";
 
 // Technical proofs are opt-in development fixtures, never product navigation.
 const showProofs = import.meta.env.DEV && import.meta.env.VITE_CAFE_FIN_PROOFS === "1";
-const initialRoute = showProofs ? "/foundation" : "/records";
+const initialRoute = showProofs ? "/foundation" : "/records/dashboard";
 
 export function App() {
   const session = useSession();
@@ -367,10 +367,14 @@ export function App() {
                   { key: "/foundation", label: "Nền tảng" },
                   { key: "/grid-spike", label: "Bản thử bảng tính" },
                 ] : []),
-                ...available.map((module) => ({
-                  key: module.routes[0].path,
-                  label: module.title,
-                })),
+                ...available.flatMap((module) => module.id === "records" ? [
+                  { key: "/records/dashboard", label: "Tổng quan" },
+                  { key: "/records/inbound", label: "Đầu vào · Mua từ farm" },
+                  { key: "/records/outbound", label: "Đầu ra · Bán cho công ty" },
+                  { key: "/records/farms", label: "Hồ sơ farm" },
+                  { key: "/records/customers", label: "Công ty khách hàng" },
+                  { key: "/records", label: "Phiếu cân và kho" },
+                ] : [{ key: module.routes[0].path, label: module.title }]),
                 { key: "/settings", label: "Cài đặt trên máy" },
               ]}
               onClick={({ key }) => {
