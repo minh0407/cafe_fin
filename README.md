@@ -12,6 +12,8 @@ Baseline phát triển `cafe-fin-foundation-ready-v1` và [baseline tích hợp]
 
 [Windows candidate 09](docs/reviews/WINDOWS_DESKTOP_CANDIDATE_09.md) đã qua CI tại source `baa8e86`: 1.153 backend tests, 57 main browser tests, các bộ feature, 47 native tests, Rust/Python interoperability, hai ca production controller với frozen sidecar thật và build NSIS đều PASS. Chưa phát hành file cài hoặc nghiệm thu GUI/offline trên Windows sạch; các giới hạn phục hồi và giấy phép phân phối vẫn ghi trong biên bản.
 
+[Telegram 10](docs/reviews/TELEGRAM_DELIVERY_INCREMENT_10.md) thay bộ gửi và cấu hình Zalo bằng Telegram Bot API, giữ tạo báo cáo local và lịch sử kênh cũ. Token nằm trong kho bí mật Windows; chưa cấu hình bot/nhóm thật hoặc gửi thật. Biên bản ghi riêng kết quả source, browser và bản đóng gói của thay đổi này.
+
 - [Yêu cầu sản phẩm](docs/SPEC.md)
 - [Hướng dẫn, ma trận quyền và mẫu báo cáo](docs/USER_GUIDE.md)
 - [Kiến trúc và quyết định kỹ thuật](docs/ARCHITECTURE.md)
