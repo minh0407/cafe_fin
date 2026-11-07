@@ -10,6 +10,8 @@ Baseline phát triển `cafe-fin-foundation-ready-v1` và [baseline tích hợp]
 
 [Tích hợp quản lý dữ liệu 06](docs/reviews/DESKTOP_MAINTENANCE_INCREMENT_06.md) bổ sung core/protocol sao lưu, chuyển/khôi phục và giao diện đối soát; [native controller 07](docs/reviews/NATIVE_CONTROLLER_INCREMENT_07.md) đã nối các lệnh desktop. Lượt CI backend đạt 1.119 tests; các kiểm thử adapter native thật được chạy riêng trước nghiệm thu. Khôi phục giữ các lượt gửi chưa rõ, tạm dừng lịch đến khi Admin kiểm tra và tạo lại tệp báo cáo trong thư mục mới từ bản gốc đã xác minh.
 
+[Windows candidate 09](docs/reviews/WINDOWS_DESKTOP_CANDIDATE_09.md) đã qua CI tại source `baa8e86`: 1.153 backend tests, 57 main browser tests, các bộ feature, 47 native tests, Rust/Python interoperability, hai ca production controller với frozen sidecar thật và build NSIS đều PASS. Chưa phát hành file cài hoặc nghiệm thu GUI/offline trên Windows sạch; các giới hạn phục hồi và giấy phép phân phối vẫn ghi trong biên bản.
+
 - [Yêu cầu sản phẩm](docs/SPEC.md)
 - [Hướng dẫn, ma trận quyền và mẫu báo cáo](docs/USER_GUIDE.md)
 - [Kiến trúc và quyết định kỹ thuật](docs/ARCHITECTURE.md)
