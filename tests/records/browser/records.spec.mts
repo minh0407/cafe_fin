@@ -26,7 +26,7 @@ test("desktop real-API records flow, immutable weighing history and stock reject
   const browserErrors: string[] = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
   try {
-    child = spawn(path.join(repo, ".venv/Scripts/python.exe"), [path.join(repo, "tests/records/browser/server.py")], { cwd: path.join(repo, "backend"), windowsHide: true, env: { ...process.env, PYTHONUTF8: "1", PYTHONPATH: path.join(repo, "backend") }, stdio: "pipe" });
+    child = spawn(process.env.CAFE_FIN_RECORDS_TEST_PYTHON ?? path.join(repo, ".venv/Scripts/python.exe"), [path.join(repo, "tests/records/browser/server.py")], { cwd: path.join(repo, "backend"), windowsHide: true, env: { ...process.env, PYTHONUTF8: "1", PYTHONPATH: path.join(repo, "backend") }, stdio: "pipe" });
     const handshake = new Promise<{ api_base: string; session_token: string; data_root: string; protocol_version: number }>((resolve, reject) => {
       let output = "";
       const timer = setTimeout(() => reject(new Error("Records server startup timeout")), 20000);

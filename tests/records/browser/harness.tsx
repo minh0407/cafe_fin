@@ -5,7 +5,9 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConfigProvider } from "antd";
 import viVN from "antd/locale/vi_VN";
-import { RecordsPage } from "../../../frontend/src/features/records";
+import { RecordsPage } from "../../../frontend/src/features/records/RecordsPage";
+import { FarmsPage, CustomersPage } from "../../../frontend/src/features/records/PartyCatalog";
+import { InboundPage, OutboundPage } from "../../../frontend/src/features/records/TradePage";
 import { useSession } from "../../../frontend/src/shared/session";
 import type { AuthResponse, BootSession } from "../../../frontend/src/shared/types";
 import "../../../frontend/src/app/styles.css";
@@ -14,4 +16,14 @@ const context = (window as unknown as { recordsTest: { boot: BootSession; auth: 
 useSession.getState().setBoot(context.boot);
 useSession.getState().login(context.auth.access_token, context.auth.user);
 const cache = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-createRoot(document.getElementById("root")!).render(<React.StrictMode><ConfigProvider locale={viVN}><QueryClientProvider client={cache}><main style={{ padding: 24 }}><RecordsPage /></main></QueryClientProvider></ConfigProvider></React.StrictMode>);
+function RecordsRoutes() {
+  const [route, setRoute] = React.useState(() => location.hash.split("?")[0]);
+  React.useEffect(() => {
+    const update = () => setRoute(location.hash.split("?")[0]);
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+  const Component = ({ "#/records/farms": FarmsPage, "#/records/customers": CustomersPage, "#/records/inbound": InboundPage, "#/records/outbound": OutboundPage } as Record<string, React.ComponentType>)[route] ?? RecordsPage;
+  return <Component key={route} />;
+}
+createRoot(document.getElementById("root")!).render(<React.StrictMode><ConfigProvider locale={viVN}><QueryClientProvider client={cache}><main style={{ padding: 24 }}><RecordsRoutes /></main></QueryClientProvider></ConfigProvider></React.StrictMode>);
