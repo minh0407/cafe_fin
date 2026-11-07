@@ -44,7 +44,15 @@ Kết quả regression của lane được ghi riêng bên dưới và trong han
 | Backend lint + compile | PASS |
 | Reporting regression cuối | 402 PASS, không chạy lại timer đã PASS với cùng runtime source; tổng 403 ca được kiểm |
 | Reporting browser | PASS: hai assertion harnesses trong một Playwright wrapper / 16.1 s |
-| Full Windows CI/frozen/native/NSIS cho source mới | Chưa chạy; chờ push source đã kiểm |
+| Điều phối xem ảnh browser tổng hợp | PASS; form Telegram, token trống sau lưu, không có OA/GMF input |
+| Kết nối TLS trực tiếp từ máy dev tới api.telegram.org:443 | PASS / TLSv1.3; không gọi bot hoặc gửi dữ liệu |
+| Full Windows backend | 1.439 PASS / 922.30 s; no skips |
+| Main browser với real API | 57 PASS / 54.0 s |
+| Feature browser | accounting 17 + 1 + 11; contracts 3; records 1; reporting wrapper 1 PASS |
+| Native library + Rust/Python interoperability | 47 PASS + explicit 1 PASS / 7.08 s |
+| Frozen sidecar không có developer PATH | 1 PASS / 14.42 s |
+| Production native controller với frozen sidecar thật | 2 PASS / 22.17 s; zero ignored |
+| Tauri release compile + NSIS | PASS; release compile 3m01s |
 
 Source của ba dòng PASS đầu là application checkpoint `f98f44f`, cùng shared
 consumer test trong `b354fa6`. Tests dùng dữ liệu và secret tổng hợp; không token,
@@ -55,6 +63,26 @@ một fixture API còn dùng body credential cũ. Sau khi đổi fixture sang bo
 kiểm không lộ token, test đó PASS riêng; lượt cuối 402 ca không gồm timer đã PASS.
 Không sửa runtime để bỏ qua fixture lỗi. Chi tiết ở
 [handoff Telegram](../handoffs/reporting/telegram-handoff.md).
+
+## Windows build receipt
+
+Run [42323839819](https://github.com/minh0407/cafe_fin/actions/runs/42323839819),
+source `f4a6167846625989bd24dbc4b3bad6036f6311a8`: **SUCCESS**. Điều phối đã đọc
+trạng thái hai job và logs hoàn tất. Jobs `128254396374` (native-library) và
+`128254396760` (Windows). Runner `windows-2025-vs2026`, Python 3.12.16,
+SQLite 3.53.1, Node 24, Rust 1.99.1, dependencies khóa.
+
+Frozen sidecar SHA256:
+`49596FEA48372332E8E23DAB753768EC1B6F72210914D3239C08996CE46B0122`.
+
+Installer `Cafe Fin_0.1.0_x64-setup.exe`: **253.049.170 bytes**.
+SHA256 `13F890BA4CB7372CC82ABDDEDE0ADBDFECF6E914B29FF2F52F627AD0FD447E93`.
+
+Không upload hoặc giữ artifact trên runner, không cài/gửi installer hoặc tạo
+release. Receipt này không phải đường tải. Native headless tests và browser
+không thay bằng chứng GUI/cài sạch. Commit tài liệu sau đó không đổi source đã
+build/test. Bản Docker localhost theo yêu cầu tiếp theo là preview riêng, không
+thay app Windows hoặc chứng minh Windows secret/native APIs hoạt động trong Linux.
 
 ## Giới hạn nghiệm thu
 
