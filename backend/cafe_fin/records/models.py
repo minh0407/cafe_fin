@@ -154,6 +154,36 @@ class Entry(Document):
     lines: list[EntryLine] = Field(default_factory=list, max_length=500)
 
 
+PriceKind = Literal["purchase_fresh", "purchase_processed", "sale"]
+
+
+class PricePreview(Input):
+    pricing_method: Literal["flat", "grade"]
+    flat_price_vnd: str | None = None
+    grade5_price_vnd: str | None = None
+
+
+class PriceBoard(Command, PricePreview):
+    code: Code | None = None
+    name: str | None = Field(default=None, max_length=300)
+    price_date: Day
+    price_kind: PriceKind
+    product_id: Identity | None = None
+    active: bool = True
+    note: Text | None = None
+
+
+class PriceSnapshot(Input):
+    price_board_id: Identity
+    price_board_version: int = Field(ge=1)
+    price_kind: PriceKind
+    price_date: Day
+    product_id: Identity | None
+    grade: int | None = Field(ge=1, le=5)
+    unit_price_vnd: str
+    formula_version: Literal[1] = 1
+
+
 class TradeLine(Input):
     farm_id: Identity | None = None
     product_id: Identity | None = None
@@ -162,6 +192,10 @@ class TradeLine(Input):
     bag_count: int = Field(default=0, ge=0)
     grade: int | None = Field(default=None, ge=1, le=5)
     note: Text | None = None
+    pricing_mode: Literal["manual", "daily"] = "manual"
+    price_kind: PriceKind | None = None
+    price_date: Day | None = None
+    price_snapshot: PriceSnapshot | None = None
 
 
 class Trade(Document):
@@ -188,6 +222,7 @@ MODELS = {
     "entries": Entry,
     "trades": Trade,
     "trade-payments": TradePayment,
+    "price-boards": PriceBoard,
 }
 
 

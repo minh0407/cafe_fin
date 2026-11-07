@@ -26,6 +26,7 @@ from .migrations import MOVEMENTS as M
 from .migrations import REFERENCES as F
 from .migrations import REVISIONS as R
 from .models import MODELS, day, identity, parse_timestamp
+from .pricing import LINE_DEFAULTS, normalize_board, normalize_trade
 
 RESOURCES = frozenset(MODELS)
 
@@ -132,13 +133,16 @@ class RecordsService:
             "profile_kind",
             "direction",
             "trade_id",
+            "price_kind",
+            "price_date",
+            "product_id",
         }
         if not isinstance(filters, dict) or set(filters) - allowed:
             invalid("filters", "Bộ lọc không được hỗ trợ.")
         for key in ("active", "include_deleted"):
             if key in filters and type(filters[key]) is not bool:
                 invalid(f"filters.{key}", "Bộ lọc phải là boolean.")
-        for key in ("from_on", "through_on"):
+        for key in ("from_on", "through_on", "price_date"):
             if key in filters:
                 try:
                     day(filters[key])
@@ -146,11 +150,28 @@ class RecordsService:
                     invalid(f"filters.{key}", "Ngày không hợp lệ.")
         if filters.get("from_on", "") > filters.get("through_on", "9999-12-31"):
             invalid("filters", "Ngày bắt đầu phải trước ngày kết thúc.")
-        for key in ("party_id", "entry_type", "status", "profile_kind", "direction", "trade_id"):
+        for key in (
+            "party_id",
+            "entry_type",
+            "status",
+            "profile_kind",
+            "direction",
+            "trade_id",
+            "price_kind",
+            "product_id",
+        ):
             if key in filters and not isinstance(filters[key], str):
                 invalid(f"filters.{key}", "Bộ lọc phải là chuỗi.")
         field = sort.lstrip("-")
-        if field not in {"code", "occurred_on", "updated_at", "name"}:
+        if field not in {
+            "code",
+            "occurred_on",
+            "updated_at",
+            "name",
+            "price_date",
+            "price_kind",
+            "product_id",
+        }:
             invalid("sort", "Thứ tự sắp xếp không được hỗ trợ.")
         query = current_query(kind)
 
@@ -166,9 +187,24 @@ class RecordsService:
                 | (extract("name").ilike(f"%{escaped}%", escape="\\"))
                 | (extract("note").ilike(f"%{escaped}%", escape="\\"))
             )
-        for key in ("party_id", "entry_type", "status", "active", "profile_kind", "direction", "trade_id"):
+        for key in (
+            "party_id",
+            "entry_type",
+            "status",
+            "active",
+            "profile_kind",
+            "direction",
+            "trade_id",
+            "price_kind",
+            "price_date",
+            "product_id",
+        ):
             if key in filters:
-                value = func.coalesce(extract(key), "general") if key == "profile_kind" else extract(key)
+                value = (
+                    func.coalesce(extract(key), "general")
+                    if key == "profile_kind"
+                    else extract(key)
+                )
                 query = query.where(value == filters[key])
         if "from_on" in filters:
             query = query.where(R.c.occurred_on >= filters["from_on"])
@@ -230,11 +266,21 @@ class RecordsService:
         # Preserve the frozen pre-increment command fingerprint when new optional
         # fields carry only their defaults. Pending old requests can still replay
         # their original core receipt after upgrading this additive API.
-        defaults = ({"profile_kind": "general", "business_license": None, "farm": None}
-                    if kind == "parties" else {"trade_id": None} if kind == "entries" else {})
+        defaults = (
+            {"profile_kind": "general", "business_license": None, "farm": None}
+            if kind == "parties"
+            else {"trade_id": None}
+            if kind == "entries"
+            else {}
+        )
         for field, default in defaults.items():
             if clean.get(field) == default:
                 clean.pop(field, None)
+        if kind == "trades":
+            for line in clean["lines"]:
+                for field, default in LINE_DEFAULTS.items():
+                    if line.get(field) == default:
+                        line.pop(field, None)
         action = "create" if identity is None else "update"
         if identity is None and expected_version is not None:
             invalid("expected_version", "Tạo mới không có expected_version.")
@@ -403,10 +449,15 @@ class RecordsService:
 
     def _normalize(self, conn, kind, data, old, deleted):
         references = set()
-        previous_refs = {(old or {}).get(field) for field in ("party_id", "unit_id", "weighing_id", "trade_id")}
+        previous_refs = {
+            (old or {}).get(field)
+            for field in ("party_id", "unit_id", "weighing_id", "trade_id", "product_id")
+        }
         for line in (old or {}).get("lines", []):
-            previous_refs.update(line.get(field) for field in ("product_id", "warehouse_id", "farm_id"))
-        if "name" in data and not data["name"].strip():
+            previous_refs.update(
+                line.get(field) for field in ("product_id", "warehouse_id", "farm_id")
+            )
+        if kind != "price-boards" and "name" in data and not data["name"].strip():
             invalid("name", "Tên hồ sơ không được chỉ chứa khoảng trắng.")
 
         def ref(target, resource, field, old_target=None):
@@ -547,6 +598,10 @@ class RecordsService:
                         "Tổng kg sản phẩm thu được vượt nguyên liệu đã ghi; cần ghi đủ nguồn nguyên liệu.",
                     )
         normalize_commerce(conn, kind, data, old, ref, self._quantity, deleted)
+        if kind == "price-boards":
+            normalize_board(data, old, ref)
+        if kind == "trades":
+            normalize_trade(conn, data, old, references)
         return references
 
     @staticmethod

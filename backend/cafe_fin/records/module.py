@@ -13,7 +13,8 @@ from cafe_fin.core.modules import ModuleManifest
 from .bridge import RecordsReadProvider
 from .dashboard import dashboard
 from .migrations import MIGRATIONS
-from .models import MODELS, VersionCommand
+from .models import MODELS, Day, Identity, PriceKind, PricePreview, PriceSnapshot, VersionCommand
+from .pricing import preview, quote
 from .responses import (
     HISTORIES,
     PAGES,
@@ -166,8 +167,36 @@ def module_manifest() -> ModuleManifest:
         ("entries", "/entries"),
         ("trades", "/trades"),
         ("trade-payments", "/trade-payments"),
+        ("price-boards", "/price-boards"),
     ):
         _bind_resource(router, kind, path)
+
+    @router.post("/price-board-preview")
+    def price_board_preview(payload: PricePreview, request: Request):
+        service = RecordsService(request.app.state.runtime)
+        with service._snapshot(request.state.principal) as conn:
+            service._authorize(conn, request.state.principal)
+            return preview(payload.model_dump(mode="json"))
+
+    @router.get("/price-quote", response_model=PriceSnapshot)
+    def price_quote(
+        request: Request,
+        price_kind: PriceKind,
+        price_date: Day,
+        product_id: Identity | None = None,
+        grade: int | None = Query(None, ge=1, le=5),
+    ):
+        service = RecordsService(request.app.state.runtime)
+        with service._snapshot(request.state.principal) as conn:
+            conn.exec_driver_sql("BEGIN")
+            service._authorize(conn, request.state.principal)
+            return quote(
+                conn,
+                price_kind=price_kind,
+                price_date=price_date,
+                product_id=product_id,
+                grade=grade,
+            )
 
     @router.get("/records-dashboard", response_model=RecordsDashboardDTO)
     def records_dashboard(request: Request, from_on: date, through_on: date):
