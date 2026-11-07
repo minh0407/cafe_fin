@@ -9,10 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from cafe_fin.core.contracts import ReceivableSummaryDTO
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.modules import ModuleManifest
+from cafe_fin.core.periodic import PeriodicTask
 
 from .bridge import RecordsReadProvider
 from .dashboard import dashboard
+from .market import CheckCommand, MarketService, SettingsCommand, tick
 from .migrations import MIGRATIONS
+from .migrations.market_v2 import MIGRATION as MARKET_MIGRATION
 from .models import MODELS, Day, Identity, PriceKind, PricePreview, PriceSnapshot, VersionCommand
 from .pricing import preview, quote
 from .responses import (
@@ -157,6 +160,23 @@ def _bind_resource(router, kind, path):
 
 def module_manifest() -> ModuleManifest:
     router = APIRouter(tags=["Records"])
+
+    @router.get("/market/processed")
+    def market_status(request: Request, price_date: Day | None = None):
+        return MarketService(request.app.state.runtime).status(request.state.principal, price_date)
+
+    @router.put("/market/processed/settings")
+    def market_settings(payload: SettingsCommand, request: Request):
+        return MarketService(request.app.state.runtime).set_settings(
+            request.state.principal, payload
+        )
+
+    @router.post("/market/processed/check")
+    def market_check(payload: CheckCommand, request: Request):
+        return MarketService(request.app.state.runtime).check(
+            request.state.principal, payload.request_key
+        )
+
     # Static children precede /products/{document_id}.
     for kind, path in (
         ("units", "/products/units"),
@@ -232,6 +252,7 @@ def module_manifest() -> ModuleManifest:
         "records",
         "/records",
         permissions=("records.read", "records.write"),
-        migrations=MIGRATIONS,
+        migrations=MIGRATIONS + (MARKET_MIGRATION,),
         router=router,
+        periodic_tasks={"records.market": PeriodicTask(tick, 10)},
     )

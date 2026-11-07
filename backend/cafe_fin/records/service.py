@@ -306,6 +306,10 @@ class RecordsService:
             version, doc_id, timestamp = 1, document_id or str(uuid.uuid4()), now_text()
             if document_id is not None:
                 old, sequence = get_record(conn, kind, doc_id)
+                if kind == "price-boards":
+                    from .market import guard_managed
+
+                    guard_managed(conn, doc_id)
                 version = require_version(old["version"], expected_version)
                 if old["deleted_at"] and action != "restore":
                     raise CoreError("RECORD_DELETED", "Cần khôi phục hồ sơ trước khi sửa.", 409)
