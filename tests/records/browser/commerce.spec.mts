@@ -83,6 +83,7 @@ test("real API farm purchase and company sale keep draft stock, shipment limits 
     await choose(page, "Farm dòng 1", "00A1 — Farm tổng hợp 00A1");
     await choose(page, "Hàng hóa (chọn trước khi ghi sổ kho)", "P-COM — Cà phê tổng hợp thương mại");
     await page.getByLabel("Số kg", { exact: true }).fill("10.001");
+    await choose(page, "Cách lấy giá", "Nhập tay / dữ liệu cũ");
     await page.getByLabel("Đơn giá (VND/kg)", { exact: true }).fill("100.25");
     const inboundSaved = writeResponse("trades");
     await saveModal(page.getByRole("dialog"));
@@ -155,6 +156,7 @@ test("real API farm purchase and company sale keep draft stock, shipment limits 
     await page.getByLabel("Ngày nghiệp vụ", { exact: true }).fill("07/11/2026");
     await choose(page, "Hàng hóa", "P-COM — Cà phê tổng hợp thương mại");
     await page.getByLabel("Số kg", { exact: true }).fill("3.001");
+    await choose(page, "Cách lấy giá", "Nhập tay / dữ liệu cũ");
     await page.getByLabel("Đơn giá (VND/kg)", { exact: true }).fill("200.01");
     const outboundSaved = writeResponse("trades");
     await saveModal(page.getByRole("dialog"));

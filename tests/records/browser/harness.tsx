@@ -8,6 +8,7 @@ import viVN from "antd/locale/vi_VN";
 import { RecordsPage } from "../../../frontend/src/features/records/RecordsPage";
 import { FarmsPage, CustomersPage } from "../../../frontend/src/features/records/PartyCatalog";
 import { InboundPage, OutboundPage } from "../../../frontend/src/features/records/TradePage";
+import { PricesPage } from "../../../frontend/src/features/records/PricesPage";
 import { useSession } from "../../../frontend/src/shared/session";
 import type { AuthResponse, BootSession } from "../../../frontend/src/shared/types";
 import "../../../frontend/src/app/styles.css";
@@ -23,7 +24,7 @@ function RecordsRoutes() {
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
   }, []);
-  const Component = ({ "#/records/farms": FarmsPage, "#/records/customers": CustomersPage, "#/records/inbound": InboundPage, "#/records/outbound": OutboundPage } as Record<string, React.ComponentType>)[route] ?? RecordsPage;
+  const Component = ({ "#/records/farms": FarmsPage, "#/records/customers": CustomersPage, "#/records/inbound": InboundPage, "#/records/outbound": OutboundPage, "#/records/prices": PricesPage } as Record<string, React.ComponentType>)[route] ?? RecordsPage;
   return <Component key={route} />;
 }
 createRoot(document.getElementById("root")!).render(<React.StrictMode><ConfigProvider locale={viVN}><QueryClientProvider client={cache}><main style={{ padding: 24 }}><RecordsRoutes /></main></QueryClientProvider></ConfigProvider></React.StrictMode>);

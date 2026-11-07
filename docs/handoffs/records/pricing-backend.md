@@ -54,3 +54,33 @@ PostgreSQL cũ.
 Không thêm dependency, file DB, Excel, token hoặc log nhạy cảm. Không tuyên bố
 production-ready hoặc benchmark triệu bảng giá. Bộ cài Windows không nằm trong
 phạm vi increment backend này.
+
+## Kiểm thử browser bổ sung
+
+Commit kiểm thử tiếp theo chỉ thay `tests/records/browser/**` và handoff này.
+Nguồn UI lane pricing được chép tạm vào worktree để chạy, không đưa vào commit
+backend/test; khi tích hợp cần lấy commit UI của lane riêng.
+
+- PASS: `node frontend/node_modules/@playwright/test/cli.js test --config
+  tests/records/browser/playwright.config.mts pricing.spec.mts`: **1 passed**,
+  test 18,6 giây, toàn lệnh 21,0 giây. Env
+  `CAFE_FIN_RECORDS_TEST_PORT=1423`, `CAFE_FIN_RECORDS_TEST_PYTHON` trỏ interpreter
+  worktree `cafe-fin-foundation-recovery/cafe_fin/.venv/Scripts/python.exe`.
+- PASS: cùng lệnh với `commerce.spec.mts records.spec.mts`, port1424:
+  **2 passed**, 44,7 giây. Luồng nhập tay cũ chọn rõ mode manual và giữ nguyên
+  toàn bộ assertion nghiệp vụ/stock/payment/retry trước đây.
+- Pricing browser chạy Chromium thật, React thật, authenticated HTTP và SQLite
+  WAL mới. Không mock API. Chỉ catalog được seed qua API; bảng mua/bán, preview,
+  tạo/sửa đơn, cập nhật bảng và tạo/post phiếu kho qua UI. Một writer HTTP thật
+  sửa bảng sau lúc xem quote để mô phỏng cạnh tranh, kiểm stale409 và lấy lại.
+- Kiểm Grade3 từ Grade5=100.05 cho81.05; SALE riêng200.01, nhập kg3.001 cho
+  600.23001. Sửa bảng bán300.00 rồi sửa kg đơn thành4.001 vẫn giữ nguồnv1/
+  200.01 và cho800.24001, không request quote lại. Đơn/giá không tự tạo tồn;
+  post phiếu xuất bị `STOCK_NEGATIVE`409. Quotev2 bị đổi thànhv3 trong lúc xem
+  trả `PRICE_CHANGED`409, không tạo đơn; bấm “Lấy lại giá mới” rồi lưu400.00.
+- Đã phát hiện lỗi PricesPage tự ghi lại hash trang cũ khi rời trang; lane UI
+  sửa guard listener/URL effect, sau đó browser pricing PASS cả điều hướng thật.
+- Đã xem screenshot kết quả trong `frontend/test-results/records/`; dữ liệu
+  tổng hợp, không commit ảnh hoặc DB. Detail hiển thị nguồn/ngày/version giá.
+
+Toàn bộ backend liên module, Docker và native Windows vẫn do điều phối xác nhận.
