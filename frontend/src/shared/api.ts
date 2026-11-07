@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useSession } from "./session";
+import { browserPreviewStart, browserPreviewStatus, isBrowserPreview, previewNativeLimitation } from "./browserPreview";
 import type {
   BootSession,
   DesktopStatus,
@@ -23,11 +24,11 @@ export class ApiError extends Error {
   }
 }
 export const desktop = {
-  status: () => invoke<DesktopStatus>("desktop_status"),
-  chooseDataRoot: () => invoke<string | null>("choose_data_root"),
+  status: () => isBrowserPreview ? browserPreviewStatus() : invoke<DesktopStatus>("desktop_status"),
+  chooseDataRoot: () => isBrowserPreview ? previewUnsupported<string | null>() : invoke<string | null>("choose_data_root"),
   start: (initialize: boolean) =>
-    invoke<BootSession>("start_backend", { initialize }),
-  restart: () => invoke<BootSession>("restart_backend"),
+    isBrowserPreview ? browserPreviewStart() : invoke<BootSession>("start_backend", { initialize }),
+  restart: () => isBrowserPreview ? previewUnsupported<BootSession>() : invoke<BootSession>("restart_backend"),
   // Contract v1: while a transition is pending native may ONLY attach to an
   // existing verified child here; no spawn/restart/config fallback is allowed.
   attach: () => nativeMaintenance<BootSession>("start_backend", { initialize: false }),
@@ -42,6 +43,10 @@ export const desktop = {
     nativeMaintenance<MaintenanceResult>("maintenance_activate", { operationId, userToken }),
   openReports: (userToken: string) => nativeMaintenance<null>("open_reports", { userToken }),
 };
+
+async function previewUnsupported<T>(): Promise<T> {
+  throw new ApiError("PREVIEW_NATIVE_UNAVAILABLE", previewNativeLimitation);
+}
 
 const nativeMessages: Record<string, string> = {
   PERMISSION_DENIED: "Tài khoản hiện tại không có quyền thực hiện thao tác này.",
@@ -66,6 +71,7 @@ export function isMaintenanceBoot(boot: BootSession | null | undefined): boot is
     typeof boot.runtime_state === "string" && ["ACTIVE", "QUIESCING", "QUIESCED", "PREPARING", "PREPARED", "CLOSING", "CLOSED", "DORMANT", "ACTIVATING", "FAILED_HELD"].includes(boot.runtime_state);
 }
 async function nativeMaintenance<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  if (isBrowserPreview) return previewUnsupported<T>();
   try { return await invoke<T>(command, args); }
   catch (error) {
     // Native may reject with CODE: message. Never echo the remaining text: it

@@ -17,6 +17,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, desktop, isMaintenanceBoot, messageOf } from "../shared/api";
 import { useSession } from "../shared/session";
+import { isBrowserPreview } from "../shared/browserPreview";
 import { maintenanceHeld, type AuthResponse, type DesktopStatus, type Health } from "../shared/types";
 import { GridSpike } from "../shared/GridSpike";
 import { DocumentSpike } from "../shared/DocumentSpike";
@@ -247,6 +248,12 @@ export function App() {
           )}
         </Space>
       </Layout.Header>
+      {isBrowserPreview && <Alert
+        banner
+        type="warning"
+        title="Bản xem thử Docker trên máy này"
+        description="Dữ liệu được lưu trong volume Docker. Bản xem thử Linux không có chọn thư mục Windows, sao lưu/chuyển/khôi phục hoặc mở thư mục báo cáo. Telegram chưa cấu hình vì không có kho bí mật Windows; vẫn có thể tạo và tải tệp báo cáo local."
+      />}
       {!session.boot ? (
         <Layout.Content className="setup">
           <Card title="Chọn nơi lưu dữ liệu" className="setup-card">
