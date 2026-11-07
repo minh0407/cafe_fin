@@ -46,6 +46,13 @@ def windows_store():
         f"cafe_fin/reporting/{uuid.uuid4()}/oa\x00suffix",
         f"cafe_fin/reporting/{uuid.uuid4()}/",
         f"cafe_fin/reporting/{str(uuid.uuid4()).upper()}/oa",
+        f"cafe_fin/reporting/{uuid.uuid4()}/telegram/0",
+        f"cafe_fin/reporting/{uuid.uuid4()}/telegram/0123",
+        f"cafe_fin/reporting/{uuid.uuid4()}/telegram/-123",
+        f"cafe_fin/reporting/{uuid.uuid4()}/telegram/{2**52}",
+        f"cafe_fin/reporting/{uuid.uuid4()}/telegram/123:token",
+        f"cafe_fin/reporting/{uuid.uuid4()}/telegram/123/extra",
+        f"cafe_fin/reporting/{uuid.uuid4()}/other/123",
     ],
 )
 def test_rejects_other_namespaces_before_accessing_os(target_key):
@@ -68,6 +75,37 @@ def test_target_is_scoped_hashed_and_deterministic():
     assert target == secrets._target_for(target_key)
     assert target != secrets._target_for(key())
     assert target_key not in target
+
+
+def test_telegram_target_is_separate_from_legacy_and_other_bots():
+    root = uuid.uuid4()
+    target_key = f"cafe_fin/reporting/{root}/telegram/123456789"
+    target = secrets._target_for(target_key)
+    assert target.startswith("CafeFin:reporting:telegram:v1:")
+    assert len(target) == len("CafeFin:reporting:telegram:v1:") + 64
+    assert target == secrets._target_for(target_key)
+    assert target != secrets._target_for(f"cafe_fin/reporting/{root}/123456789")
+    assert target != secrets._target_for(f"cafe_fin/reporting/{root}/telegram/123456790")
+    assert target_key not in target
+
+
+def test_real_windows_telegram_and_legacy_credentials_are_isolated(windows_store):
+    store, legacy_key = windows_store
+    root = legacy_key.split("/")[2]
+    telegram_key = f"cafe_fin/reporting/{root}/telegram/123456789"
+    first = {"access_token": "SYNTHETIC-LEGACY"}
+    token = {"bot_token": "123456789:SYNTHETIC-TELEGRAM"}
+    assert not store.has(telegram_key)
+    try:
+        store.put(legacy_key, first)
+        store.put(telegram_key, token)
+        same(WindowsCredentialStore().get(telegram_key), token)
+        same(store.get(legacy_key), first)
+        store.delete(telegram_key)
+        assert not store.has(telegram_key)
+        same(store.get(legacy_key), first)
+    finally:
+        store.delete(telegram_key)
 
 
 def test_non_windows_has_no_plaintext_fallback(monkeypatch, tmp_path):

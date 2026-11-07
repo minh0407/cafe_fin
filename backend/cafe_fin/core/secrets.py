@@ -80,11 +80,14 @@ def _target_for(key: str) -> str:
     if not isinstance(key, str) or len(key) > 256:
         raise CoreError("SECRET_KEY_INVALID", "Khóa kho bí mật không hợp lệ.")
     parts = key.split("/")
-    if (
-        len(parts) != 4
-        or parts[:2] != ["cafe_fin", "reporting"]
-        or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", parts[3])
-    ):
+    legacy = len(parts) == 4 and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", parts[3])
+    telegram = (
+        len(parts) == 5
+        and parts[3] == "telegram"
+        and re.fullmatch(r"[1-9][0-9]{0,15}", parts[4])
+        and int(parts[4]) < 2**52
+    )
+    if parts[:2] != ["cafe_fin", "reporting"] or not (legacy or telegram):
         raise CoreError("SECRET_KEY_INVALID", "Khóa kho bí mật không hợp lệ.")
     try:
         canonical_root = str(uuid.UUID(parts[2]))
@@ -92,7 +95,8 @@ def _target_for(key: str) -> str:
         raise CoreError("SECRET_KEY_INVALID", "Khóa kho bí mật không hợp lệ.") from None
     if parts[2] != canonical_root:
         raise CoreError("SECRET_KEY_INVALID", "Khóa kho bí mật không hợp lệ.")
-    return "CafeFin:reporting:v1:" + hashlib.sha256(key.encode("utf-8")).hexdigest()
+    prefix = "CafeFin:reporting:telegram:v1:" if telegram else "CafeFin:reporting:v1:"
+    return prefix + hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 def _unavailable() -> CoreError:
@@ -132,7 +136,7 @@ def _locked(api, target):
 
 
 class WindowsCredentialStore:
-    """One UTF-8 JSON object per credential; each put replaces the whole token pair.
+    """One UTF-8 JSON object per credential; each put replaces the whole object.
 
     ``available`` reports whether the Windows API is loaded, not whether a key is
     configured. OS errors raise sanitized CoreError and must not be treated as a
