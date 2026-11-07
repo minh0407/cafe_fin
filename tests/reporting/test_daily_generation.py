@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from tests.reporting.conftest import TypedSyntheticSource, saved
+from tests.reporting.conftest import BOT_TOKEN, CHAT_ID, TypedSyntheticSource, saved
 
 
 def setup_auto(env, *, formats=None, credentials=False):
@@ -47,17 +47,19 @@ def setup_auto(env, *, formats=None, credentials=False):
             send_at="18:00",
             daily_book_ids=["cash", "missing"],
             daily_export_formats=formats or ["txt"],
-            group_id="demo-group" if credentials else "",
-            oa_id="demo-oa" if credentials else "",
+            chat_id=CHAT_ID if credentials else "",
         ),
     )
     if credentials:
         service.set_credentials(
             env.actor,
-            models.Credentials(
-                app_id="demo-app", app_secret="SYNTHETIC", refresh_token="SYNTHETIC"
-            ),
+            models.Credentials(bot_token=BOT_TOKEN),
         )
+    if credentials:
+        from cafe_fin.reporting.sender import check_connection
+
+        assert check_connection(service, env.actor)["state"] == "CONNECTED"
+        env.transport.verifications.clear()
     return service, source, clock, observed
 
 
@@ -122,7 +124,7 @@ def test_configured_fake_channel_sends_once_after_local_exports_complete(env):
     output = service.tick()
     assert output["generation"]["state"] == "COMPLETED"
     assert output["delivery"]["state"] == "SENT"
-    assert output["delivery"]["message_id"] == "text-receipt"
+    assert output["delivery"]["message_id"] == "101"
     service.tick()
     assert source.calls == len(env.transport.texts) == 1
     assert service.list("reports")["total"] == service.list("deliveries")["total"] == 1

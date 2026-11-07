@@ -74,15 +74,20 @@ const snapshot = {
 const delivery = {
   id: "demo-delivery",
   report_id: row.id,
-  destination: "nhom-tong-hop",
-  oa_id: "demo-oa",
+  destination: "-1001234567890",
+  provider: "telegram",
+  bot_id: "123456",
+  chat_id: "-1001234567890",
+  message_chat_id: null,
+  file_message_chat_id: null,
+  retry_not_before: null,
   state: "UNKNOWN",
   phase: "text",
   version: 3,
   attempts: 1,
   message_id: null,
   file_message_id: null,
-  error_code: "ZALO_NETWORK_ERROR",
+  error_code: "TELEGRAM_NETWORK_ERROR",
   created_at: row.created_at,
 };
 const exportFile = {
@@ -103,6 +108,15 @@ const exportFile = {
 };
 let summaryExported = false;
 let failNextLocalExport = false;
+let failCredential = false;
+let credentialStoreAvailable = false;
+let settingsVersion = 0;
+let storedBotId = null;
+let verifiedAt = null;
+let savedSettings = {};
+const syntheticToken = "123456:synthetic-fixture-only-not-a-real-token";
+const sentDelivery = {...delivery, id: "sent-delivery", state: "SENT", message_id: "901", message_chat_id: "-1001234567890", file_message_id: "902", file_message_chat_id: "-1001234567890", error_code: null};
+const legacyDelivery = { ...delivery, id: "legacy-delivery", provider: "zalo_legacy", state: "FAILED", destination: "historical-group", chat_id: "", error_code: "LEGACY_HELD" };
 await page.route("**/api/v1/**", async (route) => {
   const url = new URL(route.request().url());
   const resource = url.pathname.replace("/api/v1", "");
@@ -143,11 +157,21 @@ await page.route("**/api/v1/**", async (route) => {
     });
     return;
   }
-  if (resource === "/reporting/settings")
+  if (resource === "/reporting/settings") {
+    if (route.request().method() === "PUT") {
+      const nextSettings = JSON.parse(route.request().postData());
+      assert.equal(nextSettings.expected_version, settingsVersion);
+      if (nextSettings.chat_id !== (savedSettings.chat_id ?? "") ||
+          (nextSettings.attachments_enabled && !savedSettings.attachments_enabled)) verifiedAt = null;
+      savedSettings = nextSettings;
+      settingsVersion++;
+    }
     result = {
-      version: 0,
-      oa_id: "",
-      group_id: "",
+      version: settingsVersion,
+      provider: "telegram",
+      bot_id: storedBotId,
+      bot_verified_at: verifiedAt,
+      chat_id: "",
       enabled: false,
       timezone: "Asia/Ho_Chi_Minh",
       send_at: null,
@@ -170,11 +194,13 @@ await page.route("**/api/v1/**", async (route) => {
         runs: 5,
         failures: 1,
       },
-      credential_store_available: false,
-      credential_configured: false,
-      sender_status: "UNCONFIGURED",
+      credential_store_available: credentialStoreAvailable,
+      credential_configured: storedBotId !== null,
+      sender_status: verifiedAt ? "READY" : "UNCONFIGURED",
+      ...savedSettings,
+      version: settingsVersion,
     };
-  else if (resource === "/accounting/books")
+  } else if (resource === "/accounting/books")
     result = {
       items: [
         { id: "cash", name: "Sổ quỹ tiền mặt" },
@@ -202,8 +228,20 @@ await page.route("**/api/v1/**", async (route) => {
           error_code: "MISSED_REQUIRES_MANUAL",
           config_version: 1,
         },
+        {
+          id: "identity-demo",
+          business_on: "2026-11-06",
+          state: "NEEDS_MANUAL",
+          phase: "capture",
+          policy: "IDENTITY_REQUIRES_MANUAL",
+          report_id: row.id,
+          outbox_id: "old-bot-delivery",
+          attempts: 0,
+          error_code: "IDENTITY_REQUIRES_MANUAL",
+          config_version: 2,
+        },
       ],
-      total: 1,
+      total: 2,
       page: 1,
       page_size: 25,
     };
@@ -226,13 +264,30 @@ await page.route("**/api/v1/**", async (route) => {
       snapshot,
       short_message:
         "Cafe Fin 2026-11-06 - bản 1\nChỉ tổng hợp dữ liệu đã nhập",
-      exports: summaryExported ? [exportFile] : [],
+      exports: summaryExported ? [exportFile, {...exportFile, id: "txt-export", format: "txt", local_export: null}, {...exportFile, id: "xlsx-export", format: "xlsx", local_export: null}] : [],
     };
   else if (resource === "/reporting/deliveries")
-    result = { items: [delivery], total: 1, page: 1, page_size: 25 };
+    result = { items: [delivery, legacyDelivery, sentDelivery], total: 3, page: 1, page_size: 25 };
   else if (resource.endsWith("/reconcile")) result = delivery;
-  else if (resource === "/reporting/connection-check")
-    result = { state: "UNCONFIGURED", code: "ZALO_UNCONFIGURED" };
+  else if (resource === "/reporting/credentials") {
+    assert.deepEqual(JSON.parse(route.request().postData()), {bot_token: syntheticToken});
+    if (failCredential) {
+      verifiedAt = null;
+      settingsVersion++;
+      await route.fulfill({status: 409, json: {error: {code: "CREDENTIAL_STORE_UNAVAILABLE", message: "Không lưu được token tổng hợp."}}});
+      return;
+    }
+    storedBotId = "123456";
+    verifiedAt = null;
+    settingsVersion++;
+    result = {configured: true};
+  } else if (resource === "/reporting/connection-check") {
+    if (storedBotId) {
+      verifiedAt = "2026-11-07T10:00:00Z";
+      settingsVersion++;
+    }
+    result = { state: storedBotId ? "READY" : "UNCONFIGURED", code: storedBotId ? null : "TELEGRAM_UNCONFIGURED" };
+  }
   await route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -347,6 +402,13 @@ try {
     .getByText(/PDF — bản trong thư mục dữ liệu: Đã xác minh/)
     .waitFor();
   assert.equal(downloadRequests(), 2);
+  const attach = page.getByRole("combobox", {name: "Tệp tổng hợp đính kèm", exact: true});
+  await attach.click();
+  await page.getByText("Tổng hợp PDF - dddddddd", {exact: true}).waitFor();
+  await page.getByText("Tổng hợp XLSX - dddddddd", {exact: true}).waitFor();
+  assert.equal(await page.getByText("Tổng hợp TXT - dddddddd", {exact: true}).count(), 0);
+  await attach.press("Escape");
+  assert(await page.getByRole("button", {name: "Xuất TXT", exact: true}).isVisible());
   await page.waitForFunction(
     () =>
       getComputedStyle(document.querySelector(".ant-modal")).opacity === "1",
@@ -435,6 +497,13 @@ try {
   );
   await page.getByRole("button", { name: "Đối chiếu", exact: true }).click();
   await page.getByText(/Đã yêu cầu đối chiếu/).waitFor();
+  await page.getByText(/Telegram không có API lịch sử tin đã gửi/).waitFor();
+  await page.getByText("Kênh cũ • historical-group", {exact: true}).waitFor();
+  await page.getByText("Tin: -1001234567890 / 901", {exact: true}).waitFor();
+  await page.getByText("Tệp: -1001234567890 / 902", {exact: true}).waitFor();
+  assert.equal(await page.getByRole("button", {name: "Đối chiếu", exact: true}).count(), 1);
+  assert.equal(await page.getByRole("button", {name: "Thử lại", exact: true}).count(), 0);
+  assert.equal(delivery.state, "UNKNOWN");
   await page.screenshot({
     path: path.join(output, "reporting-deliveries.png"),
     fullPage: true,
@@ -443,6 +512,7 @@ try {
   await page.getByRole("tab", { name: "Cấu hình Admin", exact: true }).click();
   await page.getByText("UNCONFIGURED", { exact: true }).waitFor();
   await page.getByText("Bỏ lỡ; cần tạo thủ công", { exact: true }).waitFor();
+  await page.getByText("Bot/nhóm đã đổi; cần xử lý thủ công", {exact: true}).waitFor();
   await page.getByText("Lịch nền: Đang chạy", { exact: true }).waitFor();
   await page.getByText(/Mã lỗi gần nhất: PERIODIC_TASK_FAILED/).waitFor();
   assert(!calls.some((x) => x.resource === "/reporting/scheduler/tick"));
@@ -496,15 +566,68 @@ try {
   assert.deepEqual(configBody.daily_book_ids, ["cash", "missing"]);
   assert.deepEqual(configBody.daily_export_formats, ["pdf", "xlsx", "txt"]);
   assert(!Object.hasOwn(configBody, "scheduled_actor_id"));
+  assert.equal(configBody.chat_id, "");
+  for (const key of ["provider", "bot_id", "bot_verified_at", "oa_id", "group_id"])
+    assert(!Object.hasOwn(configBody, key));
   assert(
     await page
-      .getByRole("button", { name: "Lưu credential", exact: true })
+      .getByRole("button", { name: "Lưu bot token", exact: true })
       .isDisabled(),
   );
   await page
     .getByRole("button", { name: "Kiểm tra kết nối", exact: true })
     .click();
   await page.getByText(/Chưa gửi tin/).waitFor();
+  // A connection metadata refresh must retain the current local draft.
+  credentialStoreAvailable = true;
+  await page.getByLabel("Giờ gửi", {exact: true}).fill("19:15");
+  await page.getByRole("button", {name: "Kiểm tra kết nối", exact: true}).click();
+  const tokenInput = page.getByLabel("Bot token Telegram", {exact: true});
+  const tokenButton = page.getByRole("button", {name: "Lưu bot token", exact: true});
+  await tokenButton.waitFor({state: "visible"});
+  await page.waitForFunction(() => !document.querySelector('button[aria-label="Lưu bot token"]').disabled);
+  assert.equal(await tokenInput.getAttribute("type"), "password");
+  assert.equal(await page.getByLabel("Giờ gửi", {exact: true}).inputValue(), "19:15");
+  await tokenInput.fill(syntheticToken);
+  await tokenButton.click();
+  await page.getByText(/Đã lưu bot token trong kho bí mật/).waitFor();
+  await page.getByText(/Bot ID: 123456.*chưa xác minh/).waitFor();
+  assert.equal(await tokenInput.inputValue(), "");
+  assert.equal(await page.getByLabel("Giờ gửi", {exact: true}).inputValue(), "19:15");
+  await page.getByRole("button", {name: "Kiểm tra kết nối", exact: true}).click();
+  await page.getByText(/Bot ID: 123456.*Đã xác minh/).waitFor();
+  assert.equal(await page.getByLabel("Giờ gửi", {exact: true}).inputValue(), "19:15");
+  // Refreshed version, rather than the stale pre-token version, is used on save.
+  await page.getByRole("button", {name: "Lưu cấu hình", exact: true}).click();
+  await page.getByText("Đã lưu cấu hình.", {exact: true}).waitFor();
+  assert.equal(JSON.parse(calls.findLast(x => x.resource === "/reporting/settings" && x.method === "PUT").body).expected_version, settingsVersion - 1);
+  await page.getByRole("button", {name: "Kiểm tra kết nối", exact: true}).click();
+  await page.getByText(/Bot ID: 123456.*Đã xác minh/).waitFor();
+  await page.getByLabel("Giờ gửi", {exact: true}).fill("20:30");
+  failCredential = true;
+  await tokenInput.fill(syntheticToken);
+  await tokenButton.click();
+  await page.getByText("Không lưu được token tổng hợp.", {exact: true}).waitFor();
+  await page.getByText(/Bot ID: 123456.*chưa xác minh/).waitFor();
+  assert.equal(await page.getByLabel("Giờ gửi", {exact: true}).inputValue(), "20:30");
+  assert.equal(await tokenInput.inputValue(), "");
+  assert(!await page.locator("body").innerText().then(text => text.includes(syntheticToken)));
+  assert(!new URL(page.url()).searchParams.toString().includes("token"));
+  const chatInput = page.getByLabel("Chat ID nhóm / supergroup Telegram", {exact: true});
+  const settingsWrites = () => calls.filter(x => x.resource === "/reporting/settings" && x.method === "PUT").length;
+  const beforeInvalid = settingsWrites();
+  for (const invalid of ["123456", "-00123", "-0", "-100 123", "@publicgroup"]) {
+    await chatInput.fill(invalid);
+    await page.getByRole("button", {name: "Lưu cấu hình", exact: true}).click();
+    await page.getByText(/Chat ID phải là chuỗi số nguyên âm chuẩn/).waitFor();
+    assert.equal(settingsWrites(), beforeInvalid);
+  }
+  await chatInput.fill("-1001234567890");
+  await page.getByRole("button", {name: "Lưu cấu hình", exact: true}).click();
+  await page.getByText("Đã lưu cấu hình.", {exact: true}).waitFor();
+  assert.equal(JSON.parse(calls.findLast(x => x.resource === "/reporting/settings" && x.method === "PUT").body).chat_id, "-1001234567890");
+  assert.equal(await page.locator("#provider, #bot_id, #bot_verified_at, #app_id, #app_secret, #refresh_token, #oa_id, #group_id").count(), 0);
+  assert(!calls.some(x => /refresh|oauth|api\.telegram/.test(x.resource)));
   assert(
     !calls.some(
       (x) => x.resource.endsWith("/deliveries") && x.method === "POST",
@@ -555,6 +678,15 @@ try {
         "reconcile remains unknown",
         "unconfigured credentials disabled",
         "connection check no send",
+        "Telegram token-only password form resets on success and failure",
+        "failed token OS write refreshes durable proof loss and version while preserving draft",
+        "changed bot/group daily history requests manual handling",
+        "candidate and verified bot identity refresh without losing settings draft",
+        "version refresh after token and verification before settings save",
+        "canonical negative Chat ID validation and readonly identity",
+        "PDF/XLSX attachments only; TXT stays local export",
+        "legacy channel visible without executable retry",
+        "separate text/document receipt IDs paired with Chat IDs",
         "daily generation explicit opt-in, selected books/formats, no actor spoof",
         "missed day status visible",
         "actual timer status and sanitized current/last errors",
@@ -582,7 +714,7 @@ try {
         .catch(() => null),
       credentialButton: await page
         .getByRole("button")
-        .filter({ hasText: "Lưu credential" })
+        .filter({ hasText: "Lưu bot token" })
         .ariaSnapshot({ timeout: 1000 })
         .catch(() => null),
       screenshot: failurePath,

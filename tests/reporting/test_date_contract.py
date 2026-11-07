@@ -17,11 +17,12 @@ from cafe_fin.core.contracts import (
 from cafe_fin.core.db import canonical_json
 from cafe_fin.core.errors import CoreError
 from cafe_fin.reporting import exports, models
-from cafe_fin.reporting.migrations import OUTBOX, REPORTS
+from cafe_fin.reporting.migrations import REPORTS
 from cafe_fin.reporting.models import DATE_RANGE_CONTRACT
 from cafe_fin.reporting.sender import dispatch_one
 from cafe_fin.reporting.service import ReportingService
 from cafe_fin.reporting.sources import AtomicSources, BridgeSources, SourceBundle, build_snapshot
+from cafe_fin.reporting.telegram_migrations import OUTBOX
 from pydantic import ValidationError
 from sqlalchemy import Column, MetaData, String, Table, select
 
@@ -279,4 +280,4 @@ def test_legacy_outbound_payload_is_blocked_before_any_transport(env):
     result = dispatch_one(env.service)
     assert result["id"] == legacy["id"] and result["state"] == "FAILED"
     assert result["error_code"] == "REPORT_PERIOD_CONTRACT_REQUIRED"
-    assert not env.transport.texts and env.transport.refreshes == 0
+    assert not env.transport.texts and not env.transport.verifications

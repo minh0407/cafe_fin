@@ -1,4 +1,4 @@
-"""Real process death after a fake outbound side effect; never contacts Zalo."""
+"""Real process death after a fake outbound side effect; never contacts Telegram."""
 
 import os
 import subprocess
@@ -27,9 +27,9 @@ from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.service import ReportingService
 from cafe_fin.reporting.sender import dispatch_one
-from tests.reporting.conftest import SyntheticSource, MemorySecrets, FakeTransport
+from tests.reporting.conftest import SyntheticSource, MemorySecrets, FakeTransport, BOT_TOKEN
 class CrashTransport(FakeTransport):
-    def send_text(self, token, group, text):
+    def send_text(self, token, group, text, bot_id):
         with Path(sys.argv[2]).open("x", encoding="utf-8") as stream:
             stream.write("synthetic-send-accepted-but-no-receipt")
             stream.flush()
@@ -39,8 +39,7 @@ source, store, transport = SyntheticSource(), MemorySecrets(), CrashTransport()
 registry = ModuleRegistry((module_manifest(source=source, secret_store=store, transport=transport),))
 runtime = Runtime(sys.argv[1], modules=registry)
 service = ReportingService(runtime, source=source, secret_store=store, transport=transport)
-store.put(service.secret_key(service.settings()), {"app_id":"demo", "app_secret":"SYNTHETIC",
-    "refresh_token":"SYNTHETIC", "access_token":"SYNTHETIC", "expires_at":int(time.time())+90000})
+store.put(service.secret_key(service.settings()), {"bot_token": BOT_TOKEN})
 dispatch_one(service)
 raise AssertionError("transport did not exit")
 """

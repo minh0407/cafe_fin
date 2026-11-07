@@ -41,8 +41,10 @@ const snapshot = {
 };
 const settings = {
   version: 0,
-  oa_id: "",
-  group_id: "",
+  provider: "telegram",
+  bot_id: null,
+  bot_verified_at: null,
+  chat_id: "",
   enabled: false,
   timezone: "Asia/Ho_Chi_Minh",
   send_at: null,
@@ -62,8 +64,9 @@ async function scenario(
   let currentSettings = structuredClone(settings);
   if (restored)
     Object.assign(currentSettings, {
-      oa_id: "demo-oa",
-      group_id: "demo-group",
+      bot_id: "123456",
+      bot_verified_at: null,
+      chat_id: "-1001234567890",
       send_at: "18:00",
       restore_review_required: true,
       credential_configured: null,
@@ -160,7 +163,9 @@ async function scenario(
           id: "restore-" + state,
           report_id: row.id,
           version: 2,
-          destination: "demo-group",
+          provider: "telegram",
+          chat_id: "-1001234567890",
+          destination: "-1001234567890",
           state,
           attempts: 0,
           error_code: "RESTORE_REVIEW_REQUIRED",
@@ -235,7 +240,7 @@ async function scenario(
     );
     if (restored) {
       const banner = page.getByText(
-        "Đã khôi phục dữ liệu — lịch và gửi Zalo đang tạm dừng",
+        "Đã khôi phục dữ liệu — lịch và gửi Telegram đang tạm dừng",
         { exact: true },
       );
       await banner.waitFor();

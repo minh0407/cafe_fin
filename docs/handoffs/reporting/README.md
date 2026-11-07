@@ -5,6 +5,11 @@ merge or READY tag has been made by this lane.
 
 Latest integration follow-ups:
 
+- [Telegram provider replacement](telegram-handoff.md): private bot token, negative
+  group Chat ID, verified bot/self-membership/rights, paired text/document receipts,
+  additive v4 legacy quarantine, bot-wide cooldown and honest UNKNOWN comparison.
+  [Frozen integration contract](telegram-contract.md). Older channel handoffs below
+  describe historical implementation; the executable OA/GMF adapter is removed.
 - [Restore guard before activation startup](restore-guard.md): quarantines old
   delivery work, preserves receipt/snapshot/export evidence, suspends until Admin
   explicitly saves enabled settings, and leaves move unchanged. **117 reporting

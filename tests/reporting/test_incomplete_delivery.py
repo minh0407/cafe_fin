@@ -1,85 +1,79 @@
-"""Incomplete targets are local-only; configuration absence is no send attempt."""
+"""Incomplete Telegram configuration stays local through retries and real restart."""
 
 import hashlib
 import threading
-import time
 from datetime import datetime, timezone
 
 import pytest
 from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.core.runtime import Runtime
 from cafe_fin.reporting import models, sender
-from cafe_fin.reporting.migrations import ATTEMPTS, OUTBOX
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.service import ReportingService
-from cafe_fin.reporting.zalo import DeliveryError, OfficialGMF
+from cafe_fin.reporting.telegram import DeliveryError, OfficialTelegram
+from cafe_fin.reporting.telegram_migrations import ATTEMPTS, OUTBOX
 from sqlalchemy import func, select
 
-from tests.reporting.test_daily_generation import setup_auto
+from tests.reporting.conftest import BOT_ID, BOT_TOKEN, CHAT_ID, TypedSyntheticSource
 
 
-def incomplete(env, monkeypatch, missing):
-    service, source, clock, _ = setup_auto(env)
+def incomplete(env, missing):
+    clock = {"now": datetime(2026, 11, 6, 10, 0, tzinfo=timezone.utc)}
+    source = TypedSyntheticSource()
+    service = ReportingService(
+        env.runtime,
+        actor_source_factory=lambda runtime, actor: source,
+        secret_store=env.secrets,
+        transport=env.transport,
+        clock=lambda: clock["now"],
+    )
+    env.service = service
     service.update_settings(
         env.actor,
         models.DeliverySettings(
             request_key="partial-target",
-            expected_version=1,
+            expected_version=0,
             enabled=True,
             auto_generate_daily=True,
             send_at="18:00",
-            oa_id="" if missing in {"oa", "both"} else "demo-oa",
-            group_id="" if missing in {"group", "both"} else "demo-group",
+            chat_id="" if missing == "chat" else CHAT_ID,
             daily_book_ids=["cash"],
             daily_export_formats=["txt"],
         ),
     )
-    config = service.settings()
-    credential = {
-        "access_token": "SYNTHETIC",
-        "expires_at": int(time.time()) + 90000,
-        "refresh_state": "READY",
-        "app_id": "demo",
-        "app_secret": "SYNTHETIC",
-        "refresh_token": "SYNTHETIC",
-    }
-    # Deliberately present even for the empty-OA synthetic key: credential presence
-    # alone must not make an incomplete target ready.
-    env.secrets.put(service.secret_key(config), credential)
-    adapter, calls = OfficialGMF(), []
-    original_verify, original_token = adapter.verify, sender.access_token
+    if missing == "bot":
+        # An OS entry alone cannot create a configured bot or connection proof.
+        env.secrets.put(service.secret_key({"bot_id": BOT_ID}), {"bot_token": BOT_TOKEN})
+    else:
+        service.set_credentials(env.actor, models.Credentials(bot_token=BOT_TOKEN))
+        if missing == "token":
+            assert sender.check_connection(service, env.actor)["state"] == "CONNECTED"
+            env.secrets.values.clear()
+    adapter, calls = OfficialTelegram(), []
 
-    def observed_token(*args):
-        calls.append("token")
-        return original_token(*args)
-
-    def observed_verify(*args):
-        calls.append("verify")
-        return original_verify(*args)
-
-    def no_request(url, **kwargs):
+    def no_request(*args, **kwargs):
         calls.append("request")
-        raise DeliveryError("ZALO_API_REJECTED")  # Never WAN, even if regressed.
+        raise DeliveryError("TELEGRAM_API_REJECTED")  # No WAN even on regression.
 
     def no_send(*args, **kwargs):
         calls.append("send")
-        raise AssertionError("An incomplete target must not send")
+        raise AssertionError("Incomplete Telegram configuration must not send")
 
-    adapter.verify = observed_verify
     adapter._request = no_request
-    adapter.send_text = adapter.send_file = adapter.upload = no_send
-    monkeypatch.setattr(sender, "access_token", observed_token)
+    adapter.send_text = adapter.send_document = no_send
     service.transport = adapter
     clock["now"] = datetime(2026, 11, 6, 11, 0, tzinfo=timezone.utc)
+    assert service.public_settings()["sender_status"] == "UNCONFIGURED"
     result = service.tick()
     assert result["generation"]["state"] == "COMPLETED"
     assert result["delivery"]["state"] == "UNCONFIGURED"
-    return service, source, clock, adapter, calls, credential
+    return service, source, clock, adapter, calls
 
 
-def assert_local_only(service, runtime, calls):
+def assert_local_only(service, runtime, calls, *, expected_state="UNCONFIGURED"):
     rows = service.list("deliveries")["items"]
-    assert len(rows) == 1 and rows[0]["state"] == "UNCONFIGURED"
+    assert len(rows) == 1 and rows[0]["state"] == expected_state
+    assert rows[0]["provider"] == "telegram"
     assert rows[0]["attempts"] == 0 and rows[0]["message_id"] is None
     with runtime.reader() as conn:
         assert conn.execute(select(func.count()).select_from(ATTEMPTS)).scalar_one() == 0
@@ -93,12 +87,15 @@ def assert_local_only(service, runtime, calls):
     return rows[0], report
 
 
-@pytest.mark.parametrize("missing", ["oa", "group", "both"])
+@pytest.mark.parametrize("missing", ["chat", "bot", "token", "proof"])
 @pytest.mark.parametrize("retry_from", ["UNCONFIGURED", "FAILED"])
 def test_incomplete_target_stays_local_through_catchup_retry_defense_and_real_restart(
-    env, monkeypatch, missing, retry_from
+    env,
+    monkeypatch,
+    missing,
+    retry_from,
 ):
-    service, source, clock, adapter, calls, _ = incomplete(env, monkeypatch, missing)
+    service, source, clock, adapter, calls = incomplete(env, missing)
     row, report = assert_local_only(service, env.runtime, calls)
     assert service.catch_up(clock["now"]) == 0
     assert_local_only(service, env.runtime, calls)
@@ -107,18 +104,24 @@ def test_incomplete_target_stays_local_through_catchup_retry_defense_and_real_re
             lambda conn: conn.execute(
                 OUTBOX.update()
                 .where(OUTBOX.c.id == row["id"])
-                .values(state="FAILED", error_code="ZALO_API_REJECTED")
+                .values(
+                    state="FAILED",
+                    error_code="TELEGRAM_API_REJECTED",
+                )
             )
         )
     result = service.retry(
         env.actor,
         row["id"],
-        models.Retry(request_key="manual-retry", expected_version=row["version"]),
+        models.Retry(
+            request_key="manual-retry",
+            expected_version=row["version"],
+        ),
     )
     assert result["state"] == "UNCONFIGURED"
     assert sender.dispatch_one(service)["state"] == "UNCONFIGURED"
     assert_local_only(service, env.runtime, calls)
-    # Persisted legacy WAITING row must be repaired before claim/attempt/token.
+    # Defend even against an already persisted WAITING row, before any attempt.
     env.runtime.writer.run(
         lambda conn: conn.execute(
             OUTBOX.update().where(OUTBOX.c.id == row["id"]).values(state="WAITING")
@@ -137,14 +140,23 @@ def test_incomplete_target_stays_local_through_catchup_retry_defense_and_real_re
 
     monkeypatch.setattr(ReportingService, "tick", fixed_startup_tick)
     registry = ModuleRegistry(
-        (module_manifest(source=source, secret_store=env.secrets, transport=adapter),)
+        (
+            module_manifest(
+                source=source,
+                secret_store=env.secrets,
+                transport=adapter,
+            ),
+        )
     )
     runtime = Runtime(env.root, modules=registry)
     try:
-        runtime.start()  # actual recovery + startup hook + JobRunner dispatch
+        runtime.start()  # Genuine recovery, startup hook and JobRunner dispatch.
         assert finished.wait(5)
         restored = ReportingService(
-            runtime, source=source, secret_store=env.secrets, transport=adapter
+            runtime,
+            source=source,
+            secret_store=env.secrets,
+            transport=adapter,
         )
         _, preserved = assert_local_only(restored, runtime, calls)
         assert preserved["id"] == report["id"] and source.calls == 1
@@ -153,32 +165,32 @@ def test_incomplete_target_stays_local_through_catchup_retry_defense_and_real_re
         runtime.close()
 
 
-@pytest.mark.parametrize("missing", ["oa", "group"])
-def test_complete_current_configuration_cannot_dispatch_legacy_row_with_empty_pinned_target(
-    env, monkeypatch, missing
-):
-    service, _, _, _, calls, credential = incomplete(env, monkeypatch, missing)
+@pytest.mark.parametrize("missing", ["bot", "chat"])
+def test_complete_current_configuration_cannot_dispatch_empty_pinned_target(env, missing):
+    service, _, _, adapter, calls = incomplete(env, missing)
     row, _ = assert_local_only(service, env.runtime, calls)
     service.update_settings(
         env.actor,
         models.DeliverySettings(
             request_key="complete-target",
-            expected_version=2,
+            expected_version=service.settings()["version"],
             enabled=True,
             auto_generate_daily=True,
-            oa_id="demo-oa",
-            group_id="demo-group",
+            chat_id=CHAT_ID,
             send_at="18:00",
             daily_book_ids=["cash"],
             daily_export_formats=["txt"],
         ),
     )
-    env.secrets.put(service.secret_key(service.settings()), credential)
+    service.set_credentials(env.actor, models.Credentials(bot_token=BOT_TOKEN))
+    service.transport = env.transport
+    assert sender.check_connection(service, env.actor)["state"] == "CONNECTED"
+    service.transport = adapter
     env.runtime.writer.run(
         lambda conn: conn.execute(
             OUTBOX.update().where(OUTBOX.c.id == row["id"]).values(state="WAITING")
         )
     )
-    assert sender.dispatch_one(service)["state"] == "UNCONFIGURED"
-    current, _ = assert_local_only(service, env.runtime, calls)
-    assert current["destination"] == row["destination"] and current["oa_id"] == row["oa_id"]
+    assert sender.dispatch_one(service)["state"] == "IDLE"
+    current, _ = assert_local_only(service, env.runtime, calls, expected_state="WAITING")
+    assert current["chat_id"] == row["chat_id"] and current["bot_id"] == row["bot_id"]

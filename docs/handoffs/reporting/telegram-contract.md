@@ -41,12 +41,12 @@ and immutable snapshots/exports remain unchanged. The physical old `oa_id` colum
 and its existing uniqueness constraint remain only for storage compatibility;
 new Telegram rows leave it empty and use real provider/bot/chat columns. Another
 bot cannot silently repurpose an existing report/chat delivery; identity conflicts
-  require explicit new work, never mutation of an immutable delivery. An incomplete
-  setup uses an unbound UNCONFIGURED intent (bot_id=null, destination=''), so it
-  does not reserve a canonical route. After ordinary setup the same saved report
-  can automatically get a new bound delivery, without a report adjustment. The
-  old intent/payload stays unchanged. Known old-bot routes are skipped by automatic
-  selection; they cannot abort a tick or block healthy current-bot work.
+require explicit new work, never mutation of an immutable delivery. An incomplete
+setup uses an unbound UNCONFIGURED intent (bot_id=null, destination=''), so it
+does not reserve a canonical route. After ordinary setup the same saved report
+can automatically get a new bound delivery, without a report adjustment. The
+old intent/payload stays unchanged. Known old-bot routes are skipped by automatic
+selection; they cannot abort a tick or block healthy current-bot work.
 
 Historical rows/attempts are identified as `zalo_legacy`, never relabelled Telegram.
 Transition holds old retryable/inflight rows as UNKNOWN, preserves receipt columns,
@@ -81,5 +81,5 @@ POST outcomes stay UNKNOWN; explicit rejection and bounded 429 retry delay are
   if sendDocument was not entered, allows a document-only retry. Telegram offers no general sent-message
 history endpoint: reconcile keeps UNKNOWN and tells the user to compare manually.
 
-Implementation and validation results will be added to this handoff. No live token
-or send is requested; BotFather/setup acceptance belongs to a later explicit trial.
+[Implementation, validation and setup instructions](telegram-handoff.md). No live
+token or send is requested; BotFather/setup acceptance belongs to a later explicit trial.

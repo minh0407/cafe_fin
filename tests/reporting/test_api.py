@@ -5,6 +5,8 @@ from cafe_fin.core.db import AUDIT, REQUESTS
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from tests.reporting.conftest import BOT_ID, BOT_TOKEN
+
 
 def test_real_api_module_auth_validation_paging_snapshot_and_admin_boundary(env):
     app = create_app(env.runtime, "synthetic-report-session-0123456789abcdef", port=48961)
@@ -67,11 +69,7 @@ def test_real_api_module_auth_validation_paging_snapshot_and_admin_boundary(env)
         )
         operator = {**headers, "Authorization": "Bearer " + login.json()["access_token"]}
         assert client.get("/api/v1/reporting/settings", headers=operator).status_code == 403
-        credential = {
-            "app_id": "app",
-            "app_secret": "PRIVATE-CREDENTIAL-sentinel",
-            "refresh_token": "PRIVATE-REFRESH-sentinel",
-        }
+        credential = {"bot_token": BOT_TOKEN}
         assert (
             client.put(
                 "/api/v1/reporting/credentials", headers=operator, json=credential
@@ -81,14 +79,20 @@ def test_real_api_module_auth_validation_paging_snapshot_and_admin_boundary(env)
         invalid = client.put(
             "/api/v1/reporting/credentials",
             headers=headers,
-            json={**credential, "refresh_token": "PRIVATE-REFRESH-sentinel" * 500},
+            json={"bot_token": "PRIVATE-CREDENTIAL-sentinel" * 500},
         )
         assert invalid.status_code == 422
         assert "PRIVATE-" not in invalid.text
+        stored = client.put("/api/v1/reporting/credentials", headers=headers, json=credential)
+        assert stored.status_code == 200 and stored.json() == {"configured": True}
+        settings = client.get("/api/v1/reporting/settings", headers=headers).json()
+        assert settings["bot_id"] == BOT_ID and settings["bot_verified_at"] is None
+        assert "bot_token" not in settings and BOT_TOKEN not in json.dumps(settings)
         with env.runtime.reader() as conn:
             persisted = json.dumps([list(row) for row in conn.execute(select(REQUESTS))])
             persisted += json.dumps([list(row) for row in conn.execute(select(AUDIT))])
         assert "PRIVATE-" not in persisted
+        assert BOT_TOKEN not in persisted
         # Generic core job endpoint must not permit bypassing reporting's typed boundary.
         generic = client.post(
             "/api/v1/jobs",

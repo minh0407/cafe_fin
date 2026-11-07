@@ -2,8 +2,8 @@ import pytest
 from cafe_fin.core.errors import CoreError
 from cafe_fin.core.storage import FILES
 from cafe_fin.reporting import models, sender
-from cafe_fin.reporting.migrations import OUTBOX
-from cafe_fin.reporting.zalo import DeliveryError
+from cafe_fin.reporting.telegram import DeliveryError
+from cafe_fin.reporting.telegram_migrations import OUTBOX
 from sqlalchemy import select
 
 from tests.reporting.conftest import configure, saved
@@ -78,40 +78,37 @@ def test_terminal_text_receipt_fault_cannot_become_unknown_or_resend(
 
     monkeypatch.setattr(sender, "finish", fail_once)
     result = sender.dispatch_one(env.service)
-    assert result["state"] == "SENT" and result["message_id"] == "text-receipt"
+    assert result["state"] == "SENT" and result["message_id"] == "101"
     env.service.recover()
     assert env.service.list("deliveries")["items"][0]["state"] == "SENT"
     assert sender.dispatch_one(env.service)["state"] == "IDLE"
     assert len(env.transport.texts) == 1
 
 
-def test_positive_reconcile_revocation_during_network_is_rejected_in_final_transaction(env):
+def test_manual_reconcile_no_network_and_revoked_receipt_replay_is_rejected(env, monkeypatch):
     configure(env)
     report = saved(env)
     item = env.service.enqueue(env.actor, report["id"], models.Enqueue(request_key="queue"))
-    env.transport.send_error = DeliveryError("ZALO_NETWORK_ERROR", unknown=True)
+    env.transport.send_error = DeliveryError("TELEGRAM_NETWORK_ERROR", unknown=True)
     unknown = sender.dispatch_one(env.service)
+    calls = list(env.transport.verifications)
+    command = models.Retry(request_key="reconcile", expected_version=unknown["version"])
+    monkeypatch.setattr(
+        env.secrets, "get", lambda *args: pytest.fail("Reconcile must not read token/history")
+    )
+    assert sender.reconcile(env.service, env.actor, item["id"], command)["state"] == "UNKNOWN"
+    assert env.transport.verifications == calls
     admin = second_user(env, "admin")
-
-    def revoke(*args):
-        env.runtime.auth.update_user(
-            admin,
-            env.actor.id,
-            role="operator",
-            active=False,
-            expected_version=env.actor.version,
-            request_key="revoke-reconciler",
-        )
-        return "positive-correlated-receipt"
-
-    env.transport.reconcile = revoke
+    env.runtime.auth.update_user(
+        admin,
+        env.actor.id,
+        role="operator",
+        active=False,
+        expected_version=env.actor.version,
+        request_key="revoke-reconciler",
+    )
     with pytest.raises(CoreError, match="SESSION_EXPIRED"):
-        sender.reconcile(
-            env.service,
-            env.actor,
-            item["id"],
-            models.Retry(request_key="reconcile", expected_version=unknown["version"]),
-        )
+        sender.reconcile(env.service, env.actor, item["id"], command)
     with env.runtime.reader() as conn:
         row = conn.execute(select(OUTBOX).where(OUTBOX.c.id == item["id"])).mappings().one()
     assert row.state == "UNKNOWN" and row.message_id is None

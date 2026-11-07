@@ -18,11 +18,12 @@ from cafe_fin.core.storage import FILES
 from cafe_fin.reporting import exports, models
 from cafe_fin.reporting.local_export_migrations import LOCAL_EXPORTS
 from cafe_fin.reporting.local_exports import safe_key
-from cafe_fin.reporting.migrations import EXPORTS, OUTBOX, REPORTS
+from cafe_fin.reporting.migrations import EXPORTS, REPORTS
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.schedule import list_runs
 from cafe_fin.reporting.sender import dispatch_one
 from cafe_fin.reporting.service import ReportingService
+from cafe_fin.reporting.telegram_migrations import OUTBOX
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -263,7 +264,7 @@ def test_existing_destination_race_reuses_only_matching_bytes(env, monkeypatch):
 def test_local_relative_key_never_enters_group_payload_or_upload_metadata(env):
     report = saved(env)
     item = env.service.export(
-        env.actor, report["id"], models.Export(request_key="human", format="txt")
+        env.actor, report["id"], models.Export(request_key="human", format="pdf")
     )
     configure(env, attachments=True)
     env.service.enqueue(
@@ -277,9 +278,9 @@ def test_local_relative_key_never_enters_group_payload_or_upload_metadata(env):
     key = item["local_export"]["relative_key"]
     assert key not in payload and "local_export" not in payload
     assert key not in json.dumps(env.transport.texts)
-    assert env.transport.uploads[0][1] == "CafeFin-summary.txt"
-    assert "reports/" not in env.transport.uploads[0][1]
-    assert safe_key(report["id"], report["from_on"], 1, "txt") == key
+    assert env.transport.files[0][1] == "CafeFin-summary.pdf"
+    assert "reports/" not in env.transport.files[0][1]
+    assert safe_key(report["id"], report["from_on"], 1, "pdf") == key
 
 
 def test_revoked_actor_after_copy_cannot_mark_ready_and_new_authorized_retry_reuses_file(

@@ -173,9 +173,9 @@ from cafe_fin.core.periodic import PeriodicTask
 from cafe_fin.core.runtime import Runtime
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.service import ReportingService
-from tests.reporting.conftest import SyntheticSource, MemorySecrets, FakeTransport
+from tests.reporting.conftest import SyntheticSource, MemorySecrets, FakeTransport, BOT_TOKEN
 class BlockAfterEffect(FakeTransport):
-    def send_text(self, token, group, text):
+    def send_text(self, token, group, text, bot_id):
         with Path(sys.argv[2]).open("x", encoding="utf-8") as stream:
             stream.write(threading.current_thread().name)
             stream.flush()
@@ -191,8 +191,7 @@ def busy(context, payload):
 registry = ModuleRegistry((manifest, ModuleManifest('sample','/sample',job_handlers={'sample.parse':JobHandler(busy)})))
 runtime = Runtime(sys.argv[1], modules=registry)
 service = ReportingService(runtime, secret_store=secrets)
-secrets.put(service.secret_key(service.settings()), {'app_id':'demo','app_secret':'SYNTHETIC',
-    'refresh_token':'SYNTHETIC','access_token':'SYNTHETIC','expires_at':int(time.time())+90000})
+secrets.put(service.secret_key(service.settings()), {'bot_token': BOT_TOKEN})
 runtime.jobs.submit('synthetic-actor','sample.parse',{},'busy-before-timer')
 runtime.start()
 threading.Event().wait(90)

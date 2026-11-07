@@ -2,6 +2,7 @@
 
 import copy
 import hashlib
+import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -16,15 +17,21 @@ from cafe_fin.core.modules import ModuleRegistry
 from cafe_fin.core.runtime import Runtime
 from cafe_fin.reporting import exports, local_exports, models, sender
 from cafe_fin.reporting.local_export_migrations import LOCAL_EXPORTS
-from cafe_fin.reporting.migrations import ATTEMPTS, OUTBOX
 from cafe_fin.reporting.module import module_manifest
 from cafe_fin.reporting.restore import GUARD_ACTION, GUARD_ACTOR, REVIEW_CODE
 from cafe_fin.reporting.schedule import insert_run, manual_report
 from cafe_fin.reporting.schedule_migrations import DAILY_RUNS
 from cafe_fin.reporting.service import ReportingService
+from cafe_fin.reporting.telegram_migrations import ATTEMPTS, OUTBOX
 from sqlalchemy import func, select
 
-from tests.reporting.conftest import FakeTransport, MemorySecrets, TypedSyntheticSource
+from tests.reporting.conftest import (
+    BOT_TOKEN,
+    CHAT_ID,
+    FakeTransport,
+    MemorySecrets,
+    TypedSyntheticSource,
+)
 
 PASSWORD = "synthetic-restore-password"
 
@@ -54,21 +61,17 @@ class CheckedTransport(FakeTransport):
         super().__init__()
         self.calls = []
 
-    def refresh(self, *args):
-        self.calls.append("refresh")
-        return super().refresh(*args)
-
-    def verify(self, *args):
+    def verify(self, *args, **kwargs):
         self.calls.append("verify")
-        return super().verify(*args)
+        return super().verify(*args, **kwargs)
 
     def send_text(self, *args):
         self.calls.append("text")
         return super().send_text(*args)
 
-    def reconcile(self, *args):
-        self.calls.append("reconcile")
-        return super().reconcile(*args)
+    def send_document(self, *args):
+        self.calls.append("document")
+        return super().send_document(*args)
 
 
 @pytest.fixture
@@ -101,8 +104,12 @@ def lab(tmp_path):
     config(source_env.service, source_env.actor, enabled=True, auto=False)
     source_env.service.set_credentials(
         source_env.actor,
-        models.Credentials(app_id="demo", app_secret="SYNTHETIC", refresh_token="SYNTHETIC"),
+        models.Credentials(bot_token=BOT_TOKEN),
     )
+
+    assert sender.check_connection(source_env.service, source_env.actor)["state"] == "CONNECTED"
+    transport.calls.clear()
+    transport.verifications.clear()
 
     def prepare(kind="restore", backup=None, origin=None):
         origin = origin or source_env
@@ -143,7 +150,7 @@ def lab(tmp_path):
         rt.close()
 
 
-def config(service, actor, *, enabled, auto=False, group="demo-group", key=None):
+def config(service, actor, *, enabled, auto=False, group=CHAT_ID, key=None):
     old = service.settings()
     return service.update_settings(
         actor,
@@ -152,8 +159,7 @@ def config(service, actor, *, enabled, auto=False, group="demo-group", key=None)
             expected_version=old["version"],
             enabled=enabled,
             auto_generate_daily=auto,
-            oa_id="demo-oa",
-            group_id=group,
+            chat_id=group,
             send_at="18:00",
             attachments_enabled=True,
             daily_export_formats=["txt"],
@@ -177,6 +183,10 @@ def report(env, day):
 
 def queue(env, day, *, state="WAITING", text=None, file=None, attachment=False):
     row, item = report(env, day)
+    if attachment:
+        item = env.service.export(
+            env.actor, row["id"], models.Export(request_key="attachment-" + day, format="pdf")
+        )
     result = env.service.enqueue(
         env.actor,
         row["id"],
@@ -192,6 +202,8 @@ def queue(env, day, *, state="WAITING", text=None, file=None, attachment=False):
                 state=state,
                 message_id=text,
                 file_message_id=file,
+                message_chat_id=CHAT_ID if text else None,
+                file_message_chat_id=CHAT_ID if file else None,
                 phase="attachment" if attachment else "text",
             )
         )
@@ -205,9 +217,33 @@ def delivery(rt, identity):
 
 
 def activate(candidate):
-    return MaintenanceOperations(candidate.runtime, generation=str(uuid4())).activate(
-        candidate.operation_id, access_token=candidate.token, origin_generation=candidate.generation
-    )
+    submitted, submit = [], candidate.runtime.jobs.submit
+
+    def observe_submit(*args, **kwargs):
+        result = submit(*args, **kwargs)
+        if len(args) > 3 and args[1] == "reporting.dispatch" and args[3].startswith("startup-"):
+            submitted.append(result["job_id"])
+        return result
+
+    candidate.runtime.jobs.submit = observe_submit
+    try:
+        result = MaintenanceOperations(candidate.runtime, generation=str(uuid4())).activate(
+            candidate.operation_id,
+            access_token=candidate.token,
+            origin_generation=candidate.generation,
+        )
+        # Finish the real finite startup job before the test enables a separate
+        # fixed-clock schedule. Otherwise real-time startup races that schedule.
+        until = time.monotonic() + 5
+        while submitted and any(
+            candidate.runtime.jobs.status(job)["state"] in {"WAITING", "RUNNING"}
+            for job in submitted
+        ):
+            assert time.monotonic() < until
+            time.sleep(0.01)
+        return result
+    finally:
+        candidate.runtime.jobs.submit = submit
 
 
 def test_default_hook_quarantines_before_recovery_preserves_proofs_bytes_and_requires_explicit_choice(
@@ -220,11 +256,11 @@ def test_default_hook_quarantines_before_recovery_preserves_proofs_bytes_and_req
             ("FAILED", None, None, False),
             ("UNCONFIGURED", None, None, False),
             ("SENDING", None, None, False),
-            ("SENDING", "confirmed-text", None, False),
-            ("SENDING", "confirmed-prefix", None, True),
+            ("SENDING", "201", None, False),
+            ("SENDING", "202", None, True),
             ("UNKNOWN", None, None, False),
-            ("SENT", "already-sent", None, False),
-            ("SENDING", "confirmed-text-file", "confirmed-file", True),
+            ("SENT", "205", None, False),
+            ("SENDING", "203", "204", True),
             ("SENDING", "", None, False),
         ],
         1,
@@ -438,7 +474,7 @@ def test_guard_replay_lost_ack_cross_admin_fresh_authority_and_post_review_resta
 
 
 def test_new_restore_activation_id_requires_review_again_and_move_keeps_schedule(lab):
-    row, _, queued = queue(lab.source, "2026-10-01", state="SENT", text="proof")
+    row, _, queued = queue(lab.source, "2026-10-01", state="SENT", text="206")
     moved = lab.prepare("move")
     version = moved.service.settings()["version"]
     assert activate(moved)["state"] == "ACTIVE"
@@ -466,14 +502,12 @@ def test_old_unknown_stays_held_after_credential_and_destination_change(lab):
     activate(candidate)
     candidate.service.set_credentials(
         candidate.actor,
-        models.Credentials(
-            app_id="demo", app_secret="NEW_SYNTHETIC", refresh_token="NEW_SYNTHETIC"
-        ),
+        models.Credentials(bot_token="123456:" + "B" * 35),
     )
     assert candidate.service.settings()["restore_review"]["required"]
-    config(candidate.service, candidate.actor, enabled=True, group="another-group")
+    config(candidate.service, candidate.actor, enabled=True, group="-1009999999")
     assert candidate.service.catch_up() == 0
-    assert sender.dispatch_one(candidate.service)["state"] == "IDLE"
+    assert sender.dispatch_one(candidate.service)["state"] == "UNCONFIGURED"
     with candidate.runtime.reader() as conn:
         assert manual_report(conn, row["from_on"], candidate.service.settings(conn))[0] is None
         assert conn.execute(select(func.count()).select_from(OUTBOX)).scalar_one() == 1
@@ -694,8 +728,7 @@ def relocation_files(lab):
             request_key="local-only-relocation",
             expected_version=lab.source.service.settings()["version"],
             enabled=False,
-            oa_id="",
-            group_id="",
+            chat_id="",
         ),
     )
     frozen = {}
