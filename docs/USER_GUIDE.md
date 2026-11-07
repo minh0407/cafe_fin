@@ -104,6 +104,11 @@ không cộng tổng và chi tiết hai lần. Không có sổ/chưa đủ mappi
 
 ## Gửi cuối ngày và xử lý khi chưa rõ kết quả
 
+Đích đã xác nhận của người dùng là **nhóm Zalo cá nhân**. Cấu hình OA/GMF bên dưới
+hiện chưa gửi trực tiếp vào nhóm này. Hướng tích hợp tiếp theo là Zalo Bot chính
+thức sau khi xác minh tài khoản có chức năng mời Bot vào nhóm; chưa có lần gửi thật.
+Trong lúc chờ, báo cáo vẫn được lưu/xuất local. Xem [trạng thái tích hợp](adr/20261107_PERSONAL_ZALO_GROUP_AND_CLIENT_TEST.md).
+
 - UI hiện có **Cấu hình Admin** cho Zalo OA/nhóm GMF. Chỉ cấu hình credential,
   nhóm thật đủ điều kiện tích hợp chính thức, lịch và sổ cần tổng hợp rồi kiểm tra
   kết nối. Hướng dẫn này không khẳng định đã có nhóm thật hay đã gửi thành công;

@@ -88,6 +88,8 @@ Báo cáo ngày lấy theo khoảng giờ Việt Nam, trình bày nhập/sản x
 
 Nhu cầu tự gửi Zalo cuối ngày được giữ từ yêu cầu trước. Có màn cấu hình đích/lịch/credential và nút kiểm kết nối, không hardcode nhóm hoặc giờ. Chỉ kết nối bằng khả năng Zalo chính thức đã xác minh: GMF/OA hoặc Bot nhóm khi tài khoản thật hỗ trợ. Không giả lập tích hợp bằng log rồi báo đã gửi. Chưa đủ cấu hình thì vẫn lưu báo cáo local và hiển thị trạng thái chưa gửi.
 
+Xác nhận bổ sung 07/11/2026: người dùng dùng **nhóm Zalo cá nhân thông thường**. Adapter OA/GMF hiện có không đáp ứng trực tiếp đích này; cần xác minh quyền nhóm của Zalo Bot chính thức trên tài khoản thật trước khi triển khai/bật lịch. Người dùng cũng có máy Windows khác để nghiệm thu; version/build/x64 và bộ cài bàn giao vẫn phải được chốt. Xem [quyết định và trạng thái xác minh](adr/20261107_PERSONAL_ZALO_GROUP_AND_CLIENT_TEST.md).
+
 Tiến trình gửi là ngoại lệ Internet. Core không dùng Google, crawler giá, cloud AI hoặc cloud storage. Máy tắt/ngủ thì không hứa gửi đúng giờ; có catch-up và báo đúng ngày của bản còn chờ. Không dùng Codex scheduler làm scheduler vận hành sản phẩm.
 
 ## 8 Tiêu chí nghiệm thu
