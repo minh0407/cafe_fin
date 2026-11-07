@@ -124,7 +124,7 @@ test("company catalog uses explicit fields and outbound requires MST and contact
   await companyDialog.getByRole("button", { name: "Lưu dữ liệu" }).click();
   await page.getByRole("button", { name: "Tiếp tục nhập đơn bán" }).click();
   await page.getByLabel("Mã / số đơn").fill("BAN-01"); await choose(page, "Hàng hóa", "CF01");
-  await page.getByLabel("Số kg", { exact: true }).fill("1.001"); await page.getByLabel("Đơn giá (VND/kg)").fill("100.01");
+  await choose(page, "Cách lấy giá", "Nhập tay / dữ liệu cũ"); await page.getByLabel("Số kg", { exact: true }).fill("1.001"); await page.getByLabel("Đơn giá (VND/kg)").fill("100.01");
   await page.getByRole("dialog").getByRole("button", { name: "Lưu dữ liệu" }).click();
   await expect(page.getByText("Chi tiết bán ra · BAN-01", { exact: true })).toBeVisible();
   const created = state.requests.find((item) => item.method === "POST" && item.resource === "trades")!.body!;
@@ -136,7 +136,7 @@ test("company catalog uses explicit fields and outbound requires MST and contact
 test("inbound records farm, bags, grade, vehicle; linked stock starts as a draft", async ({ page }) => {
   const state = await fixtures(page); await mount(page, "InboundPage");
   await page.getByRole("button", { name: "Thêm mua vào" }).click();
-  await page.getByLabel("Mã / số đơn").fill("MUA-01"); await page.getByLabel("Biển xe", { exact: true }).fill("SYNTH-01");
+  await page.getByLabel("Mã / số đơn").fill("MUA-01"); await choose(page, "Cách lấy giá", "Nhập tay / dữ liệu cũ"); await page.getByLabel("Biển xe", { exact: true }).fill("SYNTH-01");
   await choose(page, "Farm dòng 1", "AB12"); await choose(page, "Hàng hóa (chọn trước khi ghi sổ kho)", "CF01");
   await page.getByLabel("Số kg", { exact: true }).fill("12.125"); await page.getByLabel("Số bao", { exact: true }).fill("3"); await choose(page, "Grade", "4");
   await page.getByRole("dialog").getByRole("button", { name: "Lưu dữ liệu" }).click();

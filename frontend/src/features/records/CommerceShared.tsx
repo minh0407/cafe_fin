@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode, type MutableRefObject } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Form, List, Modal, Popconfirm, Select, Space, Typography } from "antd";
 import type { FormInstance } from "antd";
@@ -7,7 +7,7 @@ import { useSession } from "../../shared/session";
 import type { Page } from "../../shared/types";
 import { ErrorNotice, fieldPath } from "./helpers";
 import type { Entity } from "./types";
-import type { CommerceEntity, CommerceResource, ProfileKind } from "./commerceTypes";
+import type { CommerceResource, ProfileKind } from "./commerceTypes";
 
 export function useRecordsWrite() {
   const user = useSession((state) => state.user);
@@ -18,7 +18,7 @@ export function useCommerceRecord<T>(resource: string, id?: string | null) {
   return useQuery({ queryKey: ["records", generation, resource, id], queryFn: () => api<T>(`/records/${resource}/${encodeURIComponent(id!)}`), enabled: !!id, retry: false, gcTime: 0 });
 }
 export function CommerceNav() {
-  return <Space wrap style={{ marginBottom: 16 }}>{[["dashboard", "Tổng quan"], ["inbound", "Đầu vào"], ["outbound", "Đầu ra"], ["farms", "Farm"], ["customers", "Công ty khách hàng"], ["", "Kho / phiếu"]].map(([route, label]) => <a key={route} href={`#/records${route ? `/${route}` : ""}`}>{label}</a>)}</Space>;
+  return <Space wrap style={{ marginBottom: 16 }}>{[["dashboard", "Tổng quan"], ["inbound", "Đầu vào"], ["outbound", "Đầu ra"], ["prices", "Bảng giá mua / nhập / bán"], ["farms", "Farm"], ["customers", "Công ty khách hàng"], ["", "Kho / phiếu"]].map(([route, label]) => <a key={route} href={`#/records${route ? `/${route}` : ""}`}>{label}</a>)}</Space>;
 }
 export async function invalidateRecords(cache: ReturnType<typeof useQueryClient>) {
   await Promise.all([cache.invalidateQueries({ queryKey: ["records"] }), cache.invalidateQueries({ queryKey: ["records-reference"] })]);
@@ -38,7 +38,9 @@ export function PartySelect({ value, onChange, profile, id, label, disabled }: {
   return <><Select id={id} aria-label={label} style={{ width: "100%" }} allowClear showSearch filterOption={false} value={value ?? undefined} disabled={disabled} onChange={onChange} onSearch={setSearch} loading={query.isFetching} options={options} placeholder="Tìm mã hoặc tên" notFoundContent={query.error ? messageOf(query.error) : "Không tìm thấy"} popupRender={(menu) => <>{menu}<Space style={{ padding: 8 }}><Button size="small" disabled={page === 1} onClick={() => setPage(page - 1)}>Trang trước</Button><span>Trang {page}</span><Button size="small" disabled={!query.data || page * 50 >= query.data.total} onClick={() => setPage(page + 1)}>Trang sau</Button></Space></>} /><ErrorNotice error={selected.error} /></>;
 }
 
-export function CommerceFormModal<T extends CommerceEntity>({ resource, initial, title, defaults, payload, children, onClose, onSaved, form: suppliedForm, canSubmit = true }: { resource: CommerceResource; initial?: Partial<T>; title: string; defaults: Record<string, unknown>; payload: (values: Record<string, unknown>) => Record<string, unknown>; children: ReactNode; onClose: () => void; onSaved: (value: T) => void; form?: FormInstance; canSubmit?: boolean }) {
+const WriteLock = createContext<{ locked: boolean; isLocked: () => boolean }>({ locked: false, isLocked: () => false });
+export const useCommerceWriteLock = () => useContext(WriteLock);
+export function CommerceFormModal<T extends Entity>({ resource, initial, title, defaults, payload, children, onClose, onSaved, form: suppliedForm, canSubmit = true, writeGuard, onValuesChange }: { resource: CommerceResource | "price-boards"; initial?: Partial<T>; title: string; defaults: Record<string, unknown>; payload: (values: Record<string, unknown>) => Record<string, unknown>; children: ReactNode; onClose: () => void; onSaved: (value: T) => void; form?: FormInstance; canSubmit?: boolean; writeGuard?: MutableRefObject<boolean>; onValuesChange?: (changed: Record<string, unknown>) => void }) {
   const [localForm] = Form.useForm();
   const form = suppliedForm ?? localForm;
   const [busy, setBusy] = useState(false);
@@ -48,13 +50,16 @@ export function CommerceFormModal<T extends CommerceEntity>({ resource, initial,
   const generation = useRef(useSession.getState().generation).current;
   const attempt = useRef<{ fingerprint: string; key: string; body: Record<string, unknown> } | null>(null);
   const lock = useRef(false);
+  const held = useRef(false);
+  held.current = busy || uncertain;
+  if (writeGuard) writeGuard.current = busy || uncertain;
   async function save(values: Record<string, unknown>) {
     if (lock.current || !canWrite || (!canSubmit && !uncertain) || useSession.getState().generation !== generation) return;
-    const body = uncertain && attempt.current ? attempt.current.body : payload(values);
+    const body = uncertain && attempt.current ? attempt.current.body : structuredClone(payload(values));
     if (initial?.id) body.expected_version = initial.version;
     const fingerprint = JSON.stringify(body);
     if (!attempt.current || fingerprint !== attempt.current.fingerprint) attempt.current = { fingerprint, key: crypto.randomUUID(), body };
-    lock.current = true; setBusy(true); setError(undefined);
+    lock.current = true; held.current = true; if (writeGuard) writeGuard.current = true; setBusy(true); setError(undefined);
     try {
       const result = await api<T>(`/records/${resource}${initial?.id ? `/${encodeURIComponent(initial.id)}` : ""}`, { method: initial?.id ? "PUT" : "POST", body: JSON.stringify({ ...body, request_key: attempt.current.key }) });
       if (generation !== useSession.getState().generation) return;
@@ -66,7 +71,7 @@ export function CommerceFormModal<T extends CommerceEntity>({ resource, initial,
       if (error instanceof ApiError) form.setFields(error.fields.map((field) => ({ name: fieldPath(field.field), errors: [field.message] })));
     } finally { lock.current = false; if (generation === useSession.getState().generation) setBusy(false); }
   }
-  return <Modal open title={title} width={940} mask={{ closable: false }} keyboard={!busy && !uncertain} closable={!busy && !uncertain} onCancel={() => { if (!busy && !uncertain) onClose(); }} footer={<Space><Button disabled={busy || uncertain} onClick={onClose}>Đóng</Button><Button type="primary" loading={busy} disabled={busy || !canWrite || (!canSubmit && !uncertain)} onClick={() => uncertain ? void save(attempt.current!.body) : form.submit()}>{uncertain ? "Kiểm tra lại cùng yêu cầu" : "Lưu dữ liệu"}</Button></Space>}><ErrorNotice error={error} />{uncertain && <Alert type="warning" title="Chưa xác nhận kết quả lưu. Dữ liệu đang được giữ nguyên; kiểm tra lại cùng yêu cầu để tránh tạo chứng từ lặp." />}{initial?.id && <Typography.Paragraph>Phiên bản {initial.version} · lưu cùng lịch sử sửa đổi.</Typography.Paragraph>}<Form form={form} layout="vertical" initialValues={defaults} disabled={busy || uncertain || !canWrite} onFinish={() => void save(form.getFieldsValue(true))}>{children}</Form></Modal>;
+  return <Modal open title={title} width={940} mask={{ closable: false }} keyboard={!busy && !uncertain} closable={!busy && !uncertain} onCancel={() => { if (!busy && !uncertain) onClose(); }} footer={<Space><Button disabled={busy || uncertain} onClick={onClose}>Đóng</Button><Button type="primary" loading={busy} disabled={busy || !canWrite || (!canSubmit && !uncertain)} onClick={() => uncertain ? void save(attempt.current!.body) : form.submit()}>{uncertain ? "Kiểm tra lại cùng yêu cầu" : "Lưu dữ liệu"}</Button></Space>}><ErrorNotice error={error} />{uncertain && <Alert type="warning" title="Chưa xác nhận kết quả lưu. Dữ liệu đang được giữ nguyên; kiểm tra lại cùng yêu cầu để tránh tạo chứng từ lặp." />}{initial?.id && <Typography.Paragraph>Phiên bản {initial.version} · lưu cùng lịch sử sửa đổi.</Typography.Paragraph>}<WriteLock.Provider value={{ locked: busy || uncertain || !canWrite, isLocked: () => held.current || !canWrite }}><Form form={form} layout="vertical" initialValues={defaults} disabled={busy || uncertain || !canWrite} onValuesChange={onValuesChange} onFinish={() => void save(form.getFieldsValue(true))}><fieldset disabled={busy || uncertain || !canWrite} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>{children}</fieldset></Form></WriteLock.Provider></Modal>;
 }
 
 export function RecordCommands({ resource, value, onChanged }: { resource: string; value: Entity; onChanged: () => void }) {

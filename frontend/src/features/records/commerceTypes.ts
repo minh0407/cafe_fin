@@ -6,7 +6,11 @@ export interface FarmSurvey { season_year: number; grade: number; ripeness_pct?:
 export interface FarmProfile { owner_name?: string | null; owner_id_card?: string | null; official_area_code?: string | null; internal_area_code?: string | null; plots: FarmPlot[]; surveys: FarmSurvey[] }
 export interface CommerceParty extends Party { profile_kind: "general" | ProfileKind; business_license?: string | null; farm?: FarmProfile | null }
 export type Direction = "inbound" | "outbound";
-export interface TradeLine { farm_id?: string | null; product_id?: string | null; quantity_kg: string; unit_price_vnd?: string | null; bag_count: number; grade?: number | null; note?: string | null }
+export const priceKindOptions = [{ value: "purchase_fresh", label: "Mua / nhập tươi" }, { value: "purchase_processed", label: "Mua / nhập chế biến" }, { value: "sale", label: "Bán ra (giá cài riêng)" }];
+export type PriceKind = "purchase_fresh" | "purchase_processed" | "sale";
+export interface PriceSnapshot { price_board_id: string; price_board_version: number; price_kind: PriceKind; price_date: string; product_id: string | null; grade: number | null; unit_price_vnd: string; formula_version: 1 }
+export interface PriceBoard extends Entity { price_date: string; price_kind: PriceKind; product_id: string | null; pricing_method: "flat" | "grade"; flat_price_vnd: string | null; grade5_price_vnd: string | null }
+export interface TradeLine { farm_id?: string | null; product_id?: string | null; quantity_kg: string; unit_price_vnd?: string | null; bag_count: number; grade?: number | null; note?: string | null; pricing_mode?: "manual" | "daily"; price_kind?: PriceKind | null; price_date?: string | null; price_snapshot?: PriceSnapshot | null }
 export interface Trade extends Entity { occurred_on: string; occurred_at?: string | null; physical_actor?: string | null; party_id?: string | null; direction: Direction; status: "recorded" | "cancelled"; vehicle_plate?: string | null; weighing_id?: string | null; lines: TradeLine[] }
 export interface TradePayment extends Entity { occurred_on: string; occurred_at?: string | null; physical_actor?: string | null; party_id: string; trade_id: string; amount_vnd: string; method: "cash" | "bank_transfer" | "mixed" | "other"; reference?: string | null }
 export type CommerceEntity = CommerceParty | Trade | TradePayment;

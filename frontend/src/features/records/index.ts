@@ -3,14 +3,16 @@ import { RecordsPage } from "./RecordsPage";
 import { FarmsPage, CustomersPage } from "./PartyCatalog";
 import { InboundPage, OutboundPage } from "./TradePage";
 import { DashboardPage } from "./Dashboard";
+import { PricesPage } from "./PricesPage";
 
 export { RecordsPage } from "./RecordsPage";
 export { FarmsPage, CustomersPage } from "./PartyCatalog";
 export { InboundPage, OutboundPage } from "./TradePage";
+export { PricesPage } from "./PricesPage";
 export const recordsModule: FeatureModule = Object.freeze({
   id: "records",
   title: "Ghi nhận cà phê",
   permission: "records.read",
-  routes: [{ path: "/records", component: RecordsPage }, { path: "/records/farms", component: FarmsPage }, { path: "/records/customers", component: CustomersPage }, { path: "/records/inbound", component: InboundPage }, { path: "/records/outbound", component: OutboundPage }, { path: "/records/dashboard", component: DashboardPage }],
+  routes: [{ path: "/records", component: RecordsPage }, { path: "/records/prices", component: PricesPage }, { path: "/records/farms", component: FarmsPage }, { path: "/records/customers", component: CustomersPage }, { path: "/records/inbound", component: InboundPage }, { path: "/records/outbound", component: OutboundPage }, { path: "/records/dashboard", component: DashboardPage }],
 });
 export default recordsModule;
