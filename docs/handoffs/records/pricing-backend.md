@@ -84,3 +84,12 @@ backend/test; khi tích hợp cần lấy commit UI của lane riêng.
   tổng hợp, không commit ảnh hoặc DB. Detail hiển thị nguồn/ngày/version giá.
 
 Toàn bộ backend liên module, Docker và native Windows vẫn do điều phối xác nhận.
+
+Lượt tích hợp UI cuối: khi điều phối chạy đồng thời browser chính83 tests và
+toàn bộ backend, browser pricing hết hạn waiter10 giây ở lần lưu sau stale409/
+refresh; UI vẫn hiện nguồnv3/400.00 và nút loading. Chạy riêng đúng UI cuối,
+test/backend chưa sửa: PASS17,7 giây (toàn lệnh19,8 giây), không tái hiện lỗi
+nghiệp vụ. Waiter riêng của pricing được chỉnh20 giây vì nó khởi đầu trước khi
+click/form submit và API sản phẩm cho15 giây mỗi request. Giữ nguyên predicate
+endpoint/method/status và mọi assertion; không tăng timeout API sản phẩm hoặc
+đổi nghiệp vụ.

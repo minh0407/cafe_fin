@@ -51,7 +51,8 @@ test("real daily boards auto-price purchase and sale, retain frozen edits, rejec
     const company = await write("parties", { code: "COMP-PRICE", name: "Công ty kiểm thử giá", profile_kind: "customer_company", tax_code: "SYNTHETIC-PRICE-MST", representative: { name: "Liên hệ tổng hợp" } });
     const observed: { endpoint: string; method: string }[] = [];
     page.on("request", (request) => { if (request.url().startsWith(`${boot.api_base}/records/`)) observed.push({ endpoint: new URL(request.url()).pathname.slice("/api/v1/records/".length), method: request.method() }); });
-    const responseFor = (endpoint: string, method = "POST", status = 200) => page.waitForResponse((response) => response.url() === `${boot.api_base}/records/${endpoint}` && response.request().method() === method && response.status() === status);
+    // The app permits 15s per API call; this waiter also starts before clicking.
+    const responseFor = (endpoint: string, method = "POST", status = 200) => page.waitForResponse((response) => response.url() === `${boot.api_base}/records/${endpoint}` && response.request().method() === method && response.status() === status, { timeout: 20000 });
     await page.addInitScript((context) => { Object.assign(window, { recordsTest: context }); }, { boot, auth });
     await page.goto("/records-test#/records/prices");
     await expect(page.getByRole("heading", { name: "Bảng giá mua / nhập / bán", exact: true })).toBeVisible();
