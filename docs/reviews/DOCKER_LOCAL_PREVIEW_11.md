@@ -1,5 +1,7 @@
 # Docker localhost preview 11
 
+Trạng thái tiếp nối: [increment Farm/khách hàng và luồng 12](FARM_CUSTOMER_FLOWS_12.md) đã cập nhật preview, giữ tài khoản/volume sau bản sao lưu nhất quán. Bằng chứng lần tạo Admin đầu tiên bên dưới là lịch sử nghiệm thu ban đầu.
+
 Người dùng yêu cầu dựng bản localhost trên Docker sau khi kiểm thử Telegram.
 Source Telegram đã qua [Windows CI increment 10](TELEGRAM_DELIVERY_INCREMENT_10.md).
 Preview dùng nghiệp vụ/API thật, dữ liệu mới trong volume riêng, không mount CRM cũ.
