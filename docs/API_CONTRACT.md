@@ -87,6 +87,10 @@ cùng candidate. Xem [ADR Telegram](adr/20261107_TELEGRAM_REPORT_DELIVERY.md).
 
 Tên hàm Python có thể được foundation chuẩn hóa trong type contract nhưng giữ các trường và ý nghĩa; lane không import service private rồi đoán field.
 
+## Bảng giá và đơn
+
+Increment records [bảng giá](handoffs/records/pricing-v1.md) thêm `price-boards`, preview/quote và snapshot giá của TradeLine. Đây là DTO/API riêng của records; shared read bridge v3 không đổi. Giá ngày server xác minh, stale quote trả PRICE_CHANGED409; đơn cũ giữ snapshot và command manual cũ replay được. Không tạo tiền/kho hay liên kết bắt buộc với accounting từ bảng giá.
+
 ## Contract import accounting
 
 Job state chính: `UPLOADED`, `PARSING`, `READY_FOR_MAPPING`, `VALIDATING`, `READY_FOR_CONFIRM`, `COMMITTING`, `PARTIALLY_COMMITTED`, `COMPLETED`, `CANCELLED`, `FAILED`, `RECOVERABLE`. State và phase không đồng nhất; foundation cùng lane accounting phải có transition test thực tế.

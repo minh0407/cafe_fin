@@ -8,6 +8,8 @@ Repo đã ghép core/API local, ghi nhận với ledger chặn tồn âm, hợp 
 
 [Increment 12](docs/reviews/FARM_CUSTOMER_FLOWS_12.md) bổ sung hồ sơ Farm/mã vùng/lô/khảo sát, công ty khách hàng, luồng đầu vào/đầu ra và dashboard; đã qua 1.470 backend tests, browser với API thật và Docker production smoke. Bản localhost giữ volume/tài khoản đang có và đã được sao lưu trước nâng cấp.
 
+[Bảng giá 13](docs/reviews/DAILY_PRICING_INCREMENT_13.md) thêm giá mua tươi/nhập chế biến và giá bán riêng, tự điền theo cân, giữ giá đơn đã chốt và kiểm thay đổi giá trước lưu. Bảng đúng ngày, giá cố định hoặc theo Grade; không dùng giá mua thay giá bán.
+
 Baseline phát triển `cafe-fin-foundation-ready-v1` và [baseline tích hợp](docs/reviews/INTEGRATION_BASELINE_V1.md) `cafe-fin-integration-ready-v1` đã được điều phối chốt. Bản tích hợp qua CI Windows với 1.029 backend tests, các bộ browser, frozen sidecar và build NSIS. Lane đóng gói tiếp tục hoàn thiện và nghiệm thu desktop; chưa gọi production-ready. Windows sạch, native GUI/offline và các bước phát hành vẫn phải qua [gate phát hành](docs/adr/20261106_COORDINATION_GATES.md).
 
 [Tích hợp quản lý dữ liệu 06](docs/reviews/DESKTOP_MAINTENANCE_INCREMENT_06.md) bổ sung core/protocol sao lưu, chuyển/khôi phục và giao diện đối soát; [native controller 07](docs/reviews/NATIVE_CONTROLLER_INCREMENT_07.md) đã nối các lệnh desktop. Lượt CI backend đạt 1.119 tests; các kiểm thử adapter native thật được chạy riêng trước nghiệm thu. Khôi phục giữ các lượt gửi chưa rõ, tạm dừng lịch đến khi Admin kiểm tra và tạo lại tệp báo cáo trong thư mục mới từ bản gốc đã xác minh.
