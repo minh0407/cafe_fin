@@ -116,6 +116,9 @@ Xem [quyết định Telegram](adr/20261107_TELEGRAM_REPORT_DELIVERY.md).
 - Không cần tài khoản Google, OAuth hoặc thuê server. Máy phải bật, backend đang
   chạy và mạng truy cập được Telegram khi gửi. Thiếu token/nhóm vẫn lưu báo cáo
   local. Chưa có lần gửi thật được nghiệm thu khi viết hướng dẫn này.
+- Đính kèm chỉ áp dụng cho tệp tổng hợp PDF/XLSX của chính báo cáo được chọn,
+  tối đa **5 MiB/tệp trong Cafe Fin**. Không gửi Excel gốc hoặc chứng từ chi tiết.
+  Lịch tự động gửi tin tổng hợp; không tự chọn mọi tệp local để đính kèm.
 - **Chưa cấu hình** vẫn lưu/xuất báo cáo local, chưa gửi ra nhóm. Với báo cáo đã lưu,
   **Xếp gửi bản tổng hợp này** là xếp yêu cầu; xem trạng thái/nhật ký để biết kết quả.
   **Chưa rõ** không phải **Đã gửi**: kiểm tra trực tiếp nhóm, không tự thử gửi lại.

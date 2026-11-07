@@ -83,7 +83,7 @@ def guard_counts(root, operation_id):
 
 
 def local_only_settings(client, child, token, version, book_id):
-    # With no OA or group and no credentials, the production sender cannot send.
+    # With no Telegram group or token, the production sender cannot send.
     return data(
         client,
         child,
@@ -95,8 +95,7 @@ def local_only_settings(client, child, token, version, book_id):
             "request_key": key(),
             "enabled": True,
             "auto_generate_daily": True,
-            "group_id": "",
-            "oa_id": "",
+            "chat_id": "",
             "send_at": "23:59",
             "daily_book_ids": [book_id],
             "daily_export_formats": ["txt"],
@@ -482,7 +481,8 @@ def test_actual_wire_restore_default_registry_quarantines_once_preserves_data_an
                 and settings["restore_review"] == reviewed["restore_review"]
             )
             assert (
-                settings["group_id"] == settings["oa_id"] == ""
+                settings["chat_id"] == ""
+                and not settings["bot_id"]
                 and settings["sender_status"] == "UNCONFIGURED"
             )
             assert guard_counts(restored_root, restore_id) == (1, 1)
