@@ -1,7 +1,8 @@
 import type { BootSession, DesktopStatus } from "./types";
 
 // Set only by the separate Docker preview build. Desktop releases keep native IPC.
-export const isBrowserPreview = import.meta.env.VITE_CAFE_FIN_BROWSER_PREVIEW === "1";
+declare const __CAFE_FIN_BROWSER_PREVIEW__: boolean;
+export const isBrowserPreview = typeof __CAFE_FIN_BROWSER_PREVIEW__ !== "undefined" && __CAFE_FIN_BROWSER_PREVIEW__ === true;
 export const previewNativeLimitation =
   "Bản xem thử Docker không hỗ trợ thao tác Windows này. Hãy dùng ứng dụng Windows để chọn thư mục, khởi động lại, mở báo cáo hoặc sao lưu/chuyển/khôi phục dữ liệu.";
 
