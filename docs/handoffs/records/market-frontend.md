@@ -33,6 +33,29 @@ API tuân thủ nguyên trạng `market-v1.md`: GET `/records/market/processed[?
 - PASS: `npm run build`. Vite giữ cảnh báo chunk lớn hơn 500 kB hiện có; không thêm dependency để xử lý ngoài phạm vi.
 - PASS: `git diff --check`.
 - NOT RUN: lint riêng, vì package không khai báo script lint.
-- NOT RUN tại lane frontend: API/SQLite thật, collector nguồn công khai thật, Docker relay và Windows GUI. Điều phối/backend kiểm riêng sau tích hợp; fixture không chứng minh lấy được giá thị trường hiện tại. Nếu live source trả HTTP403, app phải hiện BLOCKED và không có giá tự động mới.
+- NOT RUN tại lane frontend: collector nguồn công khai thật, Docker relay và Windows GUI. Fixture không chứng minh lấy được giá thị trường hiện tại. Nếu live source trả HTTP403 hoặc trang challenge, app phải hiện BLOCKED và không có giá tự động mới.
 
 Không commit DB, Excel, HTML nguồn live, token hoặc ảnh chụp dữ liệu thật. Chưa gọi production-ready.
+
+## Bổ sung kiểm thử API thật
+
+Theo allowlist mở rộng của điều phối, chỉ thêm `tests/records/browser/market.spec.mts`, sửa test host `tests/records/browser/server.py` và cập nhật bàn giao này. Backend `8c85f7e` được cherry-pick cục bộ để chạy; commit bổ sung chỉ chứa tests/bàn giao, không đưa lại backend khi tích hợp.
+
+Test host luôn đặt `CAFE_FIN_MARKET_NETWORK=0` cho các suite thông thường. Chỉ child process có `CAFE_FIN_RECORDS_TEST_MARKET=1` mới đặt network gate 1 và thay đúng transport `market_http.download_html` bằng HTML tổng hợp đúng ngày, challenge hoặc ngày hôm qua. Parser, API auth, runtime, timer chu kỳ 10 giây, service, writer, migration, evidence/audit và SQLite WAL đều chạy thật. Không mock HTTP route hoặc sửa product API. Các control test-only cần app session, local user có quyền ghi và khóa ngẫu nhiên riêng; không đăng ký khi marker môi trường vắng. Control chỉ đổi nguồn fixture, xem số lần fetch/timer và kết thúc cooldown fixture để không đợi một giờ.
+
+Hai ca browser thật chứng minh:
+
+1. Timer tự tạo APPLIED đúng ngày từ HTML tổng hợp, provenance và năm Grade hiện qua UI, hai lượt timer vẫn chỉ một lần fetch. Toggle tắt/bật qua UI tăng settings_version; bảng tự động ẩn sửa/xóa. Bảng theo hàng và đơn đã lưu trước lượt tự lấy giữ nguyên snapshot/giá; không có chuyển động kho.
+2. Timer đọc challenge thành BLOCKED, nút kiểm bị khóa trong cooldown; khi cooldown fixture hết, check-now đọc HTML ngày hôm qua thành STALE_SOURCE. Cả hai không có snapshot/board và UI không hiện giá đã áp dụng. Bảng chung nhập tay của ngày trước trả EXISTING_BOARD, sửa giá qua UI thành version 2.
+
+Lệnh trên Windows PowerShell (port riêng, không đụng phiên 1421 của điều phối):
+
+```powershell
+$env:CAFE_FIN_RECORDS_TEST_PORT='1423'
+$env:CAFE_FIN_RECORDS_TEST_PYTHON='C:\Users\NC\.codex\worktrees\cafe-fin-foundation-recovery\cafe_fin\.venv\Scripts\python.exe'
+node frontend/node_modules/@playwright/test/cli.js test --config tests/records/browser/playwright.config.mts market.spec.mts
+```
+
+PASS: 2 tests / 39,3 giây (ca APPLIED 22,9 giây, ca BLOCKED/STALE 14,2 giây); không có browser page error. PASS: `git diff --check`. Không sửa mã sản phẩm trong lượt bổ sung nên giữ kết quả typecheck/build đã ghi ở trên.
+
+Nguồn trong hai ca này là tổng hợp, không gọi WAN và không được dùng làm bằng chứng nguồn công khai đang có giá. DB mới nằm trong thư mục tạm, được xóa khi test kết thúc; chỉ mã/fixture generator được commit. Proof JSON đính kèm kết quả Playwright ghi mode actual API/SQLite, source_date động, số fetch/timer và trạng thái từ API thật.
