@@ -373,6 +373,7 @@ export function App() {
                   { key: "/records/outbound", label: "Đầu ra · Bán cho công ty" },
                   { key: "/records/farms", label: "Hồ sơ farm" },
                   { key: "/records/customers", label: "Công ty khách hàng" },
+                  { key: "/records/prices", label: "Bảng giá mua / nhập / bán" },
                   { key: "/records", label: "Phiếu cân và kho" },
                 ] : [{ key: module.routes[0].path, label: module.title }]),
                 { key: "/settings", label: "Cài đặt trên máy" },

@@ -573,6 +573,74 @@ def commerce_persistence(client, state):
     check(dashboard["period"]["cash_in_vnd"] == "45.67", "PERSIST_TRADE_PAYMENT")
 
 
+def pricing_scenario(client, state):
+    product_id = state["product"]["id"]
+    preview = client.call("POST", "/records/price-board-preview", {
+        "pricing_method": "grade", "grade5_price_vnd": "100.01",
+    })
+    grades = {row["grade"]: row["unit_price_vnd"] for row in preview["grade_prices"]}
+    check(grades == {5: "100.01", 4: "90.01", 3: "81.01", 2: "72.91", 1: "65.62"}, "GRADE_STEP_HALF_UP")
+    board = client.call("POST", "/records/price-boards", {
+        "request_key": key(), "price_date": DAY, "price_kind": "purchase_fresh",
+        "pricing_method": "grade", "grade5_price_vnd": "100.01",
+    })
+    client.call("POST", "/records/price-boards", {
+        "request_key": key(), "price_date": DAY, "price_kind": "purchase_processed",
+        "pricing_method": "flat", "flat_price_vnd": "120.00",
+    })
+    sale_input = {"price_date": DAY, "price_kind": "sale", "product_id": product_id,
+                  "pricing_method": "flat", "flat_price_vnd": "150.01"}
+    sale_board = client.call("POST", "/records/price-boards", {**sale_input, "request_key": key()})
+    purchase = client.call("GET", f"/records/price-quote?price_kind=purchase_fresh&price_date={DAY}&product_id={product_id}&grade=3")
+    sale = client.call("GET", f"/records/price-quote?price_kind=sale&price_date={DAY}&product_id={product_id}")
+    check(purchase["unit_price_vnd"] == "81.01" and sale["unit_price_vnd"] == "150.01", "SEPARATE_PURCHASE_SALE_QUOTES")
+    missing = client.call("GET", "/records/price-quote?price_kind=purchase_fresh&price_date=2026-11-07&grade=3", expected=422)
+    check(missing["error"]["code"] == "PRICE_NOT_FOUND", "NO_PREVIOUS_DAY_PRICE_FALLBACK")
+    trades = {}
+    for direction, quote in (("inbound", purchase), ("outbound", sale)):
+        trades[direction] = client.call("POST", "/records/trades", {
+            "request_key": key(), "code": key(), "occurred_on": DAY, "direction": direction,
+            "party_id": state["commerce"]["company"]["id"] if direction == "outbound" else None,
+            "lines": [{"farm_id": state["commerce"]["farm"]["id"] if direction == "inbound" else None,
+                       "product_id": product_id, "quantity_kg": "1.001", "grade": 3 if direction == "inbound" else None,
+                       "pricing_mode": "daily", "price_kind": quote["price_kind"], "price_snapshot": quote}],
+        })
+        check(trades[direction]["lines"][0]["unit_price_vnd"] == quote["unit_price_vnd"], "SERVER_AUTO_PRICE_FROM_KG")
+    changed_board = client.call("PUT", f"/records/price-boards/{sale_board['id']}", {
+        **sale_input, "flat_price_vnd": "160.01", "expected_version": sale_board["version"], "request_key": key(),
+    })
+    outbound = trades["outbound"]
+    trade_fields = ("code", "occurred_on", "occurred_at", "physical_actor", "party_id", "direction", "status", "vehicle_plate", "weighing_id", "note", "lines")
+    stale_input = {name: outbound[name] for name in trade_fields if name in outbound}
+    stale_input["code"] = key()
+    stale = client.call("POST", "/records/trades", {**stale_input, "request_key": key()}, expected=409)
+    check(stale["error"]["code"] == "PRICE_CHANGED", "STALE_PRICE_BLOCKED")
+    changed_lines = [dict(line) for line in outbound["lines"]]
+    changed_lines[0]["quantity_kg"] = "2.001"
+    outbound = client.call("PUT", f"/records/trades/{outbound['id']}", {
+        **{name: outbound[name] for name in trade_fields if name in outbound}, "lines": changed_lines,
+        "expected_version": outbound["version"], "request_key": key(),
+    })
+    check(outbound["lines"][0]["unit_price_vnd"] == "150.01", "FROZEN_PRICE_AFTER_BOARD_UPDATE")
+    client.call("DELETE", f"/records/price-boards/{sale_board['id']}", {
+        "request_key": key(), "expected_version": changed_board["version"],
+    })
+    changed_lines[0]["quantity_kg"] = "3.001"
+    outbound = client.call("PUT", f"/records/trades/{outbound['id']}", {
+        **{name: outbound[name] for name in trade_fields if name in outbound}, "lines": changed_lines,
+        "expected_version": outbound["version"], "request_key": key(),
+    })
+    check(outbound["lines"][0]["unit_price_vnd"] == "150.01", "FROZEN_PRICE_AFTER_BOARD_DELETE")
+    state["pricing"] = {"purchase_board": board, "outbound": outbound}
+    print("PASS DAILY_GRADE_SEPARATE_SALE_AUTO_PRICE_FROZEN_SNAPSHOT", flush=True)
+
+
+def pricing_persistence(client, state):
+    trade = state["pricing"]["outbound"]
+    saved = client.call("GET", f"/records/trades/{trade['id']}")
+    check(saved["lines"][0]["unit_price_vnd"] == "150.01" and saved["lines"][0]["price_snapshot"]["price_board_version"] == 1, "PERSIST_FROZEN_PRICE_SNAPSHOT")
+
+
 def main():
     global PROJECT, PORT
     parser = argparse.ArgumentParser(description=__doc__)
@@ -607,6 +675,7 @@ def main():
     print("PASS SECURITY_AUTH_LINUX", flush=True)
     state = scenario(client)
     commerce_scenario(client, state)
+    pricing_scenario(client, state)
     print("PASS RECORDS_IMPORT_REPORT_CONTRACT", flush=True)
     old_headers = dict(client.headers)
     container_id = verify_container()
@@ -630,13 +699,15 @@ def main():
     client.headers["Authorization"] = "Bearer " + login["access_token"]
     persistence(client, state)
     commerce_persistence(client, state)
+    pricing_persistence(client, state)
     no_telegram(client)
     print("PASS RESTART_PERSISTENCE_NEW_CAPABILITY", flush=True)
     if args.browser:
         result = subprocess.run(
             ["node", str(ROOT / "tests/preview/browser_crm.mjs")], cwd=ROOT,
             input=json.dumps({"project": PROJECT, "username": username, "password": password,
-                              "outbound_id": state["commerce"]["trades"]["outbound"]["id"]}),
+                              "outbound_id": state["commerce"]["trades"]["outbound"]["id"],
+                              "priced_outbound_id": state["pricing"]["outbound"]["id"]}),
             text=True, capture_output=True, timeout=120, check=False,
         )
         if result.returncode != 0:

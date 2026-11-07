@@ -34,6 +34,8 @@ Bổ sung theo yêu cầu 07/11/2026: giữ chức năng mã Farm và các thu�
 
 Dashboard là trang mở đầu, giữ các nhóm chỉ tiêu hữu ích từ CRM cũ nhưng lấy từ nguồn Cafe Fin: hồ sơ farm/khảo sát/công ty, đơn theo chiều, kg thực nhập/xuất, tồn và thu/chi đã ghi. Giá trị đơn được phân biệt với doanh thu/tiền đã thu; đơn thiếu giá phải hiện riêng. Các nguồn tiền không cộng chồng với sổ Excel; lỗi đọc phải hiện lỗi, không thay bằng số 0. Chi tiết contract tại [increment Farm và mua/bán](handoffs/records/crm-parity-v1.md).
 
+Bổ sung bảng giá ngày: giá mua tươi, giá nhập chế biến và **giá bán riêng**. Có giá cố định hoặc Grade 5 làm gốc để tính Grade 4 → 1 theo 90%, ROUND_HALF_UP đến hai số lẻ từng bước như CRM cũ, hiển thị rõ trước lưu. Khi chọn hàng/ngày/Grade phù hợp và nhập cân, hệ thống tự tra giá, tính thành tiền; thiếu đúng bảng ngày thì báo lỗi, không lấy giá hôm qua hoặc giá 0 thay thế. Giá bán không fallback sang giá mua. Đơn giữ snapshot nguồn/ngày/version/đơn giá; sửa bảng giá không đổi đơn đã lưu. Xem [contract tự điền giá](handoffs/records/pricing-v1.md).
+
 CRUD đối tác, khách hàng/nhà cung cấp, hàng hóa, phiếu cân, phiếu mua/bán, nhập/xuất, sản xuất hoặc chuyển đổi và ghi chú thực tế. Có tìm kiếm, lọc, sort, phân trang server; tham số xem danh sách nằm trong URL nhưng không chứa credential hoặc dữ liệu nhạy cảm.
 
 Phiếu cân do người nhập ghi: hỗ trợ số cân trực tiếp và tùy chọn các lần đầy/rỗng/tịnh, nhiều dòng khi cần. Không buộc phải có tích hợp cân vật lý, ảnh, QR hoặc phiếu khác mới được lưu bản nháp. Giá trị được tính từ đầy/rỗng phải phân biệt với kg người dùng nhập trực tiếp; không âm thầm ghi đè số người dùng đã chọn.

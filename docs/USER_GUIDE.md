@@ -39,6 +39,8 @@ Quản lý dữ liệu chỉ khả dụng khi phiên desktop xác nhận hỗ tr
 
 **Tổng quan** có tuần/tháng/khoảng ngày và đường dẫn về đúng luồng. Kg lấy từ phiếu kho đã ghi sổ; thu/chi lấy từ giao dịch gắn đơn; giá trị đơn bán được hiển thị riêng, giữ phép tính chính xác và tách đơn chưa đủ giá. Sổ Excel kế toán được xem riêng tại Báo cáo để tránh cộng trùng. Mọi chỉ tiêu chỉ phản ánh dữ liệu đã nhập.
 
+**Bảng giá mua / nhập / bán:** cài giá đúng ngày trước khi ghi cân. Giá mua tươi và giá nhập chế biến phục vụ đầu vào; giá bán cài riêng theo hàng hóa. Có thể dùng giá cố định hoặc nhập Grade5 rồi xem đủ năm Grade theo quy tắc 90% từng bước, làm tròn hai số lẻ. Khi tạo đơn mới, chọn hàng và ngày (Grade nếu dùng bảng Grade), sau đó nhập kg; giá và thành tiền tự hiện. Không có bảng đúng ngày thì cấu hình bảng giá trước, không tự dùng giá mua cho đơn bán. Đơn cũ giữ giá đã lưu kể cả khi bảng đổi; chỉ lấy lại giá khi chủ động chọn thao tác đó. Sửa kg sẽ tính lại thành tiền bằng giá của đơn đang lưu.
+
 1. **Đăng nhập local.** Kiểm tra đang mở đúng thư mục dữ liệu. Không khởi tạo
    dữ liệu mới để thay cho thư mục cũ bị mất hoặc phiên đang chờ phục hồi.
 2. **Ghi nhận cà phê:** tạo/chọn **Đối tác**, **Hàng hóa**, **Vị trí / kho**.
