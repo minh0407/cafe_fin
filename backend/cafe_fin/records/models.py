@@ -67,7 +67,34 @@ class Representative(Input):
     authorization_reference: str | None = None
 
 
+class FarmPlot(Input):
+    plot_code: str | None = Field(default=None, max_length=60)
+    variety: str | None = Field(default=None, max_length=160)
+    area_ha: str | None = None
+    tree_count: int | None = Field(default=None, ge=0)
+    tree_age: int | None = Field(default=None, ge=0)
+
+
+class FarmSurvey(Input):
+    season_year: int = Field(ge=1900, le=9999)
+    grade: int = Field(ge=1, le=5)
+    ripeness_pct: str | None = None
+    notes: Text | None = None
+
+
+class FarmProfile(Input):
+    owner_name: str | None = Field(default=None, max_length=160)
+    owner_id_card: str | None = Field(default=None, max_length=50)
+    official_area_code: str | None = Field(default=None, max_length=100)
+    internal_area_code: str | None = Field(default=None, max_length=100)
+    plots: list[FarmPlot] = Field(default_factory=list, max_length=500)
+    surveys: list[FarmSurvey] = Field(default_factory=list, max_length=500)
+
+
 class Party(Master):
+    # Farm normalization occurs inside the writer before uniqueness/immutability;
+    # general party codes retain the Master whitespace constraint in the service.
+    code: str = Field(min_length=1, max_length=80)
     type: str = Field(default="organization", min_length=1, max_length=80)
     roles: list[str] = Field(default_factory=list, max_length=20)
     tax_code: str | None = None
@@ -75,6 +102,9 @@ class Party(Master):
     contacts: list[Contact] = Field(default_factory=list, max_length=50)
     bank_details: list[Bank] = Field(default_factory=list, max_length=20)
     representative: Representative | None = None
+    profile_kind: Literal["general", "farm", "customer_company"] = "general"
+    business_license: str | None = Field(default=None, max_length=100)
+    farm: FarmProfile | None = None
 
 
 class Product(Master):
@@ -119,8 +149,34 @@ class Entry(Document):
     entry_type: Literal["receipt", "issue", "production", "transfer", "opening", "adjustment"]
     status: Literal["draft", "posted", "cancelled"] = "draft"
     weighing_id: Identity | None = None
+    trade_id: Identity | None = None
     commercial_amount_vnd: str | None = None
     lines: list[EntryLine] = Field(default_factory=list, max_length=500)
+
+
+class TradeLine(Input):
+    farm_id: Identity | None = None
+    product_id: Identity | None = None
+    quantity_kg: str
+    unit_price_vnd: str | None = None
+    bag_count: int = Field(default=0, ge=0)
+    grade: int | None = Field(default=None, ge=1, le=5)
+    note: Text | None = None
+
+
+class Trade(Document):
+    direction: Literal["inbound", "outbound"]
+    status: Literal["recorded", "cancelled"] = "recorded"
+    vehicle_plate: str | None = None
+    weighing_id: Identity | None = None
+    lines: list[TradeLine] = Field(min_length=1, max_length=500)
+
+
+class TradePayment(Document):
+    trade_id: Identity
+    amount_vnd: str
+    method: Literal["cash", "bank_transfer", "mixed", "other"]
+    reference: Text | None = None
 
 
 MODELS = {
@@ -130,6 +186,8 @@ MODELS = {
     "warehouses": Master,
     "weighings": Weighing,
     "entries": Entry,
+    "trades": Trade,
+    "trade-payments": TradePayment,
 }
 
 

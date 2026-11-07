@@ -11,9 +11,17 @@ from cafe_fin.core.errors import CoreError
 from cafe_fin.core.modules import ModuleManifest
 
 from .bridge import RecordsReadProvider
+from .dashboard import dashboard
 from .migrations import MIGRATIONS
 from .models import MODELS, VersionCommand
-from .responses import HISTORIES, PAGES, RECORDS, InventoryBreakdownDTO, MovementPageDTO
+from .responses import (
+    HISTORIES,
+    PAGES,
+    RECORDS,
+    InventoryBreakdownDTO,
+    MovementPageDTO,
+    RecordsDashboardDTO,
+)
 from .service import RecordsService
 
 __all__ = ["module_manifest", "RecordsReadProvider"]
@@ -156,8 +164,14 @@ def module_manifest() -> ModuleManifest:
         ("products", "/products"),
         ("weighings", "/weighings"),
         ("entries", "/entries"),
+        ("trades", "/trades"),
+        ("trade-payments", "/trade-payments"),
     ):
         _bind_resource(router, kind, path)
+
+    @router.get("/records-dashboard", response_model=RecordsDashboardDTO)
+    def records_dashboard(request: Request, from_on: date, through_on: date):
+        return dashboard(request.app.state.runtime, request.state.principal, from_on, through_on)
 
     @router.get("/stock-movements", response_model=MovementPageDTO)
     def movements(

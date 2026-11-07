@@ -18,6 +18,8 @@ from cafe_fin.core.errors import CoreError
 from cafe_fin.core.stock_guard import StockPoint, assert_nonnegative
 from cafe_fin.core.time import BUSINESS_ZONE
 
+from .commerce import guard as guard_commerce
+from .commerce import normalize as normalize_commerce
 from .migrations import DOCUMENTS as D
 from .migrations import LINES
 from .migrations import MOVEMENTS as M
@@ -127,6 +129,9 @@ class RecordsService:
             "status",
             "active",
             "include_deleted",
+            "profile_kind",
+            "direction",
+            "trade_id",
         }
         if not isinstance(filters, dict) or set(filters) - allowed:
             invalid("filters", "Bộ lọc không được hỗ trợ.")
@@ -141,7 +146,7 @@ class RecordsService:
                     invalid(f"filters.{key}", "Ngày không hợp lệ.")
         if filters.get("from_on", "") > filters.get("through_on", "9999-12-31"):
             invalid("filters", "Ngày bắt đầu phải trước ngày kết thúc.")
-        for key in ("party_id", "entry_type", "status"):
+        for key in ("party_id", "entry_type", "status", "profile_kind", "direction", "trade_id"):
             if key in filters and not isinstance(filters[key], str):
                 invalid(f"filters.{key}", "Bộ lọc phải là chuỗi.")
         field = sort.lstrip("-")
@@ -161,9 +166,10 @@ class RecordsService:
                 | (extract("name").ilike(f"%{escaped}%", escape="\\"))
                 | (extract("note").ilike(f"%{escaped}%", escape="\\"))
             )
-        for key in ("party_id", "entry_type", "status", "active"):
+        for key in ("party_id", "entry_type", "status", "active", "profile_kind", "direction", "trade_id"):
             if key in filters:
-                query = query.where(extract(key) == filters[key])
+                value = func.coalesce(extract(key), "general") if key == "profile_kind" else extract(key)
+                query = query.where(value == filters[key])
         if "from_on" in filters:
             query = query.where(R.c.occurred_on >= filters["from_on"])
         if "through_on" in filters:
@@ -221,6 +227,14 @@ class RecordsService:
         except ValidationError as exc:
             invalid("record", str(exc))
         clean = parsed.model_dump(mode="json", exclude={"request_key", "expected_version"})
+        # Preserve the frozen pre-increment command fingerprint when new optional
+        # fields carry only their defaults. Pending old requests can still replay
+        # their original core receipt after upgrading this additive API.
+        defaults = ({"profile_kind": "general", "business_license": None, "farm": None}
+                    if kind == "parties" else {"trade_id": None} if kind == "entries" else {})
+        for field, default in defaults.items():
+            if clean.get(field) == default:
+                clean.pop(field, None)
         action = "create" if identity is None else "update"
         if identity is None and expected_version is not None:
             invalid("expected_version", "Tạo mới không có expected_version.")
@@ -366,6 +380,7 @@ class RecordsService:
                 if data["status"] == "posted" and deleted is None:
                     self._write_movements(conn, result)
                 self._guard(conn, affected)
+            guard_commerce(conn, kind, old, result)
             AuditService.record(
                 conn,
                 actor=actor.id,
@@ -388,9 +403,9 @@ class RecordsService:
 
     def _normalize(self, conn, kind, data, old, deleted):
         references = set()
-        previous_refs = {(old or {}).get(field) for field in ("party_id", "unit_id", "weighing_id")}
+        previous_refs = {(old or {}).get(field) for field in ("party_id", "unit_id", "weighing_id", "trade_id")}
         for line in (old or {}).get("lines", []):
-            previous_refs.update(line.get(field) for field in ("product_id", "warehouse_id"))
+            previous_refs.update(line.get(field) for field in ("product_id", "warehouse_id", "farm_id"))
         if "name" in data and not data["name"].strip():
             invalid("name", "Tên hồ sơ không được chỉ chứa khoảng trắng.")
 
@@ -440,7 +455,7 @@ class RecordsService:
                 invalid("roles", "Vai trò đối tác không được trống hoặc trùng.")
         if kind == "products":
             ref(data.get("unit_id"), "units", "unit_id", (old or {}).get("unit_id"))
-        if kind in {"weighings", "entries"}:
+        if kind in {"weighings", "entries", "trades", "trade-payments"}:
             ref(data.get("party_id"), "parties", "party_id", (old or {}).get("party_id"))
         if kind == "weighings":
             for index, line in enumerate(data["lines"]):
@@ -531,6 +546,7 @@ class RecordsService:
                         "lines",
                         "Tổng kg sản phẩm thu được vượt nguyên liệu đã ghi; cần ghi đủ nguồn nguyên liệu.",
                     )
+        normalize_commerce(conn, kind, data, old, ref, self._quantity, deleted)
         return references
 
     @staticmethod

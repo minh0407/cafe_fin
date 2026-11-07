@@ -1,5 +1,8 @@
 """Typed additive HTTP schemas; shared read bridge DTOs remain unchanged."""
 
+from datetime import date, datetime
+from typing import Literal
+
 from pydantic import Field, create_model
 
 from cafe_fin.core.contracts import FrozenDTO, InventorySummaryDTO
@@ -82,3 +85,35 @@ class MovementDTO(Input):
 
 class MovementPageDTO(PageMetadata):
     items: list[MovementDTO]
+
+
+class DashboardCounts(Input):
+    farms: int
+    farm_surveys: int
+    customer_companies: int
+    inbound_trades: int
+    outbound_trades: int
+
+
+class DashboardMetrics(Input):
+    inbound_kg: str
+    outbound_kg: str
+    cash_in_vnd: str
+    cash_out_vnd: str
+    sales_order_value_vnd: str
+    unpriced_sales_orders: int
+
+
+class DashboardDay(DashboardMetrics):
+    occurred_on: date
+
+
+class RecordsDashboardDTO(Input):
+    coverage: Literal["entered_records_only"]
+    cutoff: datetime
+    from_on: date
+    through_on: date
+    counts: DashboardCounts
+    inventory: InventorySummaryDTO
+    period: DashboardMetrics
+    daily: list[DashboardDay]
