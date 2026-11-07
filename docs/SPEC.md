@@ -8,6 +8,13 @@ Một máy Windows 11 64 bit, thường xuyên có Internet, một nhân viên n
 
 Người dùng cài app, chọn thư mục dữ liệu và sử dụng. Không tự cài PostgreSQL, Docker, Python hoặc mở terminal. Bộ cài phải mang theo các runtime được phép phân phối và cần thiết. Đóng gói Windows và PDF phải được thử sớm, không để tới cuối mới phát hiện thiếu phụ thuộc.
 
+Bổ sung kiểm thử 07/11/2026: người dùng yêu cầu mở bản preview trên Docker localhost
+sau khi kiểm thử. Preview dùng API/nghiệp vụ thật và volume dữ liệu thử riêng,
+chỉ xuất bản cổng loopback. Đây là môi trường thử web; sản phẩm Windows vẫn có
+bộ cài độc lập. Preview không giả thành công cho native controller hoặc thay
+Windows Credential Manager bằng tệp plaintext trên Linux. Không mount/migrate
+dữ liệu CRM cũ để dựng môi trường thử.
+
 Dữ liệu bản đầu là dữ liệu mới. CRM cũ giữ nguyên để tra cứu. Không sửa repo cũ, không chép toàn bộ lịch sử Git hoặc runtime vào repo mới, không tự nhập dữ liệu thật.
 
 ## 2 Nguyên tắc nghiệp vụ

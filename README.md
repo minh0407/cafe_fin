@@ -37,3 +37,23 @@ Baseline phát triển `cafe-fin-foundation-ready-v1` và [baseline tích hợp]
 `cafe-fin-spec-v1` là mốc bộ yêu cầu. Chat nền tảng chạy trước; sau khi điều phối kiểm tra, tag `cafe-fin-foundation-ready-v1` mới cho phép các lane module bắt đầu. Các chat không tự push hoặc merge. Chat điều phối tích hợp và push repo đích.
 
 Không có DB, chứng từ, Excel thật, credential hoặc lịch sử Git của CRM cũ trong repo này.
+
+## Bản thử trên localhost bằng Docker
+
+Theo yêu cầu kiểm thử bổ sung, repo có bản preview dùng cùng API và nghiệp vụ thật.
+Mở Docker Desktop ở Linux engine, chạy tại thư mục repo:
+
+```powershell
+docker compose -f compose.preview.yaml up --build -d
+```
+
+Mở **http://127.0.0.1:1420** và tự tạo Admin local ở lần đầu. Dữ liệu nằm trong
+volume riêng `cafe-fin-local-preview_preview-data`, giữ qua các lần khởi động lại.
+Dùng dữ liệu tổng hợp để thử; CRM cũ không được gắn vào container. Dừng bằng
+`docker compose -f compose.preview.yaml stop`.
+
+Preview dành cho thao tác web: đối tác/kho, hợp đồng, sổ/import và tải báo cáo.
+Chọn ổ Windows, mở Explorer và quản lý dữ liệu qua native controller cần app
+Windows. Kho bí mật Windows không có trong Linux container, nên Telegram giữ
+**Chưa cấu hình**; không có lưu token dạng plaintext thay thế. Xem
+[hướng dẫn Docker](docs/handoffs/packaging/docker-preview.md).
