@@ -17,6 +17,7 @@
 !frontend/scripts/third-party-notices.mjs
 !scripts/
 !scripts/preview.py
+!scripts/market_relay.py
 !scripts/preview/
 !scripts/preview/nginx.conf
 **/__pycache__

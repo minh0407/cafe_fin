@@ -18,6 +18,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CAFE_FIN_MARKET_NETWORK: '0'
+
 concurrency:
   group: windows-checks-${{ github.ref }}
   cancel-in-progress: true

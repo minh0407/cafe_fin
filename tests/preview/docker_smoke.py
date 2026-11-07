@@ -118,6 +118,15 @@ def verify_container():
     expected_config = hashlib.sha256((ROOT / "scripts/preview/nginx.conf").read_bytes()).hexdigest()
     actual_config = docker("exec", gateway_id, "sha256sum", "/etc/nginx/preview.conf").split()[0]
     check(actual_config == expected_config, "GATEWAY_FIXED_CONFIG")
+    _, relay = service_container("market-source")
+    check(not relay["HostConfig"].get("PortBindings"), "MARKET_RELAY_PRIVATE_PORT")
+    check(not any(relay["NetworkSettings"]["Ports"].values()), "MARKET_RELAY_PRIVATE_BINDING")
+    check(all(mount["Type"] == "tmpfs" for mount in relay["Mounts"]), "MARKET_RELAY_NO_DATA_MOUNTS")
+    check(set(relay["NetworkSettings"]["Networks"]) == {
+        PROJECT + "_preview-local", PROJECT + "_market-egress"
+    }, "MARKET_RELAY_NETWORKS")
+    egress = json.loads(docker("network", "inspect", PROJECT + "_market-egress"))[0]
+    check(egress["Internal"] is False and egress["Driver"] == "bridge", "MARKET_FIXED_SOURCE_EGRESS")
     return backend_id
 
 
@@ -641,6 +650,44 @@ def pricing_persistence(client, state):
     check(saved["lines"][0]["unit_price_vnd"] == "150.01" and saved["lines"][0]["price_snapshot"]["price_board_version"] == 1, "PERSIST_FROZEN_PRICE_SNAPSHOT")
 
 
+def market_scenario(client, state):
+    status = client.call("GET", "/records/market/processed")
+    check(status["source_url"] == "https://banggianongsan.com/bang-gia-ca-phe/", "FIXED_MARKET_SOURCE")
+    check(status["network_available"] is True, "MARKET_NETWORK_ENABLED")
+    # The actual public provider may block bots; that is evidence, not a fake quote.
+    status = client.call("POST", "/records/market/processed/check", {"request_key": key()})
+    deadline = time.monotonic() + 12
+    while status["status"] == "FETCHING" and time.monotonic() < deadline:
+        time.sleep(0.2)
+        status = client.call("GET", "/records/market/processed")
+    check(status["status"] not in {"FETCHING", "WAITING_SOURCE", "DISABLED", "NETWORK_DISABLED"}, "MARKET_FETCH_COMPLETED")
+    if status["status"] == "APPLIED":
+        check(status["snapshot"]["source_date"] == status["today"] == status["price_date"], "MARKET_LIVE_EXACT_DAY")
+        check(status["snapshot"]["product"] == "ROBUSTA_GREEN_BEAN", "MARKET_PRODUCT_SEPARATION")
+        board = client.call("GET", f"/records/price-boards/{status['board_id']}")
+        check(board["price_kind"] == "purchase_processed" and board["product_id"] is None, "MARKET_APPLIED_TO_PROCESSED_ONLY")
+    else:
+        check(status["snapshot"] is None and status["board_id"] is None, "MARKET_REJECTION_NO_FABRICATED_PRICE")
+    disable = {"request_key": key(), "expected_version": status["settings_version"], "enabled": False}
+    stopped = client.call("PUT", "/records/market/processed/settings", disable)
+    check(stopped["enabled"] is False, "MARKET_DISABLED")
+    check(client.call("PUT", "/records/market/processed/settings", disable) == stopped, "MARKET_SETTINGS_REPLAY")
+    checked = client.call("POST", "/records/market/processed/check", {"request_key": key()})
+    check(checked["attempts"] == stopped["attempts"], "MARKET_DISABLED_NO_FETCH")
+    client.call("PUT", "/records/market/processed/settings", {
+        "request_key": key(), "expected_version": stopped["settings_version"], "enabled": True,
+    })
+    state["market"] = status
+    print("PASS MARKET_RELAY_LIVE_STATE_" + status["status"], flush=True)
+
+
+def market_persistence(client, state):
+    current = client.call("GET", "/records/market/processed")
+    previous = state["market"]
+    check(current["enabled"] and current["attempts"] == previous["attempts"], "PERSIST_MARKET_COOLDOWN")
+    check(current["snapshot"] == previous["snapshot"] and current["board_id"] == previous["board_id"], "PERSIST_MARKET_PROVENANCE")
+
+
 def main():
     global PROJECT, PORT
     parser = argparse.ArgumentParser(description=__doc__)
@@ -676,6 +723,7 @@ def main():
     state = scenario(client)
     commerce_scenario(client, state)
     pricing_scenario(client, state)
+    market_scenario(client, state)
     print("PASS RECORDS_IMPORT_REPORT_CONTRACT", flush=True)
     old_headers = dict(client.headers)
     container_id = verify_container()
@@ -700,6 +748,7 @@ def main():
     persistence(client, state)
     commerce_persistence(client, state)
     pricing_persistence(client, state)
+    market_persistence(client, state)
     no_telegram(client)
     print("PASS RESTART_PERSISTENCE_NEW_CAPABILITY", flush=True)
     if args.browser:

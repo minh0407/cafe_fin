@@ -30,6 +30,10 @@ try {
     stage = `NAV_${route}`;
     await page.goto(`http://127.0.0.1:1420/#/records/${route}`);
     await expect(page.getByRole("heading", { name: new RegExp(heading) }).first()).toBeVisible();
+    if (route === "prices") {
+      await expect(page.getByText("Tự động giá nhập nhân xô Robusta Gia Lai", { exact: true })).toBeVisible();
+      await expect(page.getByRole("switch", { name: "Tự động lấy giá nhân xô", exact: true })).toBeVisible();
+    }
   }
   await page.goto(`http://127.0.0.1:1420/#/records/outbound?selected=${context.outbound_id}`);
   stage = "TRADE_DETAIL";

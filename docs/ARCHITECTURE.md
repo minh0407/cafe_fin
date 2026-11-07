@@ -16,6 +16,8 @@ flowchart LR
   API --> DB[(SQLite WAL)]
   API --> FS[Tệp dưới data root]
   API --> JOB[Job runner local có checkpoint]
+  API --> MARKET[Bộ giá nhân xô local]
+  MARKET -->|GET HTTPS nguồn cố định| PRICE[Bảng Giá Nông Sản]
   JOB --> DB
   JOB --> REPORT[Báo cáo local]
   REPORT --> SEND[Sender Telegram riêng]
@@ -68,7 +70,9 @@ Không tuyên bố giữ VBA hoặc mọi Excel feature sau parse/resave: chỉ 
 
 Core cung cấp dịch vụ backup/restore data root có manifest/hash và snapshot DB bằng API phù hợp, không copy riêng file `.db` khi WAL đang hoạt động. Backup không tự có giá trị nếu chưa restore thử. Chuyển data root dùng khóa độc quyền, copy+verify rồi đổi cấu hình; không xóa nguồn trước xác minh.
 
-Reporting đọc snapshot/DTO của records/accounting, không import private ORM để sửa dữ liệu module khác. Sender chỉ đọc payload được chọn gửi; bot token trong kho bí mật Windows, không Git, DB, backup, log hoặc báo cáo. Token nằm trong path HTTPS của Bot API theo giao thức Telegram; tuyệt đối không đưa URL đó ra UI/log/error, không theo redirect. Mạng ngoài chỉ phục vụ các request được allowlist tới `api.telegram.org`; core không có crawler/OAuth/cloud inference.
+Reporting đọc snapshot/DTO của records/accounting, không import private ORM để sửa dữ liệu module khác. Sender chỉ đọc payload được chọn gửi; bot token trong kho bí mật Windows, không Git, DB, backup, log hoặc báo cáo. Token nằm trong path HTTPS của Bot API theo giao thức Telegram; tuyệt đối không đưa URL đó ra UI/log/error, không theo redirect. Mạng ngoài chỉ phục vụ Telegram đã allowlist và, theo yêu cầu mới, GET cố định `banggianongsan.com/bang-gia-ca-phe/` để lấy giá nhân xô; không OAuth/cloud inference/cloud storage.
+
+Bộ giá trong records dùng trạng thái/cooldown/lease bền vững, fetch ngoài writer và công bố board+evidence+audit nguyên tử. DNS hệ điều hành được giới hạn thời gian bằng tối đa một daemon helper thuần DNS, không giữ DB/runtime/callback; TLS và deadline tiếp tục kiểm sau resolve. Không dùng DNS server công cộng riêng. Windows tải trực tiếp HTTPS; Docker giữ backend ở internalnetwork và dùng relay fixed-source riêng, không mount data/token hoặc public port. Relay không là proxy tùy ý. Kiểm mạng thật được ghi riêng với parser/fixture tests; nguồn có thể chặn hoặc chậm cập nhật nên không giả thành công.
 
 Không dựng webhook public hoặc mở cổng DB/CRM; không thuê server cho tác vụ gửi một chiều. Lịch vận hành local có timezone và catch-up; thiếu token/nhóm/lịch hiện trạng thái rõ, không bịa gửi thành công. `getMe`/`getChat`/`getChatMember` kiểm bot và nhóm mà không gửi tin; `sendMessage`/`sendDocument` gửi bản tổng hợp. Không có OAuth refresh token. Payload/receipt gắn provider và đích bất biến; kênh cũ bị giữ lại khi nâng cấp, không chuyển outbox sang Telegram. UNKNOWN giữ nguyên vì Telegram không cung cấp lịch sử tin đã gửi để tự khẳng định kết quả. Xem [ADR Telegram](adr/20261107_TELEGRAM_REPORT_DELIVERY.md).
 

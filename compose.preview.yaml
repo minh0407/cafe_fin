@@ -7,6 +7,12 @@ services:
       target: preview
     volumes:
       - preview-data:/data
+    environment:
+      CAFE_FIN_MARKET_NETWORK: "1"
+      CAFE_FIN_MARKET_RELAY_URL: "http://market-source:8080/source"
+    depends_on:
+      market-source:
+        condition: service_healthy
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
@@ -44,10 +50,35 @@ services:
     networks:
       - preview-front
       - preview-local
+  market-source:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: market-relay
+    environment:
+      CAFE_FIN_MARKET_NETWORK: "1"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2); assert r.status == 200"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - preview-local
+      - market-egress
 networks:
   preview-local:
     internal: true
   preview-front:
+    internal: false
+  market-egress:
     internal: false
 volumes:
   preview-data:

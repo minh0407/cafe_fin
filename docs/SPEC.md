@@ -105,7 +105,9 @@ Theo quyết định mới ngày 07/11/2026, gửi báo cáo cuối ngày bằng
 
 Người dùng có máy Windows khác và đã xác nhận Windows 11 x64 để nghiệm thu; build, cấu hình máy, bộ cài và kết quả thực tế vẫn phải được ghi khi thử.
 
-Tiến trình gửi là ngoại lệ Internet. Core không dùng Google, crawler giá, cloud AI hoặc cloud storage. Máy tắt/ngủ thì không hứa gửi đúng giờ; có catch-up và báo đúng ngày của bản còn chờ. Không dùng Codex scheduler làm scheduler vận hành sản phẩm.
+Tiến trình gửi Telegram và bộ lấy giá nhân xô là hai ngoại lệ Internet do người dùng yêu cầu. Theo bổ sung 07/11/2026, tự lấy giá Robusta nhân xô Gia Lai từ Bảng Giá Nông Sản, đúng ngày Việt Nam, một bảng mỗi ngày; quả tươi tiếp tục nhập tay và giá bán cài riêng. Không ghi đè bảng đã có, đơn đã chốt, tiền hoặc kho. Lưu nguồn/ngày/hash/tình trạng thật; mất mạng, nguồn chặn hoặc dữ liệu cũ phải hiện lỗi và chờ, không bịa giá. Xem [contract giá thị trường](handoffs/records/market-v1.md).
+
+Core không dùng Google, cloud AI hoặc cloud storage. Chỉ GET nguồn giá cố định và các request Telegram đã allowlist; không gửi dữ liệu nghiệp vụ ra nguồn giá. Máy/app tắt hoặc ngủ thì không hứa cập nhật/gửi đúng giờ; khi mở lại kiểm ngày hiện tại và có catch-up báo cáo theo cấu hình. Không dùng Codex scheduler làm scheduler vận hành sản phẩm.
 
 ## 8 Tiêu chí nghiệm thu
 

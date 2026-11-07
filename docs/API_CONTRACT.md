@@ -91,6 +91,10 @@ Tên hàm Python có thể được foundation chuẩn hóa trong type contract 
 
 Increment records [bảng giá](handoffs/records/pricing-v1.md) thêm `price-boards`, preview/quote và snapshot giá của TradeLine. Đây là DTO/API riêng của records; shared read bridge v3 không đổi. Giá ngày server xác minh, stale quote trả PRICE_CHANGED409; đơn cũ giữ snapshot và command manual cũ replay được. Không tạo tiền/kho hay liên kết bắt buộc với accounting từ bảng giá.
 
+## Tự động giá thị trường
+
+Theo [contract tự lấy giá nhân xô](handoffs/records/market-v1.md), records thêm status/settings/check nguồn cố định và evidence bất biến, không đổi shared DTO read bridge. Automatic collector chỉ tạo bảng purchase_processed chung đúng ngày; không sửa giá bán/quả tươi, sổ kế toán, stock hoặc snapshot đơn cũ. Source URL không là tham số từ client.
+
 ## Contract import accounting
 
 Job state chính: `UPLOADED`, `PARSING`, `READY_FOR_MAPPING`, `VALIDATING`, `READY_FOR_CONFIRM`, `COMMITTING`, `PARTIALLY_COMMITTED`, `COMPLETED`, `CANCELLED`, `FAILED`, `RECOVERABLE`. State và phase không đồng nhất; foundation cùng lane accounting phải có transition test thực tế.
