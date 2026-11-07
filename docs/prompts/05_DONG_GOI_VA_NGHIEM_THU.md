@@ -20,7 +20,7 @@ Không push, merge, tạo tag/release, upload installer hoặc deploy. Được 
 - Hướng dẫn cài/nâng cấp/gỡ cài đặt, chọn/chuyển nơi lưu dữ liệu, backup/restore và xử lý lỗi cho người dùng thông thường. Không yêu cầu mở PowerShell để thực hiện thao tác vận hành hằng ngày.
 - Báo cáo nghiệm thu có kết luận theo từng yêu cầu và bằng chứng thực. Không dùng kết quả test của foundation hoặc CRM cũ làm kết quả của bộ cài candidate.
 
-Ứng dụng là sản phẩm mới: dữ liệu bắt đầu mới, CRM cũ giữ nguyên. Chức năng gửi Zalo có thể cần tài khoản/cấu hình do người dùng cung cấp; việc thiếu tài khoản test không được làm giả kết quả gửi nhóm thật. Mọi thử gửi ra ngoài phải có đích test được Điều phối/người dùng giao rõ.
+Ứng dụng là sản phẩm mới: dữ liệu bắt đầu mới, CRM cũ giữ nguyên. Chức năng gửi Telegram cần bot/nhóm/token cấu hình riêng trên máy; việc thiếu tài khoản test không được làm giả kết quả gửi nhóm thật. Không dùng credential hoặc cấu hình Zalo cũ. Mọi thử gửi ra ngoài phải có đích test được Điều phối/người dùng giao rõ.
 
 ## 3. Nghiệm thu bộ cài trên Windows 11 sạch
 
@@ -69,7 +69,7 @@ Chạy các luồng được quy định trong `docs/SPEC.md` bằng UI của ar
 - Phân biệt ô trống, mã có số 0 đầu, ngày Excel, dấu phân cách số, tiền/kg thập phân, công thức và giá trị cache theo hợp đồng đã chốt. Trường không hỗ trợ phải báo rõ, không âm thầm chuyển đổi.
 - Thử tiền/khối lượng sát miền int64, tổng vượt int64 và quá precision: báo lỗi hoặc tính Decimal chính xác theo contract, không float/REAL hoặc cắt số lẻ âm thầm.
 - Hợp đồng tự điền đúng dữ liệu đã chọn, cho nhập điều khoản/phương thức thanh toán theo spec; DOCX/PDF từ cùng snapshot nhất quán. Không tái đưa workflow phê duyệt cũ vào app.
-- Báo cáo tổng hợp khớp dữ liệu gốc và ngoại lệ; file được lưu local trước khi thử gửi. Job gửi lỗi/retry không làm thay số liệu snapshot đã tạo. Không tuyên bố “đã gửi nhóm Zalo” chỉ từ việc job chạy hoặc file được tạo.
+- Báo cáo tổng hợp khớp dữ liệu gốc và ngoại lệ; file được lưu local trước khi thử gửi. Job gửi lỗi/retry không làm thay số liệu snapshot đã tạo. Không tuyên bố “đã gửi nhóm Telegram” chỉ từ việc job chạy hoặc file được tạo. Kiểm upgrade/restore không replay outbox kênh cũ.
 
 ## 6. Đo tải thật ở 50.000, 500.000 và 1.000.000 dòng
 
@@ -99,4 +99,4 @@ Bàn giao theo thư mục do `docs/OWNERSHIP.md` quy định:
 - Báo cáo clean-Windows, offline install/first launch, backup/restore/move/update/uninstall, nghiệp vụ và ba mức tải, có bằng chứng raw; PASS/FAIL/NOT RUN/SKIP tách rõ.
 - Lỗi còn mở, giới hạn, những bước cần tài khoản/thiết bị thật và đề xuất quyết định release cho Điều phối. Không tự quyết định phát hành khi còn điều kiện chặn.
 
-Chỉ báo hoàn thành khi artifact cụ thể được tạo, mở trên Windows sạch và các kiểm tra bắt buộc có kết quả trung thực. Nếu bị chặn bởi môi trường Windows hoặc tài khoản Zalo, hoàn thiện phần độc lập và báo đúng phần chưa chạy; không suy diễn mock/E2E browser tương đương app cài thật. Không push, merge, tạo release hoặc gửi tin tới nhóm thật.
+Chỉ báo hoàn thành khi artifact cụ thể được tạo, mở trên Windows sạch và các kiểm tra bắt buộc có kết quả trung thực. Nếu bị chặn bởi môi trường Windows hoặc bot/nhóm Telegram, hoàn thiện phần độc lập và báo đúng phần chưa chạy; không suy diễn mock/E2E browser tương đương app cài thật. Không push, merge, tạo release hoặc gửi tin tới nhóm thật.

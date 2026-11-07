@@ -86,9 +86,11 @@ Lần đầu chọn thư mục gốc trên ổ local, ví dụ `D:\CafeFinData`;
 
 Báo cáo ngày lấy theo khoảng giờ Việt Nam, trình bày nhập/sản xuất/xuất/tồn, tổng tiền theo sổ có mapping phù hợp và các cảnh báo. Ghi rõ chỉ tổng hợp phần đã nhập, không gọi là báo cáo tài chính đầy đủ. Xuất tệp vào reports; không đưa chi tiết cá nhân hoặc ngân hàng vào tin nhóm.
 
-Nhu cầu tự gửi Zalo cuối ngày được giữ từ yêu cầu trước. Có màn cấu hình đích/lịch/credential và nút kiểm kết nối, không hardcode nhóm hoặc giờ. Chỉ kết nối bằng khả năng Zalo chính thức đã xác minh: GMF/OA hoặc Bot nhóm khi tài khoản thật hỗ trợ. Không giả lập tích hợp bằng log rồi báo đã gửi. Chưa đủ cấu hình thì vẫn lưu báo cáo local và hiển thị trạng thái chưa gửi.
+Theo quyết định mới ngày 07/11/2026, gửi báo cáo cuối ngày bằng **Telegram Bot chính thức**, bỏ tích hợp Zalo. Admin cấu hình bot token, nhóm Telegram và lịch; không hardcode nhóm hoặc giờ. Kiểm kết nối chỉ đọc thông tin bot/nhóm/quyền gửi, không gửi tin thử. Token chỉ nằm trong kho bí mật Windows, không vào DB, backup, audit, log hoặc báo cáo. Chưa đủ cấu hình thì vẫn tạo/lưu báo cáo local, hiển thị chưa cấu hình và không gọi mạng để gửi.
 
-Xác nhận bổ sung 07/11/2026: người dùng dùng **nhóm Zalo cá nhân thông thường**. Adapter OA/GMF hiện có không đáp ứng trực tiếp đích này; cần xác minh quyền nhóm của Zalo Bot chính thức trên tài khoản thật trước khi triển khai/bật lịch. Người dùng cũng có máy Windows khác để nghiệm thu; version/build/x64 và bộ cài bàn giao vẫn phải được chốt. Xem [quyết định và trạng thái xác minh](adr/20261107_PERSONAL_ZALO_GROUP_AND_CLIENT_TEST.md).
+Đích là nhóm/supergroup Telegram do người dùng chọn rõ; chỉ gửi bản tổng hợp và tệp tổng hợp được chọn. Không tự gửi chứng từ, Excel gốc hoặc dữ liệu chi tiết. Receipt phải xác minh đúng nhóm và message_id; timeout sau gửi giữ UNKNOWN, không tự gửi lại. Lịch sử và payload của kênh cũ được giữ, không đổi tên thành Telegram hoặc tự chạy lại. Xem [quyết định và giới hạn gửi Telegram](adr/20261107_TELEGRAM_REPORT_DELIVERY.md).
+
+Người dùng có máy Windows khác và đã xác nhận Windows 11 x64 để nghiệm thu; build, cấu hình máy, bộ cài và kết quả thực tế vẫn phải được ghi khi thử.
 
 Tiến trình gửi là ngoại lệ Internet. Core không dùng Google, crawler giá, cloud AI hoặc cloud storage. Máy tắt/ngủ thì không hứa gửi đúng giờ; có catch-up và báo đúng ngày của bản còn chờ. Không dùng Codex scheduler làm scheduler vận hành sản phẩm.
 
@@ -102,7 +104,7 @@ Tiến trình gửi là ngoại lệ Internet. Core không dùng Google, crawler
 - Chạy file tổng hợp 50k/500k/1m với cấu hình máy, số cột, RAM, thời gian từng bước, dung lượng và truy vấn đo thật. Không lấy fixture 100 dòng để tuyên bố một triệu dòng pass.
 - Tắt app hoặc kill worker giữa parse/validate/commit; mở lại đúng trạng thái/counts, dữ liệu không thiếu hoặc lặp.
 - Sao lưu/khôi phục DB+tệp, update và chuyển nơi lưu giữ dữ liệu và các job chưa xong.
-- Gửi Zalo chỉ báo thành công khi có xác nhận, timeout không rõ được đối chiếu; thiếu cấu hình không chặn CRM.
+- Gửi Telegram chỉ báo thành công khi có receipt đúng nhóm; timeout không rõ không tự gửi lại, thiếu cấu hình không chặn lưu/xem/xuất local. Nâng cấp từ cấu hình kênh cũ không phát sinh gửi lại.
 
 ## 9 Phạm vi chưa làm ở bản đầu
 

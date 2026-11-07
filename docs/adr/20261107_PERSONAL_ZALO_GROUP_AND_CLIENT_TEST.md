@@ -2,6 +2,11 @@
 
 Ngày xác nhận: 07/11/2026, giờ Việt Nam.
 
+**Đã được thay thế về kênh gửi:** người dùng sau đó chọn Telegram và bỏ Zalo.
+Xem [quyết định Telegram](20261107_TELEGRAM_REPORT_DELIVERY.md). Nội dung dưới đây
+là lịch sử xác minh, không phải hướng dẫn cấu hình cho phiên bản hiện hành.
+Máy Windows thứ hai sau đó đã được xác nhận là Windows 11 x64.
+
 Người dùng xác nhận đích nhận báo cáo là **nhóm Zalo cá nhân thông thường**,
 không phải nhóm OA/GMF, và có một máy Windows khác để thử bộ cài.
 

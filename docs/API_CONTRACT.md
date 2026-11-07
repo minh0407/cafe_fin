@@ -44,6 +44,38 @@ Core là owner của session/auth/settings data root/jobs/files/backup APIs. Mod
 
 Foundation có thể tạo router/interface stub rõ NOT_IMPLEMENTED để smoke shell, không dùng stub cho nghiệm thu module. Shared OpenAPI export thực tế được freeze tại tag foundation và bổ sung additive theo module; mọi endpoint dùng chung đổi tên phải phối hợp.
 
+## Gửi báo cáo Telegram — thay đổi 07/11/2026
+
+Kênh gửi hiện hành chỉ là Telegram Bot API. Chuyển provider được người dùng yêu
+cầu rõ, thay cấu hình Zalo cũ; không giả định client dùng schema OA vẫn tương
+thích. Frontend, backend và sidecar phải được đóng gói cùng phiên bản.
+
+- `PUT /reporting/settings`: dùng `chat_id` (chuỗi numeric âm của group/supergroup,
+  hoặc rỗng khi chỉ tạo báo cáo local). Giữ version/request_key, lịch, timezone,
+  sổ và định dạng xuất. Bỏ input OA/app/group cũ. `bot_id` là identity chỉ đọc,
+  không nhận tùy ý từ form cấu hình đích.
+- `PUT /reporting/credentials`: chỉ nhận `bot_token`, không dùng core idempotency
+  receipt hoặc audit chứa input bí mật. Không trả lại token hoặc gọi WAN ở lệnh
+  lưu token. `bot_id` ứng viên lấy từ token; chỉ lần kiểm kết nối mới xác minh
+  identity với Telegram. Lưu secret qua Windows Credential Manager với key
+  `cafe_fin/reporting/<canonical-root-uuid>/telegram/<positive-bot-id>`.
+- `POST /reporting/connection-check`: Admin, chỉ đọc/xác minh bot/nhóm/quyền;
+  không gọi sendMessage/sendDocument. Không trả raw response, token hoặc URL API.
+  Thành công lưu `bot_verified_at` và tăng version cấu hình; frontend tải lại
+  settings trước lần lưu tiếp. Đổi token/nhóm làm mất xác minh cũ. Thiếu bằng
+  chứng xác minh giữ UNCONFIGURED; không tự thử gửi để kiểm cấu hình.
+- Đường gửi/receipt phải phân biệt provider và bot/chat identity. Tin thuần văn
+  bản và tệp tổng hợp được chọn dùng sendMessage/sendDocument. Không nhận endpoint
+  từ client. Receipt sai nhóm/message_id hoặc response không kết luận được sau
+  POST giữ UNKNOWN. Không tự retry UNKNOWN hoặc suy từ text/thời gian thành SENT.
+- Migration reporting giữ provenance, payload và receipt cũ; không đổi OA/group
+  thành bot/chat hoặc gửi lại outbox cũ. Restore/catch-up/retry phải kiểm provider.
+  Missing config giữ UNCONFIGURED với zero network/attempt, không chặn tạo tệp
+  báo cáo local. Restore-review và quyền Admin giữ nguyên.
+
+Schema/status chi tiết của reporting và bằng chứng migration nằm trong handoff
+cùng candidate. Xem [ADR Telegram](adr/20261107_TELEGRAM_REPORT_DELIVERY.md).
+
 ## DTO read bridge không làm ghi chéo module
 
 - `records.lookup_party(id)` trả PartyDTO: id/version/type/name/tax_code/address/contacts/bank_details/representative theo quyền; không tự ghi vào hợp đồng.

@@ -28,7 +28,7 @@ Baseline phát triển `cafe-fin-foundation-ready-v1` và [baseline tích hợp]
 - Giữ nguyên byte của file Excel gốc có macro. Không chạy VBA, không cam kết tái tạo mọi tính năng Excel trong grid.
 - Thư viện miễn phí phù hợp production; không dùng license evaluation cho sản phẩm thật.
 - Bắt đầu dữ liệu mới. CRM cũ và dữ liệu cũ giữ nguyên để tra cứu; không chuyển trong bản đầu.
-- Lưu báo cáo local và chuẩn bị khả năng tự gửi tổng hợp Zalo cuối ngày; đích và lịch do người dùng cấu hình khi tích hợp khả dụng.
+- Lưu báo cáo local và gửi tổng hợp cuối ngày qua Telegram Bot; Admin cấu hình bot, nhóm và lịch trên máy. Không tích hợp Zalo. Xem [quyết định Telegram](docs/adr/20261107_TELEGRAM_REPORT_DELIVERY.md).
 
 ## Quy trình triển khai
 

@@ -157,7 +157,7 @@ Với công thức trong tệp nhập, lưu tách `formula_text`, `cached_value`
 
 Có báo cáo tổng hợp theo khoảng ngày/cột đã ánh xạ, loại thu/chi, sổ, đơn vị tiền và các chiều cấu hình; xem dữ liệu **trước import / batch mới / tổng sau import** để người dùng kiểm. Báo số dòng/tiền được nhập, bỏ qua, giữ lỗi, conflict và duplicate được giữ có chủ ý. Không gọi số dư đầu kỳ hoặc lợi nhuận là chính xác nếu chưa cấu hình đủ nguồn/ngữ nghĩa.
 
-Báo cáo chỉ tính published active records, có filter/schema/data revision và mốc tạo rõ. Dữ liệu ngày dùng giờ Việt Nam, khoảng thời gian nửa mở; không dùng UTC date hoặc ngày host để lệch kỳ. Đừng buộc báo cáo khu này khớp mọi số CRM. Nếu có snapshot để gửi báo cáo cuối ngày, cung cấp dữ liệu/tệp đã đóng băng cho lane báo cáo theo contract; lane này không gửi Zalo hoặc tự đăng ký lịch.
+Báo cáo chỉ tính published active records, có filter/schema/data revision và mốc tạo rõ. Dữ liệu ngày dùng giờ Việt Nam, khoảng thời gian nửa mở; không dùng UTC date hoặc ngày host để lệch kỳ. Đừng buộc báo cáo khu này khớp mọi số CRM. Nếu có snapshot để gửi báo cáo cuối ngày, cung cấp dữ liệu/tệp đã đóng băng cho lane báo cáo theo contract; lane này không gửi Telegram hoặc tự đăng ký lịch.
 
 Export XLSX/CSV từ dataset đã hỗ trợ bằng job cho tập lớn, không load tất cả vào RAM hoặc browser. Xuất số/mã/ngày đúng kiểu và precision; chống formula injection ở text untrusted mà không phá giá trị numeric âm. Chỉ export công thức được ứng dụng chủ động hỗ trợ/cho phép; text nguồn bắt đầu `=`, `+`, `-`, `@` không tự trở thành công thức. Tệp dẫn xuất phải được đặt tên/phạm vi rõ; giữ nút tải nguyên bản riêng. Giữ byte hash của originals qua toàn bộ vòng import/edit/export.
 

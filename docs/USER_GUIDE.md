@@ -4,7 +4,7 @@
 CI và các kiểm tra Windows đang tiếp tục; tài liệu không xác nhận đã cài đặt,
 nghiệm thu giao diện native hoặc chạy trên máy Windows sạch của người dùng.
 Dữ liệu nghiệp vụ nằm trong DB và tệp trên máy; nhập/xem/xuất local không cần
-mạng ngoài. Gửi Zalo là ngoại lệ cần Internet và cấu hình chính thức phù hợp.
+mạng ngoài. Gửi Telegram là ngoại lệ cần Internet, bot và nhóm do Admin cấu hình.
 
 ## Ai làm việc gì?
 
@@ -104,18 +104,23 @@ không cộng tổng và chi tiết hai lần. Không có sổ/chưa đủ mappi
 
 ## Gửi cuối ngày và xử lý khi chưa rõ kết quả
 
-Đích đã xác nhận của người dùng là **nhóm Zalo cá nhân**. Cấu hình OA/GMF bên dưới
-hiện chưa gửi trực tiếp vào nhóm này. Hướng tích hợp tiếp theo là Zalo Bot chính
-thức sau khi xác minh tài khoản có chức năng mời Bot vào nhóm; chưa có lần gửi thật.
-Trong lúc chờ, báo cáo vẫn được lưu/xuất local. Xem [trạng thái tích hợp](adr/20261107_PERSONAL_ZALO_GROUP_AND_CLIENT_TEST.md).
+Đích nhận là **nhóm Telegram**. Tích hợp Zalo đã bỏ theo yêu cầu mới.
+Xem [quyết định Telegram](adr/20261107_TELEGRAM_REPORT_DELIVERY.md).
 
-- UI hiện có **Cấu hình Admin** cho Zalo OA/nhóm GMF. Chỉ cấu hình credential,
-  nhóm thật đủ điều kiện tích hợp chính thức, lịch và sổ cần tổng hợp rồi kiểm tra
-  kết nối. Hướng dẫn này không khẳng định đã có nhóm thật hay đã gửi thành công;
-  không có cấu hình Telegram được hướng dẫn trong UI hiện tại.
+- Tạo bot qua **@BotFather** bằng `/newbot`, rồi thêm bot vào nhóm báo cáo.
+  Giữ token riêng; chỉ nhập vào trường bí mật trong app, không gửi vào chat,
+  Git hoặc browser URL. Chỉ cấp quyền gửi tin/tệp cần thiết cho nhóm.
+- Admin vào **Cấu hình Admin**, nhập thông tin bot, Chat ID nhóm, lịch và sổ cần
+  tổng hợp. **Kiểm tra kết nối** chỉ xác minh bot/nhóm/quyền, không gửi tin thử.
+  Muốn đổi token cần nhập lại; app không hiển thị token đã lưu.
+- Không cần tài khoản Google, OAuth hoặc thuê server. Máy phải bật, backend đang
+  chạy và mạng truy cập được Telegram khi gửi. Thiếu token/nhóm vẫn lưu báo cáo
+  local. Chưa có lần gửi thật được nghiệm thu khi viết hướng dẫn này.
 - **Chưa cấu hình** vẫn lưu/xuất báo cáo local, chưa gửi ra nhóm. Với báo cáo đã lưu,
   **Xếp gửi bản tổng hợp này** là xếp yêu cầu; xem trạng thái/nhật ký để biết kết quả.
-  **Chưa rõ** không phải **Đã gửi**: đối chiếu trước khi thử lại, tránh gửi trùng.
+  **Chưa rõ** không phải **Đã gửi**: kiểm tra trực tiếp nhóm, không tự thử gửi lại.
+  Telegram không cung cấp lịch sử tin đã gửi để app tự kết luận một lượt timeout
+  thành công. Lịch sử kênh cũ được giữ để tra cứu, không tự gửi lại qua Telegram.
   Máy tắt/ngủ không bảo đảm gửi đúng giờ; khi chạy lại cần kiểm tra các kỳ còn chờ.
 - Nếu bản local báo **Trùng tên, không ghi đè** hoặc lỗi sao chép, giữ nguyên tệp
   đang có và đọc trạng thái/lỗi. Bấm **Xuất** đúng định dạng để thử lại từ bản lưu

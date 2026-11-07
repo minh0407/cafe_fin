@@ -100,7 +100,7 @@ Tài liệu này không gửi, tải binary, mở release hoặc chấp thuận 
 
 Người kiểm thao tác bằng GUI app đã cài; engineering ghi checksum/metadata riêng
 không được biến thành yêu cầu mở terminal để vận hành hằng ngày.
-Chỉ dùng tài khoản local và dữ liệu tổng hợp. Không cấu hình Zalo thật hay gửi
+Chỉ dùng tài khoản local và dữ liệu tổng hợp. Không cấu hình Telegram thật hay gửi
 ra nhóm; phần đó có phép thử/đích được giao riêng.
 
 | Ca | Thao tác và expected result | Bằng chứng cần ghi |

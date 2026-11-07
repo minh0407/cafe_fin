@@ -17,7 +17,7 @@ Trước khi sửa, kiểm tra trạng thái Git. Gọi `list_artifacts` để x
 - Ứng dụng cài trực tiếp trên Windows 11, mở từ shortcut, không yêu cầu người dùng cài Python, Node.js, Docker, PostgreSQL, Redis hoặc MinIO và không yêu cầu gõ lệnh.
 - Một PC, một người nhập nghiệp vụ. Có tài khoản quản trị và người vận hành theo ma trận quyền trong `docs/SPEC.md`; không thêm chuỗi phê duyệt nhiều người, ca trưởng hoặc hai người giao nhận.
 - Ghi nhận, tra cứu và thống kê nghiệp vụ; phát hiện bất thường bằng cảnh báo. **Chặn giao dịch làm tồn âm** bằng transaction trong tầng dữ liệu; không chỉ vô hiệu hóa nút ở giao diện.
-- Máy có Internet, nhưng DB và tệp nghiệp vụ lưu tại máy. Internet không phải điều kiện để lưu, tra cứu hoặc xuất chứng từ local. Tích hợp gửi báo cáo Zalo thuộc lane riêng và không được chặn nghiệp vụ khi gửi lỗi.
+- Máy có Internet, nhưng DB và tệp nghiệp vụ lưu tại máy. Internet không phải điều kiện để lưu, tra cứu hoặc xuất chứng từ local. Tích hợp gửi báo cáo Telegram thuộc lane riêng và không được chặn nghiệp vụ khi gửi lỗi.
 - Người dùng chọn thư mục dữ liệu trên ổ local; DB, tệp nhập gốc, bằng chứng, báo cáo và backup nằm trong cấu trúc rõ ràng. Vị trí cài chương trình độc lập với vị trí dữ liệu.
 - Excel được chỉnh trong app. Giữ nguyên tệp gốc, kể cả `.xlsm` chứa macro; không thực thi VBA, không ghi đè tệp gốc, không âm thầm đổi công thức hoặc bỏ macro khỏi nguồn gốc. Chỉ import những dòng hợp lệ sau bước xác nhận; dòng lỗi giữ để sửa và xử lý tiếp.
 - Chỉ dùng thư viện có giấy phép miễn phí tương thích với cách phân phối dự án. Không dùng chức năng enterprise, trial, tài khoản trả phí hoặc phụ thuộc Microsoft Office đã cài để hoàn thành chức năng cốt lõi.

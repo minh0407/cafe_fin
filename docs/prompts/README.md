@@ -10,7 +10,7 @@ Mỗi file dưới đây là một prompt đầy đủ để dán vào một cha
 | 01 | `01_GHI_NHAN_NGHIEP_VU.md` | Có tag `cafe-fin-foundation-ready-v1` do điều phối publish |
 | 02 | `02_HOP_DONG_VA_CHUNG_TU.md` | Cùng baseline foundation; có thể song song 01/03 |
 | 03 | `03_KE_TOAN_EXCEL_VA_IMPORT.md` | Cùng baseline foundation; có thể song song 01/02 |
-| 04 | `04_BAO_CAO_VA_ZALO.md` | Contract read bridge đã freeze; nghiệm thu sau khi tích hợp records/accounting |
+| 04 | `04_BAO_CAO_VA_TELEGRAM.md` | Contract read bridge đã freeze; nghiệm thu sau khi tích hợp records/accounting |
 | 05 | `05_DONG_GOI_VA_NGHIEM_THU.md` | Có tag `cafe-fin-integration-ready-v1` và các module đã được điều phối ghép |
 
 Nếu mở chat trên máy này, có thể dán một câu khởi động ngắn như:

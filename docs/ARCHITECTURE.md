@@ -18,8 +18,8 @@ flowchart LR
   API --> JOB[Job runner local có checkpoint]
   JOB --> DB
   JOB --> REPORT[Báo cáo local]
-  REPORT --> SEND[Sender Zalo riêng]
-  SEND -->|Ngoại lệ Internet| ZALO[Zalo chính thức]
+  REPORT --> SEND[Sender Telegram riêng]
+  SEND -->|HTTPS outbound| TELEGRAM[Telegram Bot API]
 ```
 
 Core bind loopback, token phiên được tạo khi launch và không nằm trong URL/log. Tauri chỉ mở chức năng file và shell đã allowlist; không cung cấp tùy ý đọc đĩa hoặc chạy lệnh cho frontend. Có single-instance, quản lý lifecycle sidecar và release lock khi thoát/crash. Không dựa vào `navigator.onLine` để quyết định API localhost mất kết nối.
@@ -33,7 +33,7 @@ backend/cafe_fin/core/           DB, auth, file store, jobs, backup services, co
 backend/cafe_fin/records/        Đối tác, hàng, cân, nhật ký, stock ledger
 backend/cafe_fin/contracts/      Soạn và xuất hợp đồng/chứng từ
 backend/cafe_fin/accounting/     Sổ, staging, validation, formulas, import/export
-backend/cafe_fin/reporting/      Báo cáo, lịch và sender Zalo
+backend/cafe_fin/reporting/      Báo cáo, lịch và sender Telegram
 frontend/src/app/                Shell, routing và module registry
 frontend/src/shared/             API client, common widgets, primitives
 frontend/src/features/<module>/  UI từng lane
@@ -46,7 +46,7 @@ Module export registration công khai; foundation tạo registry và typed inter
 
 ## Ghi dữ liệu và độ chính xác
 
-- Writer coordinator xếp hàng các write transaction ngắn; không giữ transaction trong lúc parse file, chờ người sửa hoặc gọi Zalo.
+- Writer coordinator xếp hàng các write transaction ngắn; không giữ transaction trong lúc parse file, chờ người sửa hoặc gọi Telegram.
 - Các mutation có version, request key và audit trước/sau. Một request key cùng payload trả kết quả đã có; payload khác trả conflict.
 - Tiền JSON là Decimal string; chuẩn bản đầu VND với precision tối đa hai chữ số thập phân, DB lưu integer đơn vị 0,01 VND, có kiểm miền int64 trước ghi. VND hiển thị không ép hai số lẻ nếu không cần. Kg lưu integer 0,001 kg; không float. Import không lặng lẽ làm tròn dữ liệu nhiều precision; yêu cầu sửa hoặc lựa chọn làm tròn có ghi nhận.
 - Ngày giao dịch local và timestamp UTC là hai trường khác nhau. Báo cáo dùng khoảng giờ Việt Nam. ID ổn định UUID string.
@@ -68,9 +68,9 @@ Không tuyên bố giữ VBA hoặc mọi Excel feature sau parse/resave: chỉ 
 
 Core cung cấp dịch vụ backup/restore data root có manifest/hash và snapshot DB bằng API phù hợp, không copy riêng file `.db` khi WAL đang hoạt động. Backup không tự có giá trị nếu chưa restore thử. Chuyển data root dùng khóa độc quyền, copy+verify rồi đổi cấu hình; không xóa nguồn trước xác minh.
 
-Reporting đọc snapshot/DTO của records/accounting, không import private ORM để sửa dữ liệu module khác. Sender chỉ đọc payload được chọn gửi; credential trong kho bí mật của OS, không Git/URL/log/report. Mạng ngoài phục vụ token/upload/send/receipt Zalo; core không có crawler/OAuth/cloud inference.
+Reporting đọc snapshot/DTO của records/accounting, không import private ORM để sửa dữ liệu module khác. Sender chỉ đọc payload được chọn gửi; bot token trong kho bí mật Windows, không Git, DB, backup, log hoặc báo cáo. Token nằm trong path HTTPS của Bot API theo giao thức Telegram; tuyệt đối không đưa URL đó ra UI/log/error, không theo redirect. Mạng ngoài chỉ phục vụ các request được allowlist tới `api.telegram.org`; core không có crawler/OAuth/cloud inference.
 
-Không dựng webhook public hoặc mở cổng DB/MinIO/CRM. Lịch vận hành local có cấu hình timezone và catch-up; thiếu credential/nhóm/lịch hiện trạng thái rõ, không bịa gửi thành công. Cần xác minh kênh Zalo GMF/OA hoặc Bot nhóm khả dụng bằng API chính thức trước thử gửi thật.
+Không dựng webhook public hoặc mở cổng DB/CRM; không thuê server cho tác vụ gửi một chiều. Lịch vận hành local có timezone và catch-up; thiếu token/nhóm/lịch hiện trạng thái rõ, không bịa gửi thành công. `getMe`/`getChat`/`getChatMember` kiểm bot và nhóm mà không gửi tin; `sendMessage`/`sendDocument` gửi bản tổng hợp. Không có OAuth refresh token. Payload/receipt gắn provider và đích bất biến; kênh cũ bị giữ lại khi nâng cấp, không chuyển outbox sang Telegram. UNKNOWN giữ nguyên vì Telegram không cung cấp lịch sử tin đã gửi để tự khẳng định kết quả. Xem [ADR Telegram](adr/20261107_TELEGRAM_REPORT_DELIVERY.md).
 
 ## Gate foundation
 
