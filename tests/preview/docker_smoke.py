@@ -24,6 +24,7 @@ from uuid import uuid4
 
 ORIGIN = "http://127.0.0.1:1420"
 PROJECT = "cafe-fin-preview-smoke"
+PORT = 1420
 ROOT = Path(__file__).resolve().parents[2]
 DAY = "2026-11-06"
 COLUMNS = [
@@ -97,7 +98,7 @@ def verify_container():
         port: binding for port, binding in gateway["NetworkSettings"]["Ports"].items() if binding
     }
     check(
-        bindings == {"1420/tcp": [{"HostIp": "127.0.0.1", "HostPort": "1420"}]},
+        bindings == {"1420/tcp": [{"HostIp": "127.0.0.1", "HostPort": str(PORT)}]},
         "LOOPBACK_GATEWAY_BINDING",
     )
     check(
@@ -125,9 +126,9 @@ class Client:
         self.headers = {"Origin": ORIGIN}
 
     def ready(self):
-        connection = http.client.HTTPConnection("127.0.0.1", 1420, timeout=5)
+        connection = http.client.HTTPConnection("127.0.0.1", PORT, timeout=5)
         try:
-            connection.request("GET", "/")
+            connection.request("GET", "/", headers={"Host": "127.0.0.1:1420"})
             response = connection.getresponse()
             response.read()
             check(response.status in {200, 502, 503}, "RESTART_HTTP_STATUS")
@@ -139,9 +140,9 @@ class Client:
             connection.close()
 
     def raw(self, method, path, *, headers=None, body=None, expected=200):
-        connection = http.client.HTTPConnection("127.0.0.1", 1420, timeout=40)
+        connection = http.client.HTTPConnection("127.0.0.1", PORT, timeout=40)
         try:
-            connection.request(method, path, body=body, headers=headers or {})
+            connection.request(method, path, body=body, headers={"Host": "127.0.0.1:1420", **(headers or {})})
             response = connection.getresponse()
             content = response.read()
             received = {name.lower(): value for name, value in response.getheaders()}
@@ -509,15 +510,86 @@ def persistence(client, state):
     check(balances["items"][0]["closing_kg"] == "7.000", "PERSIST_STOCK")
 
 
+def commerce_scenario(client, state):
+    farm = client.call("POST", "/records/parties", {
+        "request_key": key(), "code": "T001", "name": "Synthetic farm",
+        "roles": ["supplier"], "profile_kind": "farm",
+        "farm": {"owner_name": "Synthetic owner", "owner_id_card": "0000123",
+                 "official_area_code": "SYNTHETIC-AREA", "plots": [],
+                 "surveys": [{"season_year": 2026, "grade": 3, "ripeness_pct": "90.125"}]},
+    })
+    company = client.call("POST", "/records/parties", {
+        "request_key": key(), "code": "TEST-COMPANY", "name": "Synthetic customer company",
+        "roles": ["customer"], "profile_kind": "customer_company", "tax_code": "SYNTHETIC-MST",
+        "representative": {"name": "Synthetic contact"}, "business_license": "SYNTHETIC-LICENSE",
+    })
+    product_id, warehouse_id = state["product"]["id"], state["warehouse"]["id"]
+    trades = {}
+    for direction, price in (("inbound", "90.00"), ("outbound", "100.01")):
+        trade = client.call("POST", "/records/trades", {
+            "request_key": key(), "code": key(), "occurred_on": DAY, "direction": direction,
+            "party_id": company["id"] if direction == "outbound" else None,
+            "vehicle_plate": "SYNTHETIC-PLATE", "lines": [{
+                "farm_id": farm["id"] if direction == "inbound" else None,
+                "product_id": product_id, "quantity_kg": "2.000", "unit_price_vnd": price,
+                "bag_count": 1, "grade": 3,
+            }],
+        })
+        payment = {"request_key": key(), "code": key(), "occurred_on": DAY,
+                   "trade_id": trade["id"], "party_id": company["id"] if direction == "outbound" else farm["id"],
+                   "amount_vnd": "45.67" if direction == "outbound" else "12.34", "method": "cash"}
+        saved = client.call("POST", "/records/trade-payments", payment)
+        check(client.call("POST", "/records/trade-payments", payment)["id"] == saved["id"], "PAYMENT_RETRY")
+        client.call("POST", "/records/entries", {
+            "request_key": key(), "code": key(), "occurred_on": DAY,
+            "entry_type": "issue" if direction == "outbound" else "receipt", "status": "posted",
+            "party_id": company["id"] if direction == "outbound" else farm["id"], "trade_id": trade["id"],
+            "lines": [{"product_id": product_id, "warehouse_id": warehouse_id,
+                       "quantity_kg": "2.000", "direction": "out" if direction == "outbound" else "in"}],
+        })
+        trades[direction] = trade
+    denied = client.call("POST", "/records/entries", {
+        "request_key": key(), "code": key(), "occurred_on": DAY, "entry_type": "issue", "status": "posted",
+        "party_id": company["id"], "trade_id": trades["outbound"]["id"],
+        "lines": [{"product_id": product_id, "warehouse_id": warehouse_id, "quantity_kg": "0.001", "direction": "out"}],
+    }, expected=409)
+    check(denied["error"]["code"] == "TRADE_CONFLICT", "TRADE_SHIPMENT_CAP")
+    dashboard = client.call("GET", f"/records/records-dashboard?from_on={DAY}&through_on={DAY}")
+    check(dashboard["counts"] == {"farms": 1, "farm_surveys": 1, "customer_companies": 1,
+                                  "inbound_trades": 1, "outbound_trades": 1}, "DASHBOARD_COUNTS")
+    check(dashboard["period"]["cash_in_vnd"] == "45.67" and dashboard["period"]["cash_out_vnd"] == "12.34", "DASHBOARD_CASH_SOURCE")
+    check(dashboard["period"]["inbound_kg"] == "12.000" and dashboard["period"]["outbound_kg"] == "5.000", "DASHBOARD_STOCK_SOURCE")
+    check(dashboard["period"]["sales_order_value_vnd"] == "200.02", "DASHBOARD_TRADE_VALUE")
+    state["commerce"] = {"farm": farm, "company": company, "trades": trades}
+    print("PASS FARM_COMPANY_TRADES_PAYMENTS_DASHBOARD", flush=True)
+
+
+def commerce_persistence(client, state):
+    farm = client.call("GET", f"/records/parties/{state['commerce']['farm']['id']}")
+    check(farm["code"] == "T001" and farm["farm"]["owner_id_card"] == "0000123", "PERSIST_FARM_PROFILE")
+    for trade in state["commerce"]["trades"].values():
+        check(client.call("GET", f"/records/trades/{trade['id']}")["version"] == 1, "PERSIST_TRADE")
+    dashboard = client.call("GET", f"/records/records-dashboard?from_on={DAY}&through_on={DAY}")
+    check(dashboard["period"]["cash_in_vnd"] == "45.67", "PERSIST_TRADE_PAYMENT")
+
+
 def main():
-    global PROJECT
+    global PROJECT, PORT
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--port", type=int, default=1420,
+        help="Host transport port for disposable HTTP smoke; protocol Host/Origin stays canonical 1420. Not a browser preview URL.",
+    )
+    parser.add_argument("--browser", action="store_true", help="Read-only production UI check on canonical port 1420.")
     parser.add_argument(
         "--project",
         required=True,
         help="Disposable cafe-fin-preview-smoke or cafe-fin-preview-smoke-<suffix> project.",
     )
     args = parser.parse_args()
+    check(1024 <= args.port <= 65535, "SMOKE_PORT_RANGE")
+    PORT = args.port
+    check(not args.browser or PORT == 1420, "BROWSER_CANONICAL_PORT")
     check(
         re.fullmatch(r"cafe-fin-preview-smoke(?:-[a-z0-9-]{1,32})?", args.project),
         "SMOKE_PROJECT_ALLOWLIST",
@@ -534,6 +606,7 @@ def main():
     no_telegram(client)
     print("PASS SECURITY_AUTH_LINUX", flush=True)
     state = scenario(client)
+    commerce_scenario(client, state)
     print("PASS RECORDS_IMPORT_REPORT_CONTRACT", flush=True)
     old_headers = dict(client.headers)
     container_id = verify_container()
@@ -556,8 +629,20 @@ def main():
     login = client.call("POST", "/auth/login", {"username": username, "password": password})
     client.headers["Authorization"] = "Bearer " + login["access_token"]
     persistence(client, state)
+    commerce_persistence(client, state)
     no_telegram(client)
     print("PASS RESTART_PERSISTENCE_NEW_CAPABILITY", flush=True)
+    if args.browser:
+        result = subprocess.run(
+            ["node", str(ROOT / "tests/preview/browser_crm.mjs")], cwd=ROOT,
+            input=json.dumps({"project": PROJECT, "username": username, "password": password,
+                              "outbound_id": state["commerce"]["trades"]["outbound"]["id"]}),
+            text=True, capture_output=True, timeout=120, check=False,
+        )
+        if result.returncode != 0:
+            diagnostic = re.search(r"FAIL DOCKER_PRODUCTION_BROWSER_CRM_NAVIGATION_([A-Za-z_]+)", result.stderr)
+            raise SmokeFailure("PRODUCTION_BROWSER_CRM_" + (diagnostic.group(1) if diagnostic else "UNKNOWN"))
+        print("PASS DOCKER_PRODUCTION_BROWSER_CRM_NAVIGATION", flush=True)
     print("PASS DOCKER_HTTP_SMOKE", flush=True)
 
 

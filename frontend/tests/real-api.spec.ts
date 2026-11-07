@@ -284,7 +284,7 @@ test("real sidecar API integrates auth, original uploads, paged grid and verifie
     await expect(grid.getByText("00000501", { exact: true })).toBeVisible();
     const recordsResponse = page.waitForResponse((item) =>
       item.url().includes("/api/v1/records/parties?") && item.request().method() === "GET");
-    await page.getByRole("menuitem", { name: "Ghi nhận cà phê", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Phiếu cân và kho", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Ghi nhận cà phê" })).toBeVisible();
     expect((await recordsResponse).status()).toBe(200);
     await expect(page.getByRole("tab", { name: "Phiếu cân tay", exact: true })).toBeVisible();

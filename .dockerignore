@@ -31,3 +31,7 @@
 **/node_modules
 **/.venv
 **/dist
+frontend/tests
+frontend/test-results
+frontend/playwright-report
+frontend/playwright*.config.*
