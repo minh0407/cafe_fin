@@ -394,3 +394,45 @@ def test_registered_timer_actually_collects_and_closes(records_api, enabled, mon
     assert state["status"] == "APPLIED"
     records_api.runtime.close()
     assert not records_api.runtime.periodic.thread.is_alive()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "<table><tr><td>value</td></table></tr>",
+        "<table><tr><td>value<table></table></td></tr></table>",
+        html().replace("T08:00:00+07:00", "T00:00:00+23:59").replace(market.today(), "0001-01-01"),
+    ],
+)
+def test_malformed_source_never_leaks_untyped_parser_error(source):
+    with pytest.raises(market_http.MarketError) as error:
+        parse_banggianongsan_html(source)
+    assert error.value.code in {"SOURCE_CHANGED", "MISSING_SOURCE_DATE"}
+
+
+def test_runtime_closes_while_timer_dns_is_stalled(records_api, enabled, monkeypatch):
+    import socket
+    import time
+
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    def stuck_dns(*args, **kwargs):
+        entered.set()
+        try:
+            release.wait(20)
+            return []
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(socket, "getaddrinfo", stuck_dns)
+    monkeypatch.setattr(market_http, "download_html", market_http.download_direct)
+    try:
+        assert entered.wait(12), "Registered timer did not enter DNS"
+        started = time.monotonic()
+        records_api.runtime.close()
+        assert time.monotonic() - started < 3
+        assert not records_api.runtime.periodic.thread.is_alive()
+        assert not finished.is_set(), "OS resolver remained blocked independently of runtime close"
+    finally:
+        release.set()
+        assert finished.wait(3)

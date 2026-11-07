@@ -126,7 +126,13 @@ def parse_banggianongsan_html(
     ):
         raise PriceRejected("BLOCKED", "Nguồn yêu cầu xác minh truy cập; chưa lấy được bảng giá.")
     page = Page()
-    page.feed(html_text)
+    try:
+        page.feed(html_text)
+        page.close()
+    except MarketError:
+        raise
+    except (ValueError, TypeError, AttributeError, RecursionError):
+        raise MarketError("SOURCE_CHANGED", "HTML bảng nguồn không đúng cấu trúc.") from None
     candidates, dom_prices = [], []
     for script in page.scripts:
         try:

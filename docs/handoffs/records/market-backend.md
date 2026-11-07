@@ -29,9 +29,9 @@ Parser port từ adapter nguồn đã được người dùng chỉ định, lo�
 
 ## Kiểm chứng và giới hạn
 
-- PASS: focused parser/transport/service tests42 ca, gồm transaction rollback, revoke-during-fetch và timer thật/close.
+- PASS: focused parser/transport/service tests46 ca/32,40s, gồm transaction rollback, revoke-during-fetch, malformed HTML, timer thật và runtime close khi OS DNS vẫn đang treo. DNS helper không chặn đóng runtime hoặc truy cập DB sau đóng.
 - PASS: lint `python -m ruff check backend/cafe_fin/records tests/records/test_market.py tests/records/test_market_transport.py`; format các file mới/module.
-- PASS: `CAFE_FIN_MARKET_NETWORK=0 python -m pytest tests/records -q`:231 passed/132,39s ở lượt trước3 ca bổ sung;3 ca bổ sung đã PASS trong focused42 ca/19,65s.
+- PASS: `CAFE_FIN_MARKET_NETWORK=0 python -m pytest tests/records -q`:231 passed/132,39s ở lượt trước7 ca bổ sung;7 ca bổ sung đã PASS trong focused46 ca/32,40s.
 - Synthetic tests không gọi WAN. Dùng file-backed SQLite thật của Cafe Fin, không dùng PostgreSQL hoặc chứng minh hành vi CRM cũ.
 - LiveGET adapter mới từ host07/11/2026: HTTP200,11953 bytes/0,531s; parser nhận challenge và trả `BLOCKED`, không tạo giá. Lệnh in thông báo tiếng Việt ở console cp1252 gặp UnicodeEncodeError sau khi đã nhận mã BLOCKED; không phải lỗi parser/transport. Lần GET adapter cũ do điều phối chạy trước đó trả HTTP403/BLOCKED. Không có bằng chứng nguồn trả báo giá hiện tại; không gọi production-ready. Relay Docker/Compose, full-backend/CI/browser và gate đóng gói thuộc điều phối.
 
