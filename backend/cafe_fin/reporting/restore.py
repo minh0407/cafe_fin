@@ -1,6 +1,6 @@
 """Owner restore quarantine, before any recovery/startup/worker; no secret IO."""
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, false, func, select
 
 from cafe_fin.core.activation import ActivationContext, activation_context
 from cafe_fin.core.audit import AuditService
@@ -9,8 +9,10 @@ from cafe_fin.core.errors import CoreError
 from cafe_fin.core.time import utc_now
 
 from .local_exports import invalidate_relocated_copies
-from .migrations import OUTBOX, REPORTS, SETTINGS
+from .migrations import REPORTS, SETTINGS
 from .schedule_migrations import DAILY_RUNS
+from .telegram import PROVIDER
+from .telegram_migrations import OUTBOX, receipt_proof
 
 REVIEW_CODE = "RESTORE_REVIEW_REQUIRED"
 GUARD_ACTOR = "reporting.activation"
@@ -39,8 +41,8 @@ def held_report(report_id):
         select(hold.c.id)
         .where(
             hold.c.report_id == report_id,
-            hold.c.state == "UNKNOWN",
-            hold.c.error_code == REVIEW_CODE,
+            ((hold.c.state == "UNKNOWN") & (hold.c.error_code == REVIEW_CODE))
+            | (hold.c.provider != PROVIDER),
         )
         .exists()
     )
@@ -57,8 +59,23 @@ def held_series(series_key):
     )
 
 
-def positive(column):
-    return func.length(column).between(1, 256) & ~column.bool_op("GLOB")("*[^A-Za-z0-9_-]*")
+def identity_conflict_series(series_key, config):
+    if not config.get("bot_id") or not config.get("chat_id"):
+        return false()
+    report = REPORTS.alias("identity_conflict_series")
+    delivery = OUTBOX.alias("identity_conflict_delivery")
+    return (
+        select(report.c.id)
+        .join(delivery, delivery.c.report_id == report.c.id)
+        .where(
+            report.c.series_key == series_key,
+            delivery.c.provider == PROVIDER,
+            delivery.c.destination == config["chat_id"],
+            delivery.c.oa_id == "",
+            delivery.c.bot_id.is_distinct_from(config["bot_id"]),
+        )
+        .exists()
+    )
 
 
 def apply_guard(service, actor, context):
@@ -81,8 +98,16 @@ def apply_guard(service, actor, context):
             eligible = OUTBOX.c.state.in_(
                 ("WAITING", "FAILED", "UNCONFIGURED", "SENDING", "UNKNOWN")
             )
-            proof = positive(OUTBOX.c.message_id) & (
-                OUTBOX.c.attachment_export_id.is_(None) | positive(OUTBOX.c.file_message_id)
+            proof = (
+                (OUTBOX.c.provider == PROVIDER)
+                & OUTBOX.c.bot_id.is_not(None)
+                & receipt_proof(OUTBOX.c.message_id, OUTBOX.c.message_chat_id, OUTBOX.c.chat_id)
+                & (
+                    OUTBOX.c.attachment_export_id.is_(None)
+                    | receipt_proof(
+                        OUTBOX.c.file_message_id, OUTBOX.c.file_message_chat_id, OUTBOX.c.chat_id
+                    )
+                )
             )
             total = conn.execute(
                 select(func.count()).select_from(OUTBOX).where(eligible)

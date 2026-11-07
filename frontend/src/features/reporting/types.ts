@@ -107,7 +107,12 @@ export interface Delivery {
   id: string;
   report_id: string;
   destination: string;
-  oa_id: string;
+  provider: "telegram" | "zalo_legacy";
+  bot_id: string | null;
+  chat_id: string;
+  message_chat_id: string | null;
+  file_message_chat_id: string | null;
+  retry_not_before: string | null;
   state: DeliveryState;
   phase: string;
   version: number;
@@ -118,6 +123,7 @@ export interface Delivery {
   created_at: string;
 }
 export interface Attempt {
+  provider: "telegram" | "zalo_legacy";
   id: string;
   phase: string;
   outcome: string;
@@ -127,8 +133,10 @@ export interface Attempt {
 }
 export interface Settings {
   version: number;
-  oa_id: string;
-  group_id: string;
+  provider: "telegram";
+  chat_id: string;
+  bot_id: string | null;
+  bot_verified_at: string | null;
   enabled: boolean;
   timezone: string;
   send_at: string | null;

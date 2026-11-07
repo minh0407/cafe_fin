@@ -88,8 +88,14 @@ const scopeName = (name: string | null | undefined, fallback: string) =>
     )
     .replace(/\s+/g, " ")
     .trim() || fallback;
+const wireAttachment = (file: ExportFile) =>
+  file.format === "pdf" || file.format === "xlsx";
 const settingsFields = (settings: Settings) => ({
-  ...settings,
+  chat_id: settings.chat_id,
+  enabled: settings.enabled,
+  timezone: settings.timezone,
+  send_at: settings.send_at,
+  attachments_enabled: settings.attachments_enabled,
   auto_generate_daily: settings.auto_generate_daily ?? false,
   daily_book_ids: settings.daily_book_ids ?? [],
   daily_export_formats: settings.daily_export_formats ?? ["pdf", "xlsx", "txt"],
@@ -241,6 +247,13 @@ function ReportingView() {
         if (live()) setError(messageOf(cause));
       });
   }, [isAdmin, settingsForm, live]);
+  async function refreshSettings(preserveDraft = true) {
+    const result = await api<Settings>("/reporting/settings");
+    if (live()) {
+      setSettings(result);
+      if (!preserveDraft) settingsForm.setFieldsValue(settingsFields(result));
+    }
+  }
   async function openReport(id: string) {
     const result = await api<ReportDetail>(
       `/reporting/reports/${encodeURIComponent(id)}`,
@@ -307,14 +320,40 @@ function ReportingView() {
         </Button>
       ),
     },
-    { title: "Nhóm đích", dataIndex: "destination", key: "destination" },
+    {
+      title: "Kênh / nhóm đích",
+      key: "destination",
+      render: (_: unknown, row: Delivery) =>
+        row.provider === "zalo_legacy"
+          ? `Kênh cũ • ${row.destination}`
+          : `Telegram • ${row.chat_id}`,
+    },
     { title: "Gửi", dataIndex: "state", key: "state", render: status },
     { title: "Lượt thử", dataIndex: "attempts", key: "attempts" },
     {
       title: "Kết quả",
       key: "result",
-      render: (_: unknown, row: Delivery) =>
-        row.error_code ?? row.message_id ?? "Chưa có xác nhận",
+      render: (_: unknown, row: Delivery) => (
+        <Space orientation="vertical">
+          <Typography.Text>{row.error_code ?? "Chưa có lỗi"}</Typography.Text>
+          {row.message_id && (
+            <Typography.Text>
+              Tin: {row.message_chat_id ?? "chưa có Chat ID xác nhận"} / {row.message_id}
+            </Typography.Text>
+          )}
+          {row.file_message_id && (
+            <Typography.Text>
+              Tệp: {row.file_message_chat_id ?? "chưa có Chat ID xác nhận"} / {row.file_message_id}
+            </Typography.Text>
+          )}
+          {!row.message_id && !row.file_message_id && (
+            <Typography.Text>Chưa có xác nhận</Typography.Text>
+          )}
+          {row.retry_not_before && (
+            <Typography.Text>Thử lại sớm nhất: {row.retry_not_before}</Typography.Text>
+          )}
+        </Space>
+      ),
     },
     {
       title: "",
@@ -327,7 +366,8 @@ function ReportingView() {
           >
             Nhật ký
           </Button>
-          {["FAILED", "UNCONFIGURED"].includes(row.state) && (
+          {row.provider === "telegram" &&
+            ["FAILED", "UNCONFIGURED"].includes(row.state) && (
             <Button
               disabled={busy || restoreHeld}
               onClick={() =>
@@ -342,7 +382,9 @@ function ReportingView() {
               Thử lại
             </Button>
           )}
-          {isAdmin && row.state === "UNKNOWN" && (
+          {isAdmin &&
+            row.provider === "telegram" &&
+            row.state === "UNKNOWN" && (
             <Button
               disabled={busy || restoreHeld}
               onClick={() =>
@@ -352,7 +394,7 @@ function ReportingView() {
                   });
                   if (live())
                     setNotice(
-                      "Đã yêu cầu đối chiếu. Nếu chưa có bằng chứng, trạng thái vẫn Chưa rõ và không tự gửi lại.",
+                      "Đã yêu cầu đối chiếu. Telegram không có API lịch sử tin đã gửi; hãy so sánh thủ công trong nhóm Telegram. Trạng thái vẫn Chưa rõ và không tự gửi lại.",
                     );
                   await reload();
                 })
@@ -486,8 +528,8 @@ function ReportingView() {
       {restoreHeld && (
         <Alert
           type="warning"
-          title="Đã khôi phục dữ liệu — lịch và gửi Zalo đang tạm dừng"
-          description="Báo cáo local vẫn xem, tạo và xuất được. Admin cần kiểm tra OA, nhóm đích, giờ gửi trong Cấu hình Admin, sau đó bật lịch và lưu cấu hình để tiếp tục. Lượt cũ Chưa rõ giữ nguyên và không tự gửi lại khi bật lịch hoặc đổi credential."
+          title="Đã khôi phục dữ liệu — lịch và gửi Telegram đang tạm dừng"
+          description="Báo cáo local vẫn xem, tạo và xuất được. Admin cần kiểm tra bot Telegram, Chat ID nhóm và giờ gửi trong Cấu hình Admin, sau đó bật lịch và lưu cấu hình để tiếp tục. Lượt cũ Chưa rõ giữ nguyên và không tự gửi lại khi bật lịch hoặc đổi bot token."
         />
       )}
       <Alert
@@ -641,11 +683,22 @@ function ReportingView() {
                   key: "settings",
                   label: "Cấu hình Admin",
                   children: (
-                    <Card title="Lịch local và Zalo OA GMF">
+                    <Card title="Lịch local và Telegram">
                       <Alert
                         type="info"
                         title={settings?.sender_status ?? "UNCONFIGURED"}
                       />
+                      <Typography.Paragraph>
+                        Tạo bot riêng bằng BotFather trên Telegram, thêm bot vào nhóm hoặc supergroup
+                        và chỉ cấp quyền gửi tin; nếu chọn đính kèm, cho phép gửi tài liệu.
+                        Lưu Chat ID và token rồi kiểm tra kết nối. Kiểm tra chỉ xác minh bot,
+                        nhóm và quyền, không gửi tin. Token mới hoặc đổi Chat ID cần kiểm tra lại.
+                      </Typography.Paragraph>
+                      <Typography.Paragraph>
+                        Bot ID: {settings?.bot_id ?? "Chưa có"}
+                        {settings?.bot_id && !settings.bot_verified_at && " (từ token, chưa xác minh)"}
+                        {settings?.bot_verified_at && ` • Đã xác minh: ${settings.bot_verified_at}`}
+                      </Typography.Paragraph>
                       <RuntimeScheduleStatus settings={settings} />
                       <Form
                         form={settingsForm}
@@ -655,8 +708,7 @@ function ReportingView() {
                             await mutate(
                               "/reporting/settings",
                               {
-                                oa_id: values.oa_id ?? "",
-                                group_id: values.group_id ?? "",
+                                chat_id: values.chat_id ?? "",
                                 timezone: values.timezone,
                                 enabled: !!values.enabled,
                                 attachments_enabled:
@@ -671,24 +723,24 @@ function ReportingView() {
                               },
                               "PUT",
                             );
-                            const result = await api<Settings>(
-                              "/reporting/settings",
-                            );
-                            if (live()) {
-                              setSettings(result);
-                              settingsForm.setFieldsValue(
-                                settingsFields(result),
-                              );
-                              setNotice("Đã lưu cấu hình.");
-                            }
+                            await refreshSettings(false);
+                            if (live()) setNotice("Đã lưu cấu hình.");
                           })
                         }
                       >
-                        <Form.Item name="oa_id" label="OA ID">
-                          <Input maxLength={128} />
-                        </Form.Item>
-                        <Form.Item name="group_id" label="Nhóm GMF đích">
-                          <Input maxLength={128} />
+                        <Form.Item
+                          name="chat_id"
+                          label="Chat ID nhóm / supergroup Telegram"
+                          extra="Nhập Chat ID dạng số âm, ví dụ -1001234567890. Để trống khi chưa cấu hình."
+                          rules={[
+                            {
+                              pattern: /^-[1-9][0-9]*$/,
+                              message:
+                                "Chat ID phải là chuỗi số nguyên âm chuẩn, không có khoảng trắng hoặc số 0 ở đầu.",
+                            },
+                          ]}
+                        >
+                          <Input maxLength={32} autoComplete="off" />
                         </Form.Item>
                         <Form.Item
                           name="timezone"
@@ -739,7 +791,7 @@ function ReportingView() {
                           Cùng ngày và sổ: dùng bản thủ công đã lưu; ưu tiên bản
                           đã xếp gửi để tránh gửi hai phiên bản ngầm. Sau khi có
                           lượt hôm nay, thay đổi cấu hình áp dụng từ ngày sau
-                          hoặc xử lý thủ công. Thiếu Zalo vẫn tạo báo cáo local.
+                          hoặc xử lý thủ công. Thiếu Telegram vẫn tạo báo cáo local.
                         </Typography.Paragraph>
                         {(settings?.enabled || settings?.scheduled_actor_id) &&
                           settings.schedule_actor_status === "BLOCKED" && (
@@ -778,7 +830,7 @@ function ReportingView() {
                       {!settings?.credential_store_available && (
                         <Alert
                           type="warning"
-                          title="Kho bí mật Windows chưa được kết nối; credential chưa thể lưu. Báo cáo local vẫn dùng được."
+                          title="Kho bí mật Windows chưa được kết nối; bot token chưa thể lưu. Báo cáo local vẫn dùng được."
                         />
                       )}
                       <Form
@@ -791,49 +843,43 @@ function ReportingView() {
                               await api("/reporting/credentials", {
                                 method: "PUT",
                                 body: JSON.stringify({
-                                  ...values,
-                                  access_token: "",
+                                  bot_token: values.bot_token,
                                 }),
                               });
                               if (live())
                                 setNotice(
-                                  "Đã lưu credential trong kho bí mật.",
+                                  "Đã lưu bot token trong kho bí mật. Cần kiểm tra kết nối lại trước khi gửi.",
                                 );
                             } finally {
                               secretForm.resetFields();
+                              await refreshSettings();
                             }
                           })
                         }
                       >
                         <Form.Item
-                          name="app_id"
-                          label="App ID"
-                          rules={[{ required: true }]}
+                          name="bot_token"
+                          label="Bot token Telegram"
+                          rules={[
+                            {
+                              required: true,
+                              message: "Nhập bot token do BotFather cấp.",
+                            },
+                          ]}
                         >
-                          <Input autoComplete="off" />
-                        </Form.Item>
-                        <Form.Item
-                          name="app_secret"
-                          label="App secret"
-                          rules={[{ required: true }]}
-                        >
-                          <Input.Password autoComplete="new-password" />
-                        </Form.Item>
-                        <Form.Item
-                          name="refresh_token"
-                          label="Refresh token"
-                          rules={[{ required: true }]}
-                        >
-                          <Input.Password autoComplete="new-password" />
+                          <Input.Password
+                            autoComplete="new-password"
+                            disabled={busy}
+                          />
                         </Form.Item>
                         <Space wrap>
                           <Button
-                            aria-label="Lưu credential"
+                            aria-label="Lưu bot token"
                             htmlType="submit"
                             loading={busy}
                             disabled={!settings?.credential_store_available}
                           >
-                            Lưu credential
+                            Lưu bot token
                           </Button>
                           <Button
                             disabled={busy || restoreHeld}
@@ -843,6 +889,7 @@ function ReportingView() {
                                   state: string;
                                   code: string | null;
                                 }>("/reporting/connection-check", {});
+                                await refreshSettings();
                                 if (live())
                                   setNotice(
                                     `Kiểm tra kết nối: ${result.state}${result.code ? ` (${result.code})` : ""}. Chưa gửi tin.`,
@@ -1057,7 +1104,7 @@ function ReportingView() {
                   value={attachment}
                   placeholder="Không đính kèm tệp"
                   onChange={setAttachment}
-                  options={detail.exports.map((file) => ({
+                  options={detail.exports.filter(wireAttachment).map((file) => ({
                     value: file.id,
                     label: `Tổng hợp ${file.format.toUpperCase()} - ${file.sha256.slice(0, 8)}`,
                   }))}
@@ -1073,7 +1120,12 @@ function ReportingView() {
                     void action(async () => {
                       const result = await mutate<Delivery>(
                         `/reporting/reports/${detail.id}/deliveries`,
-                        { attachment_export_id: attachment ?? null },
+                        {
+                          attachment_export_id:
+                            detail.exports.find(
+                              (file) => file.id === attachment && wireAttachment(file),
+                            )?.id ?? null,
+                        },
                       );
                       if (live())
                         setNotice(
@@ -1101,6 +1153,12 @@ function ReportingView() {
           dataSource={attempts?.items}
           columns={[
             { title: "Thời điểm", dataIndex: "created_at" },
+            {
+              title: "Kênh",
+              dataIndex: "provider",
+              render: (provider: string) =>
+                provider === "zalo_legacy" ? "Kênh cũ" : "Telegram",
+            },
             { title: "Bước", dataIndex: "phase" },
             { title: "Kết quả", dataIndex: "outcome", render: status },
             { title: "Mã lỗi", dataIndex: "code" },

@@ -17,10 +17,19 @@ from cafe_fin.core.time import utc_now
 from . import exports
 from .local_export_migrations import LOCAL_EXPORTS
 from .local_exports import ensure_local_copy, local_state, repair_relocated_copies
-from .migrations import ATTEMPTS, EXPORTS, LOCKS, OUTBOX, REPORTS, SETTINGS
+from .migrations import EXPORTS, LOCKS, REPORTS, SETTINGS
 from .models import DATE_RANGE_CONTRACT
-from .restore import REVIEW_CODE, apply_guard, held_series, require_reviewed, suspended
+from .restore import (
+    REVIEW_CODE,
+    apply_guard,
+    held_series,
+    identity_conflict_series,
+    require_reviewed,
+    suspended,
+)
 from .sources import UnboundSources, build_snapshot
+from .telegram import MAX_DOCUMENT_BYTES, PROVIDER, token_bot_id, truncate_text, valid_chat
+from .telegram_migrations import ATTEMPTS, OUTBOX, receipt_proof
 
 
 def new_id():
@@ -55,7 +64,12 @@ def outbox_dto(row):
             "id",
             "report_id",
             "destination",
-            "oa_id",
+            "provider",
+            "bot_id",
+            "chat_id",
+            "message_chat_id",
+            "file_message_chat_id",
+            "retry_not_before",
             "config_version",
             "state",
             "phase",
@@ -83,7 +97,7 @@ class ReportingService:
         heartbeat_bound=False,
         clock=None,
     ):
-        from .zalo import MissingSecrets, OfficialGMF
+        from .telegram import MissingSecrets, OfficialTelegram
 
         self.runtime = runtime
         self.source = source or UnboundSources()
@@ -91,7 +105,7 @@ class ReportingService:
             raise ValueError("Choose source or actor_source_factory")
         self.actor_source_factory = actor_source_factory
         self.secrets = secret_store or MissingSecrets()
-        self.transport = transport or OfficialGMF()
+        self.transport = transport or OfficialTelegram()
         # Compatibility argument only. Public status is derived from real registration,
         # never from a caller's claim that an external heartbeat exists.
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -102,7 +116,7 @@ class ReportingService:
     def command(self, actor, action, request_key, payload, operation, *, admin=False):
         def authorize(conn):
             self.authorize(actor, "core.manage" if admin else "reporting.write")(conn)
-            if action in {"enqueue", "retry"}:
+            if action in {"enqueue", "retry", "reconcile"}:
                 self.require_delivery_review(conn)
 
         return self.runtime.writer.execute(
@@ -330,8 +344,10 @@ class ReportingService:
         row = conn.execute(select(SETTINGS).where(SETTINGS.c.id == "delivery")).mappings().first()
         defaults = {
             "version": 0,
-            "group_id": "",
-            "oa_id": "",
+            "provider": PROVIDER,
+            "chat_id": "",
+            "bot_id": None,
+            "bot_verified_at": None,
             "enabled": False,
             "timezone": "Asia/Ho_Chi_Minh",
             "send_at": None,
@@ -369,14 +385,14 @@ class ReportingService:
             if suspended(config):
                 config["credential_configured"] = None  # Deliberately not read during restore hold.
             else:
-                config["credential_configured"] = self.secrets.has(self.secret_key(config))
+                config["credential_configured"] = self.has_credentials(config)
         except Exception:
             config["credential_configured"] = False
         config["sender_status"] = (
             "RESTORE_SUSPENDED"
             if suspended(config)
             else "CONFIGURED"
-            if (config["group_id"] and config["oa_id"] and config["credential_configured"])
+            if (config["chat_id"] and config["bot_verified_at"] and config["credential_configured"])
             else "UNCONFIGURED"
         )
         periodic = self.runtime.periodic
@@ -413,10 +429,22 @@ class ReportingService:
         try:
             return bool(
                 not suspended(config)
-                and config["oa_id"]
-                and config["group_id"]
-                and self.secrets.has(self.secret_key(config))
+                and config["provider"] == PROVIDER
+                and valid_chat(config["chat_id"])
+                and config["bot_id"]
+                and config["bot_verified_at"]
+                and self.has_credentials(config)
             )
+        except Exception:
+            return False
+
+    def has_credentials(self, config):
+        if not config.get("bot_id"):
+            return False
+        try:
+            credential = self.secrets.get(self.secret_key(config))
+            token = credential.get("bot_token") if isinstance(credential, dict) else None
+            return token_bot_id(token) == config["bot_id"]
         except Exception:
             return False
 
@@ -424,7 +452,16 @@ class ReportingService:
         # Stable root identity survives move/restore, without a local path in credentials.
         marker = self.runtime.root.resolve_key(".cafe-fin-root.json")
         root_id = json.loads(marker.read_text(encoding="utf-8"))["root_id"]
-        return f"cafe_fin/reporting/{root_id}/{config['oa_id']}"
+        bot_id = config.get("bot_id")
+        if (
+            not isinstance(bot_id, str)
+            or not bot_id.isascii()
+            or not bot_id.isdecimal()
+            or not 0 < int(bot_id) <= 2**52 - 1
+            or str(int(bot_id)) != bot_id
+        ):
+            raise CoreError("TELEGRAM_UNCONFIGURED", "Chưa có bot Telegram được cấu hình.", 409)
+        return f"cafe_fin/reporting/{root_id}/telegram/{bot_id}"
 
     def update_settings(self, actor, command):
         value = command.model_dump(exclude={"request_key", "expected_version"})
@@ -464,6 +501,12 @@ class ReportingService:
                     "reviewed_by": actor.id,
                 }
             persisted = value | {
+                "provider": PROVIDER,
+                "bot_id": old["bot_id"],
+                "bot_verified_at": old["bot_verified_at"]
+                if old["chat_id"] == value["chat_id"]
+                and not (value["attachments_enabled"] and not old["attachments_enabled"])
+                else None,
                 "scheduled_actor_id": actor.id,
                 "auto_activated_on": activated,
                 "restore_review": review,
@@ -525,11 +568,16 @@ class ReportingService:
         with sender_lock(self) as locked:
             if not locked:
                 raise CoreError("SENDER_BUSY", "Đợi bộ gửi hoàn tất trước khi đổi credential.", 409)
+            self.runtime.writer.run(self.authorize(actor, "core.manage"))
             config = self.settings()
-            if not config["oa_id"]:
-                raise CoreError("ZALO_UNCONFIGURED", "Lưu OA trước khi lưu credential.", 409)
+            token = command.bot_token.get_secret_value()
+            bot_id = token_bot_id(token)
+            # Persist removal of the old proof before OS replacement. A crash,
+            # failed write or revocation can never pair a new token with old proof.
+            self.record_bot(actor, bot_id, verified=False, expected_version=config["version"])
+            self.runtime.writer.run(self.authorize(actor, "core.manage"))
             try:
-                self.secrets.put(self.secret_key(config), command.model_dump())
+                self.secrets.put(self.secret_key({"bot_id": bot_id}), {"bot_token": token})
             except CoreError as exc:
                 messages = {
                     "SECRET_VALUE_TOO_LARGE": (
@@ -551,6 +599,37 @@ class ReportingService:
                 ) from None
         return {"configured": True}
 
+    def record_bot(self, actor, bot_id, *, verified, expected_version):
+        def operation(conn):
+            self.authorize(actor, "core.manage")(conn)
+            if verified:
+                self.require_delivery_review(conn)
+            old = self.settings(conn)
+            version = require_version(old["version"], expected_version)
+            persisted = {key: value for key, value in old.items() if key != "version"}
+            persisted.update(
+                provider=PROVIDER, bot_id=bot_id, bot_verified_at=utc_now() if verified else None
+            )
+            values = dict(
+                version=version, config_json=canonical_json(persisted), updated_at=utc_now()
+            )
+            if old["version"]:
+                conn.execute(SETTINGS.update().where(SETTINGS.c.id == "delivery").values(**values))
+            else:
+                conn.execute(SETTINGS.insert().values(id="delivery", **values))
+            AuditService.record(
+                conn,
+                actor=actor.id,
+                entity="reporting_settings",
+                entity_id="delivery",
+                action="verify_bot" if verified else "configure_bot",
+                before=old,
+                after={"version": version, **persisted},
+            )
+            return self.settings(conn)
+
+        return self.runtime.writer.run(operation)
+
     def _enqueue(self, conn, report, config, attachment=None, *, credential_ready=False):
         snapshot = json.loads(report.snapshot_json)
         if snapshot["period"].get("date_range_contract") != DATE_RANGE_CONTRACT:
@@ -559,18 +638,28 @@ class ReportingService:
                 "Kỳ báo cáo cũ chưa định danh. Tạo bản điều chỉnh với ngày cuối được bao gồm.",
                 409,
             )
+        # Unbound local intents do not reserve a real Telegram destination. Once
+        # setup is complete a separate immutable route can be queued normally.
+        bound = bool(config["bot_id"] and valid_chat(config["chat_id"]))
+        destination = config["chat_id"] if bound else ""
         existing = (
             conn.execute(
                 select(OUTBOX).where(
                     OUTBOX.c.report_id == report.id,
-                    OUTBOX.c.destination == config["group_id"],
-                    OUTBOX.c.oa_id == config["oa_id"],
+                    OUTBOX.c.destination == destination,
+                    OUTBOX.c.oa_id == "",  # Frozen v1 storage slot, never Telegram identity.
                 )
             )
             .mappings()
             .first()
         )
         if existing:
+            if existing.provider != PROVIDER or (bound and existing.bot_id != config["bot_id"]):
+                raise CoreError(
+                    "DELIVERY_IDENTITY_CONFLICT",
+                    "Bản gửi đã khóa kênh/bot; cần tạo bản điều chỉnh rõ ràng.",
+                    409,
+                )
             if attachment != existing.attachment_export_id:
                 raise CoreError(
                     "DELIVERY_PAYLOAD_CONFLICT", "Bản gửi đã khóa nội dung/đính kèm.", 409
@@ -588,25 +677,40 @@ class ReportingService:
                 .mappings()
                 .first()
             )
-            if not match:
-                raise CoreError("ATTACHMENT_INVALID", "Chỉ chọn bản tổng hợp của báo cáo này.", 409)
+            if (
+                not match
+                or match.format not in {"pdf", "xlsx"}
+                or not 0 < match.size <= MAX_DOCUMENT_BYTES
+            ):
+                raise CoreError(
+                    "ATTACHMENT_INVALID",
+                    "Chỉ chọn PDF/XLSX tổng hợp của báo cáo này, tối đa 5 MiB.",
+                    409,
+                )
         # No file ID or local path is included in the transport payload.
         payload = {
             "date_range_contract": DATE_RANGE_CONTRACT,
-            "text": exports.short_message(snapshot, report.version, report.sha256),
+            "provider": PROVIDER,
+            "bot_id": config["bot_id"] if bound else None,
+            "chat_id": config["chat_id"],
+            "text": truncate_text(exports.short_message(snapshot, report.version, report.sha256)),
         }
         now = utc_now()
         row = dict(
             id=new_id(),
             report_id=report.id,
-            destination=config["group_id"],
-            oa_id=config["oa_id"],
+            destination=destination,
+            oa_id="",  # Retained legacy storage constraint only.
+            provider=PROVIDER,
+            bot_id=config["bot_id"] if bound else None,
+            chat_id=config["chat_id"],
+            message_chat_id=None,
+            file_message_chat_id=None,
+            retry_not_before=None,
             config_version=config["version"],
             payload_json=canonical_json(payload),
             attachment_export_id=attachment,
-            state="WAITING"
-            if config["group_id"] and config["oa_id"] and credential_ready
-            else "UNCONFIGURED",
+            state="WAITING" if credential_ready else "UNCONFIGURED",
             phase="text",
             version=1,
             attempts=0,
@@ -737,8 +841,10 @@ class ReportingService:
             conn.execute(
                 OUTBOX.update()
                 .where(
+                    OUTBOX.c.provider == PROVIDER,
+                    OUTBOX.c.bot_id.is_not(None),
                     OUTBOX.c.state.in_(("SENDING", "UNKNOWN")),
-                    OUTBOX.c.message_id.is_not(None),
+                    receipt_proof(OUTBOX.c.message_id, OUTBOX.c.message_chat_id, OUTBOX.c.chat_id),
                     OUTBOX.c.attachment_export_id.is_(None),
                     (OUTBOX.c.error_code.is_(None) | (OUTBOX.c.error_code != REVIEW_CODE)),
                 )
@@ -753,7 +859,7 @@ class ReportingService:
             # Process crashed anywhere during outbound operation: never retry blindly.
             conn.execute(
                 OUTBOX.update()
-                .where(OUTBOX.c.state == "SENDING")
+                .where(OUTBOX.c.provider == PROVIDER, OUTBOX.c.state == "SENDING")
                 .values(
                     state="UNKNOWN",
                     error_code="PROCESS_INTERRUPTED",
@@ -800,16 +906,18 @@ class ReportingService:
                     OUTBOX.update()
                     .where(
                         OUTBOX.c.state == "UNCONFIGURED",
+                        OUTBOX.c.provider == PROVIDER,
                         ~select(REPORTS.c.id)
                         .where(
                             REPORTS.c.id == OUTBOX.c.report_id,
-                            held_series(REPORTS.c.series_key),
+                            held_series(REPORTS.c.series_key)
+                            | identity_conflict_series(REPORTS.c.series_key, config),
                         )
                         .exists(),
                         func.json_extract(OUTBOX.c.payload_json, "$.date_range_contract")
                         == DATE_RANGE_CONTRACT,
-                        OUTBOX.c.destination == config["group_id"],
-                        OUTBOX.c.oa_id == config["oa_id"],
+                        OUTBOX.c.chat_id == config["chat_id"],
+                        OUTBOX.c.bot_id == config["bot_id"],
                     )
                     .values(
                         state="WAITING",
@@ -832,6 +940,7 @@ class ReportingService:
                 .where(
                     REPORTS.c.state == "SAVED",
                     ~held_series(REPORTS.c.series_key),
+                    ~identity_conflict_series(REPORTS.c.series_key, config),
                     func.json_extract(REPORTS.c.snapshot_json, "$.period.date_range_contract")
                     == DATE_RANGE_CONTRACT,
                     REPORTS.c.through_on <= local_now.date().isoformat(),
@@ -845,8 +954,8 @@ class ReportingService:
                     ~select(OUTBOX.c.id)
                     .where(
                         OUTBOX.c.report_id == REPORTS.c.id,
-                        OUTBOX.c.destination == config["group_id"],
-                        OUTBOX.c.oa_id == config["oa_id"],
+                        OUTBOX.c.destination == config["chat_id"],
+                        OUTBOX.c.oa_id == "",
                     )
                     .exists(),
                 )
@@ -888,7 +997,10 @@ class ReportingService:
                 "delivery": {"state": "SUSPENDED", "code": REVIEW_CODE},
             }
         generation = generate_daily(self, now)
-        if generation["state"] in {"FAILED", "BLOCKED", "NEEDS_MANUAL", "BUSY"}:
+        if (
+            generation["state"] in {"FAILED", "BLOCKED", "NEEDS_MANUAL", "BUSY"}
+            and generation.get("error_code") != "DELIVERY_IDENTITY_CONFLICT"
+        ):
             return {"generation": generation, "queued": 0, "delivery": {"state": "BLOCKED"}}
         queued = self.catch_up(now)
         return {"generation": generation, "queued": queued, "delivery": dispatch_one(self)}
@@ -902,6 +1014,24 @@ class ReportingService:
             if not row:
                 raise CoreError("DELIVERY_NOT_FOUND", "Không tìm thấy lượt gửi.", 404)
             require_version(row.version, command.expected_version)
+            if row.provider != PROVIDER:
+                raise CoreError(
+                    "LEGACY_DELIVERY_READ_ONLY",
+                    "Lượt kênh cũ chỉ để tra cứu; không gửi lại bằng Telegram.",
+                    409,
+                )
+            if row.error_code == "TELEGRAM_RETRY_REVIEW_REQUIRED":
+                raise CoreError(
+                    "DELIVERY_RETRY_REVIEW_REQUIRED",
+                    "Thời gian chờ Telegram vượt phạm vi hỗ trợ; không thử lại sớm.",
+                    409,
+                )
+            if row.retry_not_before and self.clock().astimezone(
+                timezone.utc
+            ) < datetime.fromisoformat(row.retry_not_before):
+                raise CoreError(
+                    "DELIVERY_RETRY_LATER", "Telegram yêu cầu chờ trước khi thử lại.", 409
+                )
             if row.state not in {"FAILED", "UNCONFIGURED"}:
                 raise CoreError(
                     "DELIVERY_RETRY_UNSAFE",
@@ -913,17 +1043,18 @@ class ReportingService:
                 raise CoreError(
                     "SCHEDULE_CONFIG_CHANGED", "Cấu hình lịch đã đổi; hãy thử lại.", 409
                 )
-            if row.destination != config["group_id"] or row.oa_id != config["oa_id"]:
+            unbound = row.bot_id is None and row.destination == ""
+            if not unbound and (row.chat_id != config["chat_id"] or row.bot_id != config["bot_id"]):
                 raise CoreError(
                     "DESTINATION_CHANGED", "Đích đã đổi; xếp một bản gửi cho đích mới.", 409
                 )
-            next_state = "WAITING" if ready else "UNCONFIGURED"
+            next_state = "WAITING" if ready and not unbound else "UNCONFIGURED"
             conn.execute(
                 OUTBOX.update()
                 .where(OUTBOX.c.id == identity)
                 .values(
                     state=next_state,
-                    error_code=None if ready else "ZALO_UNCONFIGURED",
+                    error_code=None if ready else "TELEGRAM_UNCONFIGURED",
                     version=row.version + 1,
                     updated_at=utc_now(),
                 )

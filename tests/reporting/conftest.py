@@ -1,5 +1,4 @@
 import copy
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -215,48 +214,44 @@ class MemorySecrets:
         self.values[key] = copy.deepcopy(value)
 
 
+BOT_ID = "123456"
+CHAT_ID = "-1001234567890"
+BOT_TOKEN = BOT_ID + ":" + "A" * 35
+
+
 class FakeTransport:
     def __init__(self):
-        self.texts, self.files, self.uploads, self.refreshes = [], [], [], 0
-        self.verify_error = self.send_error = self.file_error = self.refresh_error = None
-        self.receipt = "text-receipt"
-        self.reconciled = None
+        from cafe_fin.reporting.telegram import MessageReceipt
 
-    def refresh(self, credential):
-        self.refreshes += 1
-        if self.refresh_error:
-            raise self.refresh_error
-        return {
-            **credential,
-            "access_token": "SYNTHETIC-access-rotated",
-            "refresh_token": "SYNTHETIC-refresh-rotated",
-            "expires_at": int(time.time()) + 90000,
-            "refresh_state": "READY",
-        }
+        self.texts, self.files, self.verifications = [], [], []
+        self.verify_error = self.send_error = self.file_error = None
+        self.receipt = MessageReceipt(CHAT_ID, 101)
+        self.file_receipt = MessageReceipt(CHAT_ID, 102)
+        self.allowed_bot_id, self.allowed_chat_id = BOT_ID, CHAT_ID
 
-    def verify(self, token, oa_id, group_id):
+    def verify(self, token, chat_id, bot_id, *, documents=False):
+        from cafe_fin.reporting.telegram import DeliveryError
+
+        self.verifications.append((chat_id, bot_id, documents))
         if self.verify_error:
             raise self.verify_error
-        assert oa_id == "demo-oa" and group_id == "demo-group"
+        if bot_id != self.allowed_bot_id:
+            raise DeliveryError("TELEGRAM_BOT_MISMATCH")
+        if chat_id != self.allowed_chat_id:
+            raise DeliveryError("TELEGRAM_CHAT_INVALID")
+        return bot_id
 
-    def send_text(self, token, group_id, text):
+    def send_text(self, token, chat_id, text, bot_id):
         self.texts.append(text)
         if self.send_error:
             raise self.send_error
         return self.receipt
 
-    def upload(self, token, content, filename):
-        self.uploads.append((content, filename))
-        return "synthetic-upload-token"
-
-    def send_file(self, token, group_id, upload_token):
-        self.files.append(upload_token)
+    def send_document(self, token, chat_id, content, filename, bot_id):
+        self.files.append((content, filename))
         if self.file_error:
             raise self.file_error
-        return "file-receipt"
-
-    def reconcile(self, token, group_id, text):
-        return self.reconciled
+        return self.file_receipt
 
 
 def preview_command(key="preview", reason="", first="2026-10-31", last="2026-11-01"):
@@ -275,25 +270,23 @@ def saved(env, key="preview", reason="", first="2026-10-31", last="2026-11-01"):
 
 
 def configure(env, *, enabled=True, attachments=False):
+    from cafe_fin.reporting.sender import check_connection
+
     config = env.service.settings()
     env.service.update_settings(
         env.actor,
         models.DeliverySettings(
             request_key="config-" + str(config["version"]),
             expected_version=config["version"],
-            group_id="demo-group",
-            oa_id="demo-oa",
+            chat_id=CHAT_ID,
             enabled=enabled,
             send_at="18:00",
             attachments_enabled=attachments,
         ),
     )
-    env.service.set_credentials(
-        env.actor,
-        models.Credentials(
-            app_id="demo-app", app_secret="SYNTHETIC-app-secret", refresh_token="SYNTHETIC-refresh"
-        ),
-    )
+    env.service.set_credentials(env.actor, models.Credentials(bot_token=BOT_TOKEN))
+    assert check_connection(env.service, env.actor)["state"] == "CONNECTED"
+    env.transport.verifications.clear()
 
 
 @pytest.fixture

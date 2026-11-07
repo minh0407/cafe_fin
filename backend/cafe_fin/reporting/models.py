@@ -4,9 +4,11 @@ from datetime import date, datetime, time
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from cafe_fin.core.time import business_day_bounds
+
+from .telegram import DeliveryError, token_bot_id, valid_chat
 
 DATE_RANGE_CONTRACT = "inclusive_business_dates_v1"
 
@@ -77,8 +79,7 @@ class Enqueue(Command):
 
 class DeliverySettings(Command):
     expected_version: int = Field(ge=0)
-    group_id: str = Field(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")
-    oa_id: str = Field(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")
+    chat_id: str = Field(default="", max_length=17)
     enabled: bool = False
     timezone: str = "Asia/Ho_Chi_Minh"
     send_at: str | None = None
@@ -88,6 +89,13 @@ class DeliverySettings(Command):
     daily_export_formats: list[Literal["pdf", "xlsx", "txt"]] = Field(
         default_factory=lambda: ["pdf", "xlsx", "txt"], max_length=3
     )
+
+    @field_validator("chat_id")
+    @classmethod
+    def chat(cls, value):
+        if value and not valid_chat(value):
+            raise ValueError("Chat ID cần là số nguyên âm của nhóm Telegram.")
+        return value
 
     @field_validator("daily_book_ids")
     @classmethod
@@ -124,20 +132,25 @@ class DeliverySettings(Command):
         if self.auto_generate_daily and not self.daily_export_formats:
             raise ValueError("Chọn ít nhất một định dạng báo cáo local.")
         if self.enabled and (
-            not self.send_at
-            or (not self.auto_generate_daily and (not self.group_id or not self.oa_id))
+            not self.send_at or (not self.auto_generate_daily and not self.chat_id)
         ):
-            raise ValueError("Bật lịch cần OA, nhóm và giờ gửi.")
+            raise ValueError("Bật lịch cần Chat ID nhóm và giờ gửi.")
         return self
 
 
 class Credentials(BaseModel):
     # Not a Command: secret bytes must NEVER enter core request receipts or audit.
-    model_config = ConfigDict(extra="forbid", strict=True)
-    app_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
-    app_secret: str = Field(min_length=1, max_length=2048)
-    refresh_token: str = Field(min_length=1, max_length=4096)
-    access_token: str = Field(default="", max_length=4096)
+    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+    bot_token: SecretStr = Field(repr=False)
+
+    @field_validator("bot_token", mode="before")
+    @classmethod
+    def token(cls, value):
+        try:
+            token_bot_id(value)
+        except DeliveryError:
+            raise ValueError("Bot token không hợp lệ.") from None
+        return value
 
 
 class Retry(Command):

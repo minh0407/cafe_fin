@@ -18,6 +18,7 @@ from .migrations import MIGRATIONS
 from .schedule_migrations import MIGRATIONS as SCHEDULE_MIGRATIONS
 from .sender import check_connection, reconcile
 from .service import ReportingService
+from .telegram_migrations import MIGRATIONS as TELEGRAM_MIGRATIONS
 
 
 def module_manifest(
@@ -164,7 +165,9 @@ def module_manifest(
         except CoreError:
             raise
         except Exception:
-            raise CoreError("ZALO_CHECK_FAILED", "Không kiểm tra được kết nối Zalo.", 503) from None
+            raise CoreError(
+                "TELEGRAM_CHECK_FAILED", "Không kiểm tra được kết nối Telegram.", 503
+            ) from None
 
     @router.post("/scheduler/tick")
     def tick(command: models.Command, request: Request):
@@ -217,7 +220,7 @@ def module_manifest(
         "reporting",
         "/reporting",
         permissions=("reporting.read", "reporting.write"),
-        migrations=MIGRATIONS + SCHEDULE_MIGRATIONS + LOCAL_EXPORT_MIGRATIONS,
+        migrations=MIGRATIONS + SCHEDULE_MIGRATIONS + LOCAL_EXPORT_MIGRATIONS + TELEGRAM_MIGRATIONS,
         router=router,
         job_handlers={"reporting.dispatch": JobHandler(run_dispatch, resumable=False)},
         on_startup=startup,

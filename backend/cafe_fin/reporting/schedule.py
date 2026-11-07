@@ -14,10 +14,12 @@ from cafe_fin.core.errors import CoreError
 from cafe_fin.core.time import utc_now
 
 from . import models
-from .migrations import LOCKS, OUTBOX, REPORTS
-from .restore import REVIEW_CODE, held_series, suspended
+from .migrations import LOCKS, REPORTS
+from .restore import REVIEW_CODE, held_series, identity_conflict_series, suspended
 from .schedule_migrations import DAILY_CURSOR, DAILY_RUNS
 from .service import new_id
+from .telegram import PROVIDER
+from .telegram_migrations import OUTBOX
 
 PROFILE = "delivery"
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -116,6 +118,8 @@ def manual_report(conn, day, config):
     ).hexdigest()
     if conn.execute(select(held_series(series))).scalar_one():
         return None, "RESTORE_REQUIRES_MANUAL"
+    if conn.execute(select(identity_conflict_series(series, config))).scalar_one():
+        return None, "IDENTITY_REQUIRES_MANUAL"
     # Prefer a version already queued for this destination, even if a newer manual
     # version exists: automatic work must not silently send a second version.
     queued = (
@@ -124,8 +128,9 @@ def manual_report(conn, day, config):
             .join(OUTBOX, OUTBOX.c.report_id == REPORTS.c.id)
             .where(
                 REPORTS.c.series_key == series,
-                OUTBOX.c.destination == config["group_id"],
-                OUTBOX.c.oa_id == config["oa_id"],
+                OUTBOX.c.provider == PROVIDER,
+                OUTBOX.c.chat_id == config["chat_id"],
+                OUTBOX.c.bot_id == config["bot_id"],
                 func.json_extract(REPORTS.c.snapshot_json, "$.period.date_range_contract")
                 == models.DATE_RANGE_CONTRACT,
             )
@@ -161,7 +166,7 @@ def insert_run(conn, day, config, *, missed=False, scheduled_due_at=None):
     report, policy = manual_report(conn, day, config)
     identity, now = new_id(), utc_now()
     state = "MISSED" if missed and report is None else "PENDING"
-    if policy == "RESTORE_REQUIRES_MANUAL":
+    if policy in {"RESTORE_REQUIRES_MANUAL", "IDENTITY_REQUIRES_MANUAL"}:
         state = "NEEDS_MANUAL"
     elif state == "MISSED":
         policy = "MISSED_NO_SNAPSHOT"
@@ -179,7 +184,9 @@ def insert_run(conn, day, config, *, missed=False, scheduled_due_at=None):
             outbox_id=None,
             policy=policy,
             attempts=0,
-            error_code=REVIEW_CODE
+            error_code=(
+                REVIEW_CODE if policy == "RESTORE_REQUIRES_MANUAL" else "DELIVERY_IDENTITY_CONFLICT"
+            )
             if state == "NEEDS_MANUAL"
             else "MISSED_REQUIRES_MANUAL"
             if state == "MISSED"
@@ -224,7 +231,7 @@ def prepare(service, actor, config, now):
             elif (
                 existing.report_id is None
                 and existing.state not in {"COMPLETED", "MISSED"}
-                and existing.error_code != REVIEW_CODE
+                and existing.error_code not in {REVIEW_CODE, "DELIVERY_IDENTITY_CONFLICT"}
             ):
                 captured = captured_report(conn, existing)
                 if captured is not None:
@@ -421,8 +428,9 @@ def generate_daily(service, now):
                     conn.execute(
                         select(OUTBOX).where(
                             OUTBOX.c.report_id == report["id"],
-                            OUTBOX.c.destination == config["group_id"],
-                            OUTBOX.c.oa_id == config["oa_id"],
+                            OUTBOX.c.provider == PROVIDER,
+                            OUTBOX.c.chat_id == config["chat_id"],
+                            OUTBOX.c.bot_id == config["bot_id"],
                         )
                     )
                     .mappings()
