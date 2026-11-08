@@ -1,10 +1,32 @@
 # Hướng dẫn Cafe Fin trên một máy tính
 
-**Bản hướng dẫn dự thảo theo UI/source hiện tại, ngày 07/11/2026.**
+**Bản hướng dẫn theo UI/source hiện tại, ngày 08/11/2026.**
 CI và các kiểm tra Windows đang tiếp tục; tài liệu không xác nhận đã cài đặt,
 nghiệm thu giao diện native hoặc chạy trên máy Windows sạch của người dùng.
 Dữ liệu nghiệp vụ nằm trong DB và tệp trên máy; nhập/xem/xuất local không cần
 mạng ngoài. Gửi Telegram cần Internet, bot và nhóm do Admin cấu hình; bộ lấy giá nhân xô cũng cần Internet để đọc nguồn công khai cố định.
+
+## Mở ứng dụng và chạy nền
+
+Cài bộ Cafe Fin Windows x64 đã được giao, rồi mở từ shortcut. App tự chạy phần
+xử lý local; không cần mở browser, Docker hoặc terminal. Lần đầu chọn thư mục dữ
+liệu trên ổ local và tạo Admin. Lần sau app dùng lại thư mục đã chọn; nếu ổ mất
+hoặc dữ liệu đang chờ phục hồi, xử lý thông báo thay vì khởi tạo DB rỗng thay thế.
+
+Nút **X** thu cửa sổ về khay hệ thống, giữ nháp và phiên trong bộ nhớ. Chọn
+**Mở Cafe Fin** ở khay hoặc mở lại shortcut để hiện cửa sổ. Lịch báo cáo/giá vẫn
+chạy khi app ở khay và máy còn thức. Muốn đóng hẳn, chọn **Thoát** ở khay và xác
+nhận; hãy lưu nháp trước. Máy tắt/ngủ hoặc app đã Thoát thì không chạy lịch.
+
+Trong **Khởi động và chạy nền**, **Tự mở cùng Windows** mặc định tắt. Bật khi
+muốn Cafe Fin tự mở cho tài khoản Windows hiện tại; có thể tắt lại tại đây.
+Thiết lập không lưu mật khẩu hoặc tự đăng nhập. Lần mở cùng Windows chỉ thu về
+khay sau khi xác nhận dữ liệu hiện có khởi động bình thường; setup mới hoặc lỗi
+vẫn hiện cửa sổ. Windows có thể áp chính sách startup riêng của máy.
+
+Bản thử Docker chỉ phục vụ kiểm thử web, không thay đổi startup hoặc tạo khay
+Windows. Bằng chứng cài/offline/GUI/Windows sạch của từng bộ cài nằm trong biên
+bản đi kèm; build thành công không thay cho các ca nghiệm thu đó.
 
 ## Ai làm việc gì?
 
