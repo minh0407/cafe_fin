@@ -18,6 +18,36 @@ from pathlib import Path
 
 from PyInstaller.archive.readers import CArchiveReader
 
+WINDOWS_CHECKOUT_CRLF_ASSETS = frozenset(
+    {
+        "cafe_fin/contracts/templates/purchase.json",
+        "cafe_fin/contracts/templates/sale.json",
+        "cafe_fin/core/assets/THIRD_PARTY_NOTICES.md",
+        "cafe_fin/core/assets/OFL-NotoSans.txt",
+        "cafe_fin/core/assets/notices/reportlab-LICENSE",
+        "cafe_fin/core/assets/notices/python-docx-LICENSE",
+        "cafe_fin/core/assets/notices/pillow-LICENSE",
+        "cafe_fin/core/assets/notices/lxml-LICENSES.txt",
+        "cafe_fin/core/assets/notices/lxml-LICENSE.txt",
+    }
+)
+
+
+def exact_windows_checkout_crlf(expected, actual):
+    """Accept only whole-file LF -> CRLF, without decoding/re-encoding bytes."""
+    if b"\r" in expected or b"\n" not in expected:
+        return False
+    try:
+        text = expected.decode("utf-8", errors="strict")
+        actual.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return False
+    if text.startswith("\ufeff") or any(
+        (ord(char) < 32 and char not in "\t\n\f") or 127 <= ord(char) <= 159 for char in text
+    ):
+        return False
+    return actual == expected.replace(b"\n", b"\r\n")
+
 
 def canonical(value):
     return json.dumps(
@@ -117,7 +147,7 @@ def compare_maps(expected, actual):
     }
 
 
-def verify(binary, repo, revision, expected_sha256):
+def verify(binary, repo, revision, expected_sha256, *, allow_windows_checkout_crlf=False):
     binary = Path(binary).resolve(strict=True)
     with binary.open("rb") as stream:
         binary_sha = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -137,15 +167,43 @@ def verify(binary, repo, revision, expected_sha256):
         for name in pyz.toc
         if name == "cafe_fin" or name.startswith("cafe_fin.")
     }
-    actual_data = {}
+    actual_data, archived_data = {}, {}
     for name in archive.toc:
         relative = name.replace("\\", "/")
         if relative.startswith("cafe_fin/core/assets/") or (
             relative.startswith("cafe_fin/contracts/templates/") and relative.endswith(".json")
         ):
-            actual_data[relative] = hashlib.sha256(archive.extract(name)).hexdigest()
+            archived_data[relative] = archive.extract(name)
+            actual_data[relative] = hashlib.sha256(archived_data[relative]).hexdigest()
     module_diff = compare_maps(modules, actual_modules)
     data_diff = compare_maps(data, actual_data)
+    eol_only_assets = []
+    if allow_windows_checkout_crlf:
+        for path in data_diff["different"]:
+            if path not in WINDOWS_CHECKOUT_CRLF_ASSETS:
+                continue
+            expected = git(repo, "show", f"{commit}:backend/{path}")
+            actual = archived_data[path]
+            if exact_windows_checkout_crlf(expected, actual):
+                eol_only_assets.append(
+                    {
+                        "path": path,
+                        "expected_raw_sha256": data[path],
+                        "actual_raw_sha256": actual_data[path],
+                        "expected_lf_to_crlf_sha256": hashlib.sha256(
+                            expected.replace(b"\n", b"\r\n")
+                        ).hexdigest(),
+                        "expected_bytes": len(expected),
+                        "actual_bytes": len(actual),
+                        "converted_lf_count": expected.count(b"\n"),
+                        "proof": "actual == expected.replace(LF, CRLF); expected has LF only, UTF-8 text without BOM",
+                    }
+                )
+    accepted = {asset["path"] for asset in eol_only_assets}
+    effective_data_diff = {
+        **data_diff,
+        "different": [path for path in data_diff["different"] if path not in accepted],
+    }
     entry_names = [
         name
         for name, entry in archive.toc.items()
@@ -156,9 +214,16 @@ def verify(binary, repo, revision, expected_sha256):
         and code_digest(marshal.loads(archive.extract(entry_names[0])))
         == modules["cafe_fin.__main__"]
     )
-    passed = entry_match and not any(module_diff.values()) and not any(data_diff.values())
+    strict_passed = entry_match and not any(module_diff.values()) and not any(data_diff.values())
+    passed = entry_match and not any(module_diff.values()) and not any(effective_data_diff.values())
     return {
         "status": "PASS" if passed else "FAIL",
+        "strict_status": "PASS" if strict_passed else "FAIL",
+        "data_policy": (
+            "windows_checkout_crlf_known_utf8_v1"
+            if allow_windows_checkout_crlf
+            else "strict_raw_bytes"
+        ),
         "commit": commit,
         "binary": str(binary),
         "binary_sha256": binary_sha,
@@ -167,10 +232,13 @@ def verify(binary, repo, revision, expected_sha256):
         "data_count": len(data),
         "expected_module_digests": modules,
         "expected_data_digests": data,
+        "actual_data_digests": actual_data,
         "module_diff": module_diff,
         "data_diff": data_diff,
+        "effective_data_diff": effective_data_diff,
+        "eol_only_assets": eol_only_assets,
         "entrypoint_match": entry_match,
-        "scope": "Application Python code and packaged application data only; filename normalization only",
+        "scope": "Application Python code (filename normalization only) and application data; optional explicit CRLF policy applies only to allowlisted UTF-8 text assets, never fonts/binary",
         "limitations": "No native runtime/dependency/installer provenance or reproducible-build claim; binary never executed",
     }
 
@@ -182,6 +250,11 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--allow-windows-checkout-crlf",
+        action="store_true",
+        help="Opt in to exact whole-file LF-to-CRLF conversion for known UTF-8 text assets only; raw diffs remain reported",
+    )
     args = parser.parse_args()
     if args.output.exists():
         parser.error("Output must be a new evidence file")
@@ -190,7 +263,13 @@ def main():
         parser.error("Output needs an absolute path and an existing external parent")
     if any((parent / ".git").exists() for parent in (output.parent, *output.parents)):
         parser.error("Generated evidence must remain outside Git repositories")
-    result = verify(args.binary, args.repo, args.revision, args.sha256)
+    result = verify(
+        args.binary,
+        args.repo,
+        args.revision,
+        args.sha256,
+        allow_windows_checkout_crlf=args.allow_windows_checkout_crlf,
+    )
     with output.open("x", encoding="utf-8") as stream:
         stream.write(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     return 0 if result["status"] == "PASS" else 1
