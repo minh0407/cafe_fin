@@ -1,0 +1,149 @@
+name: Accept the retained Windows owner-trial artifact
+
+on:
+  push:
+    branches: ['codex/cafe-fin-frozen-acceptance-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: frozen-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CAFE_FIN_MARKET_NETWORK: '0'
+  PYTHONUTF8: '1'
+  CANDIDATE_SOURCE: '34593701477204cde2f5dc76181cb22a62e6eea2'
+  CANDIDATE_SIDECAR_SHA256: '337a2e9ba21c7ad4c47bdcdebec5deb7c43aa26b54b2e0454869a442cd241f77'
+
+jobs:
+  frozen-modules:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: candidate-source
+    steps:
+      - name: Checkout reviewed acceptance tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: tooling
+          persist-credentials: false
+      - name: Checkout the exact artifact source for module harnesses
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: candidate-source
+          ref: '34593701477204cde2f5dc76181cb22a62e6eea2'
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - name: Install locked test environment
+        run: |
+          uv python install 3.12.16
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv sync --frozen --python 3.12.16
+      - name: Download the successful immutable candidate artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          $api = 'https://api.github.com/repos/minh0407/cafe_fin/actions'
+          $run = Invoke-RestMethod -Uri "$api/runs/42457677174" -Headers $headers
+          if ($run.head_sha -ne $env:CANDIDATE_SOURCE -or $run.conclusion -ne 'success') { throw 'Candidate workflow identity or result differs.' }
+          $artifact = Invoke-RestMethod -Uri "$api/artifacts/13608093184" -Headers $headers
+          $digest = '4400108add099696392e7ef17d42a5b997e0457a1304c5e3bc42f6cebacfc16e'
+          if ($artifact.expired -or $artifact.workflow_run.id -ne 42457677174 -or $artifact.digest -ne "sha256:$digest" -or $artifact.size_in_bytes -ne 292798135) { throw 'Candidate artifact metadata differs.' }
+          $evidence = Join-Path $env:RUNNER_TEMP 'cafe-fin-frozen-3459370'
+          New-Item -ItemType Directory -Path $evidence -ErrorAction Stop | Out-Null
+          $archive = Join-Path $evidence 'candidate.zip'
+          Invoke-WebRequest -Uri "$api/artifacts/13608093184/zip" -Headers $headers -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $digest) { throw 'Downloaded ZIP digest differs.' }
+          "CAFE_FIN_FROZEN_EVIDENCE=$evidence" >> $env:GITHUB_ENV
+      - name: Validate archive, receipts and application identity without execution
+        id: identity
+        run: |
+          @'
+          import json, os, sys, zipfile
+          from pathlib import Path
+          root = Path(os.environ['CAFE_FIN_FROZEN_EVIDENCE'])
+          out = root / 'expanded'
+          with zipfile.ZipFile(root / 'candidate.zip') as archive:
+              entries = archive.infolist()
+              assert len(entries) == 16 and sum(e.file_size for e in entries) < 400_000_000
+              names = set()
+              for entry in entries:
+                  name = entry.filename.replace('\\', '/')
+                  assert not name.startswith('/') and ':' not in name
+                  assert all(part not in ('', '.', '..') for part in name.split('/'))
+                  assert name.casefold() not in names and not entry.is_dir()
+                  assert (entry.external_attr >> 16) & 0o170000 != 0o120000
+                  names.add(name.casefold())
+              assert archive.testzip() is None
+              archive.extractall(out)
+          candidate = out / 'release-candidate'
+          sys.path.insert(0, str(Path(os.environ['GITHUB_WORKSPACE']) / 'tooling'))
+          from scripts.packaging.verify_nsis_payload import candidate_files
+          source = os.environ['CANDIDATE_SOURCE']
+          _, files, _ = candidate_files(candidate, source)
+          filename = 'binaries/cafe-fin-sidecar-x86_64-pc-windows-msvc.exe'
+          artifact = files[filename]
+          assert artifact['sha256'] == os.environ['CANDIDATE_SIDECAR_SHA256']
+          binary = candidate / filename
+          attestation = {'schema_version': 1, 'source_commit': source, 'sidecar': {'filename': binary.name, **artifact}, 'trusted_ci_run': 42457677174, 'trusted_artifact_id': 13608093184}
+          (root / 'records-attestation.json').write_text(json.dumps(attestation), encoding='utf-8')
+          accounting = {'source_sha': source, 'sidecar': {'path': str(binary), **artifact}, 'trusted_ci_run': 42457677174, 'trusted_artifact_id': 13608093184}
+          (root / 'accounting-manifest.json').write_text(json.dumps(accounting), encoding='utf-8')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              env.write(f'CAFE_FIN_TEST_BINARY={binary}\n')
+          '@ | uv run --frozen python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --frozen python ../tooling/tests/contracts/artifact_identity.py --binary "$env:CAFE_FIN_FROZEN_EVIDENCE/expanded/release-candidate/binaries/cafe-fin-sidecar-x86_64-pc-windows-msvc.exe" --repo . --revision $env:CANDIDATE_SOURCE --sha256 $env:CANDIDATE_SIDECAR_SHA256 --allow-windows-checkout-crlf --output "$env:CAFE_FIN_FROZEN_EVIDENCE/application-code-verification.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Records frozen scenario and restart
+        if: steps.identity.outcome == 'success'
+        run: |
+          uv run --frozen python -m tests.records.desktop.runner --sidecar $env:CAFE_FIN_TEST_BINARY --attestation "$env:CAFE_FIN_FROZEN_EVIDENCE/records-attestation.json" --output-parent $env:CAFE_FIN_FROZEN_EVIDENCE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Contracts frozen DOCX PDF and restart
+        if: always() && steps.identity.outcome == 'success'
+        run: |
+          uv run --frozen python -m tests.contracts.desktop_acceptance --binary $env:CAFE_FIN_TEST_BINARY --source-root . --data-root "$env:CAFE_FIN_FROZEN_EVIDENCE/contracts-data" --output-dir "$env:CAFE_FIN_FROZEN_EVIDENCE/contracts-output" --provenance "$env:CAFE_FIN_FROZEN_EVIDENCE/application-code-verification.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Accounting frozen mini XLSM import and restart
+        if: always() && steps.identity.outcome == 'success'
+        run: |
+          uv run --frozen python -m tests.accounting.desktop_delivery.runner --mode frozen-sidecar --workload desktop-mini-xlsm-1000 --candidate-manifest "$env:CAFE_FIN_FROZEN_EVIDENCE/accounting-manifest.json" --expected-source-sha $env:CANDIDATE_SOURCE --output-root "$env:CAFE_FIN_FROZEN_EVIDENCE/accounting-mini"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Accounting frozen durable checkpoint and resume
+        if: always() && steps.identity.outcome == 'success'
+        run: |
+          uv run --frozen python -m tests.accounting.desktop_delivery.runner --mode frozen-sidecar --workload csv-checkpoint-5000 --candidate-manifest "$env:CAFE_FIN_FROZEN_EVIDENCE/accounting-manifest.json" --expected-source-sha $env:CANDIDATE_SOURCE --output-root "$env:CAFE_FIN_FROZEN_EVIDENCE/accounting-checkpoint"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Reporting frozen timer restart and Windows credential isolation
+        if: always() && steps.identity.outcome == 'success'
+        run: |
+          $env:CAFE_FIN_REPORTING_TEST_SIDECAR = $env:CAFE_FIN_TEST_BINARY
+          $env:CAFE_FIN_REPORTING_TEST_SIDECAR_SHA256 = $env:CANDIDATE_SIDECAR_SHA256
+          uv run --frozen python -m pytest tests/reporting/test_native_delivery.py -q -o junit_family=xunit1 --basetemp "$env:CAFE_FIN_FROZEN_EVIDENCE/reporting-data" --junitxml "$env:CAFE_FIN_FROZEN_EVIDENCE/reporting-junit.xml"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain synthetic acceptance reports only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frozen-module-evidence-3459370-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/cafe-fin-frozen-3459370/application-code-verification.json
+            ${{ runner.temp }}/cafe-fin-frozen-3459370/records-desktop-*/report.json
+            ${{ runner.temp }}/cafe-fin-frozen-3459370/contracts-output/manifest.json
+            ${{ runner.temp }}/cafe-fin-frozen-3459370/accounting-mini/result.json
+            ${{ runner.temp }}/cafe-fin-frozen-3459370/accounting-checkpoint/result.json
+            ${{ runner.temp }}/cafe-fin-frozen-3459370/reporting-junit.xml
+          if-no-files-found: warn
+          retention-days: 7
