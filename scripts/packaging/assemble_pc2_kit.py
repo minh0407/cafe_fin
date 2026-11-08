@@ -139,13 +139,38 @@ def assemble(repo, candidate, fixtures, materials, macro_material, webview, outp
     if material_receipt["status"] != "PINNED_MATERIALS_PRESENT_RELINK_NOT_RUN":
         raise ValueError("source materials incomplete")
     for item in material_receipt["materials"]:
-        if sha(materials / "archives" / item["file"]) != item["sha256"]:
+        archive = materials / "archives" / item["file"]
+        if (
+            Path(item["file"]).name != item["file"]
+            or archive.is_symlink()
+            or archive.stat().st_size != item["bytes"]
+            or sha(archive) != item["sha256"]
+        ):
             raise ValueError("source material pin changed")
     if sha(macro_material / "LICENSE.txt") != MACRO_LICENSE_SHA:
         raise ValueError("macro sample license changed")
     output.mkdir(parents=True)
-    checked_tree(candidate, output / "candidate")
-    checked_tree(materials, output / "source-relink")
+    (output / "candidate").mkdir()
+    for relative in [item["file"] for item in receipt["files"]] + [
+        "build-receipt.json",
+        "SHA256SUMS.txt",
+    ]:
+        source = candidate / relative
+        if source.is_symlink() or source.is_junction():
+            raise ValueError("candidate link refused")
+        destination = output / "candidate" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    (output / "source-relink").mkdir()
+    (output / "source-relink/archives").mkdir()
+    for item in material_receipt["materials"]:
+        shutil.copy2(
+            materials / "archives" / item["file"], output / "source-relink/archives" / item["file"]
+        )
+    checked_tree(materials / "trees", output / "source-relink/trees")
+    for name in ("materials-receipt.json", "materials.lock.json", "plan-only-receipt.json"):
+        if (materials / name).is_file():
+            shutil.copy2(materials / name, output / "source-relink" / name)
     (output / "fixtures").mkdir()
     for name in ("mini.csv", "mini.xlsx", "mini-preview.png"):
         shutil.copy2(fixtures / name, output / "fixtures" / name)
@@ -185,7 +210,11 @@ def assemble(repo, candidate, fixtures, materials, macro_material, webview, outp
             or view["bytes"] != binary.stat().st_size
         ):
             raise ValueError("WebView2 file/receipt verification failed")
-        checked_tree(webview, output / "webview2-offline-support")
+        (output / "webview2-offline-support").mkdir()
+        for source in (binary, webview / "webview2-receipt.json"):
+            if source.is_symlink() or source.is_junction():
+                raise ValueError("WebView2 link refused")
+            shutil.copy2(source, output / "webview2-offline-support" / source.name)
     expectations = {
         "synthetic": True,
         "ui_execution": "NOT_RUN",
