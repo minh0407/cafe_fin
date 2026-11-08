@@ -116,3 +116,30 @@ Report ngoài Git:
 `C:\Users\NC\AppData\Local\Temp\cafe-fin-records-evidence\records-desktop-el_62hk4\report.json`.
 Máy đo thực: Windows11 build26200, AMD64, 16 logical CPUs, Python3.12.16. Đây là
 mini functional smoke, không dùng thời gian này để hứa hiệu năng import lớn.
+
+## Delta P2 — bảo vệ output-parent
+
+Theo review của điều phối trên `cb835b1`, guard cũ chỉ loại REPO của records và
+vẫn cho ghi fixture vào worktree khác hoặc dưới data root. Delta trên chính
+branch/worktree lane thêm `guarded_output_parent` trong runner, không merge root:
+
+- Từ chối UNC/device spelling trước truy cập filesystem.
+- Kiểm metadata từng ancestor từ gốc xuống trước resolve/mkdir; chặn symlink và
+  mọi Windows reparse point (bao gồm junction).
+- Bất kỳ entry `.git` hoặc `.cafe-fin-root.json` trên ancestor đều chặn toàn bộ
+  subtree. `.git` dạng file của linked worktree cũng được chặn. Không đọc nội
+  dung marker, DB hoặc dữ liệu nghiệp vụ.
+- Kiểm lại sau mkdir và trước mkdtemp; chỉ root tổng hợp mới vượt guard mới được
+  đi tiếp tới bootstrap/sidecar. Giữ guard REPO riêng làm lớp kiểm bổ sung.
+
+Thêm `tests/records/desktop/test_output_guard.py`, chỉ dùng pytest Temp tổng hợp.
+**PASS:** 15 guard tests (marker file/directory, root/descendant, UNC/device,
+junction Windows thật, safe new output). Các ca từ chối có guard trước mkdir/
+mkdtemp/launch và kiểm cây thư mục/sentinel không đổi. Junction bị chặn trước
+resolve; cleanup chỉ gỡ junction của test, không recurse vào đích.
+
+**PASS:** `.venv/Scripts/python.exe -m pytest tests/records/desktop -q` — 31 tests,
+13.26s; Ruff check/format và `git diff --check`. Warning TestClient có sẵn giữ
+nguyên. Không đổi product, migration, dependency hoặc production interface.
+Frontend/Rust/NSIS build **NOT RUN** vì chỉ sửa harness; frozen/native app vẫn
+**NOT RUN**, chờ source-final artifact do điều phối giao.

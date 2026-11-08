@@ -12,6 +12,7 @@ import platform
 import queue
 import re
 import secrets
+import stat
 import subprocess
 import sys
 import tempfile
@@ -44,6 +45,37 @@ def git(*args):
     return subprocess.check_output(
         ["git", "-C", str(REPO), *args], text=True, encoding="utf-8"
     ).strip()
+
+
+def guarded_output_parent(value):
+    """Inspect ancestor metadata before resolve/mkdir can follow a redirect.
+
+    Marker contents and existing operational data are never opened. Any marker
+    entry (including a .git file for a worktree) protects its whole subtree.
+    """
+    raw = os.fspath(value)
+    require(not raw.replace("\\", "/").startswith(("//", "/??/")), "output_local_path")
+    path = Path(raw).absolute()
+    for component in reversed((path, *path.parents)):
+        try:
+            info = component.lstat()
+        except FileNotFoundError:
+            continue
+        require(
+            not stat.S_ISLNK(info.st_mode)
+            and not getattr(info, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400),
+            "output_no_reparse",
+        )
+        for name in (".git", ".cafe-fin-root.json"):
+            try:
+                (component / name).lstat()
+            except FileNotFoundError:
+                continue
+            raise RuntimeError("output_outside_protected_root")
+    resolved = path.resolve()
+    require(not resolved.is_relative_to(REPO), "output_outside_repository")
+    return resolved
 
 
 def verify_attestation(binary, receipt, source_commit):
@@ -241,9 +273,9 @@ def run(output_parent, binary=None, receipt=None):
     else:
         from scenario import exercise
 
-    output_parent = output_parent.resolve()
-    require(not output_parent.is_relative_to(REPO), "output_outside_repository")
+    output_parent = guarded_output_parent(output_parent)
     output_parent.mkdir(parents=True, exist_ok=True)
+    guarded_output_parent(output_parent)
     output = Path(tempfile.mkdtemp(prefix="records-desktop-", dir=output_parent))
     report = {
         "schema_version": 1,
