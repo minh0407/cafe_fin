@@ -25,6 +25,8 @@ Không tạo tag READY nếu còn điều kiện bắt buộc chưa kiểm. Tag 
 
 Mỗi module đặt migration trong thư mục mình, có module prefix và dependency manifest. Foundation cung cấp runner; lane không tự sửa central version table hoặc migration của lane khác.
 
+Đợt bàn giao app Windows ngày 08/11/2026 áp dụng [phân quyền và thứ tự chạy riêng](prompts/06_DESKTOP_DELIVERY_20261108.md) trên candidate `828d575b4a3c7b18ffafd8e2665a9d79b54ea403`, hậu duệ của hai baseline READY đã chốt. Trong đợt này, 00 giữ runtime desktop/Cargo/capabilities và app/shared/core; 05 giữ cấu hình bundle, script đóng gói, notices và nghiệm thu. 05 không sửa `desktop/src/**`, Cargo hoặc capability trong khi 00 đang làm. Các lane 01–04 giữ module riêng. Điều phối giữ CI, hợp nhất candidate và push; không chat nào tự công bố release.
+
 ## Giao thay đổi chung
 
 Lane cần dependency hoặc field chung thì ghi đề nghị tại `docs/handoffs/<lane>/shared-change-request.md`: lý do, file, diff dự kiến, tác động consumer và test. Điều phối áp thay đổi trên baseline có kiểm soát rồi thông báo SHA/tag mới. Không commit file chung ngoài allowlist chỉ vì build lỗi.
