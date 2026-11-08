@@ -1,4 +1,4 @@
-"""Assemble an explicitly incomplete or complete PC2 preparation kit, never upload/run it."""
+"""Assemble a PC2 preparation or trial kit, never upload or execute it."""
 
 import argparse
 import hashlib
@@ -189,6 +189,8 @@ def assemble(repo, candidate, fixtures, materials, macro_material, webview, outp
         "relink_lxml.ps1",
         "verify_relinked_lxml.py",
         "candidate_receipt.py",
+        "notice_provenance.py",
+        "verify_kit.py",
         "assemble_pc2_kit.py",
         "create_mini_fixture.mjs",
     ):
@@ -260,12 +262,21 @@ def assemble(repo, candidate, fixtures, materials, macro_material, webview, outp
     (output / "fixtures/expected-results.json").write_text(
         json.dumps(expectations, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
+    has_installer = receipt["installer_present"]
     (output / "START_HERE.txt").write_text(
-        "CAFE FIN — KIT CHUẨN BỊ NGHIỆM THU, CHƯA PHẢI BẢN PHÁT HÀNH\n\n"
+        (
+            "CAFE FIN — BỘ CÀI THỬ VÀ NGHIỆM THU\n\n"
+            if has_installer
+            else "CAFE FIN — KIT CHUẨN BỊ, CHƯA CÓ BỘ CÀI\n\n"
+        )
         + f"Source baseline: {receipt['source_commit']}\nInstaller có file: {receipt['installer_present']}\n"
-        + "Chưa cài hoặc chạy bộ hỗ trợ trong kit. Không chạy sidecar trực tiếp.\n"
-        + "Kit còn chờ bộ cài candidate cuối, relink/terms và nghiệm thu PC2.\n"
-        + "Sau khi điều phối xác nhận đúng candidate, làm theo docs/PC2_GUI_ACCEPTANCE.txt bằng GUI.\n"
+        + (
+            "Mở file .exe trong candidate/installer để cài thử, rồi làm theo docs/PC2_GUI_ACCEPTANCE.txt bằng GUI.\n"
+            if has_installer
+            else "Chưa thể cài thử: kit này chưa có file bộ cài .exe.\n"
+        )
+        + "Không chạy sidecar trực tiếp. Các tệp hỗ trợ không cần chạy riêng.\n"
+        + "Kết quả Windows sạch/PC2 và relink vẫn NOT RUN; xem phạm vi bằng chứng trong manifest và docs.\n"
         + "Không mở/bật macro hoặc external link của preserve-only.xlsm trong Office. Chỉ dùng nhập app để kiểm bảo toàn byte.\n",
         encoding="utf-8-sig",
     )
@@ -302,7 +313,9 @@ def assemble(repo, candidate, fixtures, materials, macro_material, webview, outp
         "schema_version": 1,
         "prepared_at_utc": datetime.now(UTC).isoformat(),
         "source_commit": receipt["source_commit"],
-        "status": "PREPARATION_ONLY_NOT_READY_FOR_INSTALL",
+        "status": "TRIAL_KIT_NOT_RELEASE_ACCEPTED"
+        if has_installer
+        else "PREPARATION_ONLY_NOT_READY_FOR_INSTALL",
         "installer_present": receipt["installer_present"],
         "relink_execution": "NOT_RUN",
         "distribution_clearance": False,

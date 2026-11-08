@@ -23,6 +23,6 @@
     "externalBin": ["binaries/cafe-fin-sidecar"],
     "resources": ["notices/*"],
     "icon": ["icons/icon.ico", "icons/32x32.png", "icons/128x128.png"],
-    "windows": { "webviewInstallMode": { "type": "offlineInstaller", "silent": true }, "nsis": { "installMode": "currentUser", "languages": ["English"] } }
+    "windows": { "webviewInstallMode": { "type": "offlineInstaller", "silent": true }, "nsis": { "installMode": "currentUser", "languages": ["English"], "installerHooks": "./scripts/installer-hooks.nsh", "template": "./scripts/installer.nsi" } }
   }
 }

@@ -148,6 +148,9 @@ print('Packaged native-file inventory:',len(inventory['native_files']),'files')
 '@
         $inventoryBuilder | & $Python -
         if ($LASTEXITCODE -ne 0) { throw 'Packaged sidecar inventory verification failed.' }
+        # Refresh BEFORE NSIS embeds notices. A receipt collected after packaging
+        # must not silently substitute newer notices for stale bundled resources.
+        & (Join-Path $PSScriptRoot 'refresh-notices.ps1') -Python $Python
         Get-FileHash -LiteralPath $sidecar -Algorithm SHA256
         Write-Output 'Sidecar build complete. Native/clean-Windows smoke tests remain required.'
     }

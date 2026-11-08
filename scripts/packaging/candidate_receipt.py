@@ -25,6 +25,7 @@ APP_INPUTS = (
     "desktop/permissions",
     "desktop/icons",
     "desktop/scripts",
+    "scripts/packaging",
     "pyproject.toml",
     "uv.lock",
 )
@@ -35,6 +36,20 @@ NOTICE_FILES = (
     "native-license-sources.json",
     "sidecar-native-inventory.json",
     "lgpl-2.1-iconv.txt",
+    "tauri-installer-template-license.txt",
+    "tauri-installer-template-source.json",
+    "build-inputs.json",
+)
+NOTICE_INPUTS = (
+    "uv.lock",
+    "frontend/package-lock.json",
+    "desktop/Cargo.lock",
+    "desktop/sidecar.spec",
+    "desktop/scripts/build-sidecar.ps1",
+    "desktop/scripts/refresh-notices.ps1",
+    "frontend/scripts/third-party-notices.mjs",
+    "desktop/scripts/third-party-notices.mjs",
+    "scripts/packaging/notice_provenance.py",
 )
 
 
@@ -85,6 +100,21 @@ def collect(repo, source, output, allow_missing=False):
         or sidecar.stat().st_size != inventory["exe_bytes"]
     ):
         raise ValueError("frozen sidecar and native inventory do not match")
+    notices = repo / "desktop/notices"
+    for name in NOTICE_FILES:
+        path = notices / name
+        if path.is_symlink() or path.is_junction() or not path.is_file() or not path.stat().st_size:
+            raise ValueError("required regular nonempty notice missing")
+    proof = json.loads((notices / "build-inputs.json").read_text(encoding="utf-8"))
+    if (
+        proof.get("schema_version") != 1
+        or proof.get("source_commit") != source
+        or proof.get("sidecar_sha256") != inventory["exe_sha256"].lower()
+        or proof.get("inputs") != {name: digest(repo / name) for name in NOTICE_INPUTS}
+        or proof.get("outputs")
+        != {name: digest(notices / name) for name in NOTICE_FILES if name != "build-inputs.json"}
+    ):
+        raise ValueError("notice provenance does not match source, inputs or outputs")
     installers = list((repo / "desktop/target/release/bundle/nsis").glob("*.exe"))
     if len(installers) > 1 or (not installers and not allow_missing):
         raise ValueError("exactly one actual installer required")
@@ -99,8 +129,7 @@ def collect(repo, source, output, allow_missing=False):
         shutil.copy2(installers[0], output / "installer" / installers[0].name)
     for name in NOTICE_FILES:
         file = repo / "desktop/notices" / name
-        if file.is_file() and not file.is_symlink():
-            shutil.copy2(file, output / "notices" / file.name)
+        shutil.copy2(file, output / "notices" / file.name)
     source_zip = output / "source" / f"cafe-fin-{source}.zip"
     subprocess.run(
         [

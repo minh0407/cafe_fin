@@ -1,0 +1,13 @@
+{
+  "upstream_tag": "tauri-cli-v2.12.4",
+  "upstream_source_url": "https://raw.githubusercontent.com/tauri-apps/tauri/tauri-cli-v2.12.4/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi",
+  "upstream_sha256": "d00089d3b1a2c4a30d7b6e098079100cb8f25e980f84d4515aca4597b95e967d",
+  "upstream_lf_sha256": "d00089d3b1a2c4a30d7b6e098079100cb8f25e980f84d4515aca4597b95e967d",
+  "license_url": "https://raw.githubusercontent.com/tauri-apps/tauri/tauri-cli-v2.12.4/LICENSE-MIT",
+  "license_sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d",
+  "license_lf_sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d",
+  "modified_file": "desktop/scripts/installer.nsi",
+  "modification": "Replace only unconditional PRODUCTNAME startup deletion with two comments; exact ownership cleanup is in installer-hooks.nsh.",
+  "removed_block": "  ; Removes the Autostart entry for ${PRODUCTNAME} from the HKCU Run key if it exists.\n  ; This ensures the program does not launch automatically after uninstallation if it exists.\n  ; If it doesn't exist, it does nothing.\n  ; We do this when not updating (to preserve the registry value on updates)\n  ${If} $UpdateMode <> 1\n    DeleteRegValue HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Run\" \"${PRODUCTNAME}\"\n  ${EndIf}\n",
+  "replacement_block": "  ; CafeFin: only the POSTUNINSTALL hook may remove an exactly-owned startup value.\n  ; Preserve all foreign values, including the stock PRODUCTNAME autostart name.\n"
+}

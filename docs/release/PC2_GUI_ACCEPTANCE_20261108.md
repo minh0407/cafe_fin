@@ -1,9 +1,11 @@
 # Cafe Fin — thử trên PC Windows 11 x64 bằng GUI
 
 Ngày 08/11/2026. Đây là hướng dẫn nghiệm thu; hiện chưa truy cập PC2 và mọi ca
-dưới đây là NOT RUN. Kit baseline chưa có bộ cài do máy build bị AppControl chặn.
-Không chạy file sidecar riêng. Chờ điều phối giao installer candidate cuối cùng,
-có manifest/checksum đúng source sau khi ghép chức năng khay và startup.
+dưới đây là NOT RUN cho đến khi có bằng chứng thực. Kit baseline eab8c96 chưa có
+bộ cài do máy build bị AppControl chặn. Kit thử mới được nhận diện bằng manifest,
+source SHA và file candidate/installer/*.exe; làm theo START_HERE của chính kit đó.
+Không chạy file sidecar riêng. Bộ cài thử phải có checksum/source khớp candidate
+đã ghép chức năng khay và startup.
 
 ## Trước khi cài
 
@@ -97,8 +99,10 @@ Chỉ thử nâng cấp sau khi điều phối giao rõ cặp from/to khác vers
 receipt và expected migration. Hai build cùng0.1.0 chỉ là thay thế/cài lại, không
 được gọi là version-upgrade. Hiện chưa có cặp được chỉ định: ca upgrade NOT RUN.
 
-Sau backup tổng hợp, gỡ bằng Settings → Apps → Installed apps. Kiểm data root và
-tệp người dùng còn nguyên. Cài lại candidate đã chỉ định, chọn lại root thử và
+Sau backup tổng hợp, bật startup bằng app trong profile thử rồi gỡ bằng Settings
+→ Apps → Installed apps. Kiểm mục CafeFin của app không còn trong Startup và
+data root/tệp người dùng còn nguyên. Chỉ mục do app này sở hữu mới được xóa;
+không sửa hoặc xóa mục khác để phép thử đạt. Cài lại candidate, chọn lại root thử và
 đối chiếu số liệu/hash; không seed/reset DB. Không xóa rộng thư mục cha.
 
 Ghi từng ca PASS/FAIL/NOT RUN và bằng chứng thực trong RESULTS.json. Không ghi token,

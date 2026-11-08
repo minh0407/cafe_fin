@@ -11,6 +11,11 @@ SOURCE = Path(__file__).resolve().parents[2] / "scripts/packaging/candidate_rece
 SPEC = importlib.util.spec_from_file_location("packaging_receipt", SOURCE)
 receipt = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(receipt)
+PROOF_SPEC = importlib.util.spec_from_file_location(
+    "packaging_notice_proof", SOURCE.with_name("notice_provenance.py")
+)
+proof = importlib.util.module_from_spec(PROOF_SPEC)
+PROOF_SPEC.loader.exec_module(proof)
 
 
 @pytest.fixture
@@ -20,8 +25,12 @@ def repository(tmp_path):
     for folder in ("desktop/binaries", "desktop/notices", "desktop/src"):
         (repo / folder).mkdir(parents=True, exist_ok=True)
     (repo / "frontend").mkdir()
-    for name in ("uv.lock", "frontend/package-lock.json", "desktop/Cargo.lock"):
+    for name in receipt.NOTICE_INPUTS:
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text("synthetic lock fixture\n")
+    for name in receipt.NOTICE_FILES:
+        if name != "build-inputs.json":
+            (repo / "desktop/notices" / name).write_text("synthetic notice\n")
     (repo / "desktop/tauri.conf.json").write_text(
         json.dumps(
             {
@@ -57,6 +66,7 @@ def repository(tmp_path):
         ],
         check=True,
     )
+    proof.write(repo)
     return repo, receipt.git(repo, "rev-parse", "HEAD")
 
 
@@ -106,3 +116,36 @@ def test_path_outside_collection_root_rejected(tmp_path):
     outside.write_text("synthetic")
     with pytest.raises(ValueError, match="contained file"):
         receipt.entry(root, outside)
+
+
+@pytest.mark.parametrize("name", receipt.NOTICE_FILES)
+def test_missing_required_notice_refused(repository, tmp_path, name):
+    repo, source = repository
+    (repo / "desktop/notices" / name).unlink()
+    # Inventory has its own earlier check, before the complete notice set check.
+    with pytest.raises((ValueError, FileNotFoundError)):
+        receipt.collect(repo, source, tmp_path / "missing", True)
+    assert not (tmp_path / "missing").exists()
+
+
+@pytest.mark.parametrize("field", ("source_commit", "sidecar_sha256", "inputs", "outputs"))
+def test_stale_notice_proof_refused(repository, tmp_path, field):
+    repo, source = repository
+    path = repo / "desktop/notices/build-inputs.json"
+    value = json.loads(path.read_text())
+    value[field] = {} if field in ("inputs", "outputs") else "0" * 40
+    path.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="notice provenance"):
+        receipt.collect(repo, source, tmp_path / "stale", True)
+
+
+def test_changed_notice_bytes_refused(repository, tmp_path):
+    repo, source = repository
+    (repo / "desktop/notices/rust.txt").write_text("stale or tampered notice")
+    with pytest.raises(ValueError, match="notice provenance"):
+        receipt.collect(repo, source, tmp_path / "changed-notice", True)
+
+
+def test_receipt_and_generator_pin_same_inputs_and_outputs():
+    assert receipt.NOTICE_INPUTS == proof.INPUTS
+    assert receipt.NOTICE_FILES[:-1] == proof.OUTPUTS
