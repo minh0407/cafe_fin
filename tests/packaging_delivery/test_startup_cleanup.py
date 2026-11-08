@@ -15,6 +15,117 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+TEST_INSTALL = "C:\\CafeFin test\\Cà phê 𠮷"
+TEST_COMMAND = f'"{TEST_INSTALL}\\cafe-fin-desktop.exe" --startup-v1'
+TEST_EXPECTED = (TEST_COMMAND + "\0").encode("utf-16-le")
+
+
+def raw_cases():
+    import winreg
+
+    expected = TEST_EXPECTED
+    return [
+        ("exact", winreg.REG_SZ, expected, True),
+        ("expand-type", winreg.REG_EXPAND_SZ, expected, False),
+        ("binary-type", winreg.REG_BINARY, expected, False),
+        ("case", winreg.REG_SZ, expected.replace(b"C\0", b"c\0", 1), False),
+        ("path", winreg.REG_SZ, expected.replace(b"t\0e\0s\0t\0", b"b\0e\0s\0t\0"), False),
+        ("flag", winreg.REG_SZ, expected.replace(b"v\0" + b"1\0", b"v\0" + b"2\0"), False),
+        ("arguments", winreg.REG_SZ, (TEST_COMMAND + " --foreign\0").encode("utf-16-le"), False),
+        ("missing-nul", winreg.REG_SZ, expected[:-2], False),
+        ("extra-nul", winreg.REG_SZ, expected + b"\0\0", False),
+        ("embedded-nul", winreg.REG_SZ, expected[:12] + b"\0\0" + expected[14:], False),
+        ("odd-byte-count", winreg.REG_SZ, expected[:-1], False),
+        ("empty", winreg.REG_SZ, b"", False),
+    ]
+
+
+@pytest.fixture
+def isolated_raw_registry():
+    """Native data-only fixture; no Run key or newly compiled EXE execution."""
+    if sys.platform != "win32":
+        pytest.skip("Windows raw registry fixture")
+    import ctypes
+    import winreg
+    from ctypes import wintypes
+
+    api = ctypes.WinDLL("advapi32", use_last_error=True)
+    api.RegQueryValueExW.argtypes = (
+        wintypes.HKEY,
+        wintypes.LPCWSTR,
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.DWORD),
+    )
+    api.RegQueryValueExW.restype = wintypes.LONG
+
+    class UnicodeString(ctypes.Structure):
+        _fields_ = [
+            ("Length", wintypes.USHORT),
+            ("MaximumLength", wintypes.USHORT),
+            ("Buffer", wintypes.LPWSTR),
+        ]
+
+    native = ctypes.WinDLL("ntdll")
+    native.NtSetValueKey.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(UnicodeString),
+        wintypes.ULONG,
+        wintypes.ULONG,
+        ctypes.c_void_p,
+        wintypes.ULONG,
+    )
+    native.NtSetValueKey.restype = wintypes.LONG
+
+    def query(key, name):
+        kind, size = wintypes.DWORD(), wintypes.DWORD()
+        rc = api.RegQueryValueExW(
+            int(key), name, None, ctypes.byref(kind), None, ctypes.byref(size)
+        )
+        if rc == 2:
+            return None
+        assert rc == 0
+        buffer = ctypes.create_string_buffer(size.value)
+        assert (
+            api.RegQueryValueExW(
+                int(key), name, None, ctypes.byref(kind), buffer, ctypes.byref(size)
+            )
+            == 0
+        )
+        return kind.value, buffer.raw[: size.value]
+
+    def write_exact(key, name, kind, raw):
+        # RegSetValueExW can append a missing NUL: it cannot reliably construct
+        # malformed strings. NtSetValueKey is fixture-only, never product code.
+        name_buffer = ctypes.create_unicode_buffer(name)
+        name_bytes = len(name.encode("utf-16-le"))
+        value_name = UnicodeString(
+            name_bytes, name_bytes + 2, ctypes.cast(name_buffer, wintypes.LPWSTR)
+        )
+        buffer = ctypes.create_string_buffer(raw, len(raw)) if raw else None
+        rc = native.NtSetValueKey(int(key), ctypes.byref(value_name), 0, kind, buffer, len(raw))
+        assert rc == 0, f"NtSetValueKey status: {rc & 0xFFFFFFFF:08x}"
+        assert query(key, name) == (kind, raw), "fixture raw-byte roundtrip failed"
+
+    subkey = rf"Software\CafeFinPackagingTest-{uuid.uuid4().hex}"
+    assert subkey.startswith("Software\\CafeFinPackagingTest-")
+    access = winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY
+    try:
+        yield winreg, subkey, access, write_exact, query
+    finally:
+        try:
+            winreg.DeleteKeyEx(winreg.HKEY_CURRENT_USER, subkey, winreg.KEY_WOW64_64KEY)
+        except FileNotFoundError:
+            pass
+
+
+def test_raw_registry_fixture_roundtrips_all_cases_without_nsis(isolated_raw_registry):
+    winreg, subkey, access, write_exact, query = isolated_raw_registry
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, subkey, 0, access) as key:
+        for name, kind, raw, _deleted in raw_cases():
+            write_exact(key, "CafeFin", kind, raw)
+            assert query(key, "CafeFin") == (kind, raw), name
 
 
 def test_hook_is_post_uninstall_and_skips_update():
@@ -56,18 +167,10 @@ def test_custom_template_changes_only_stock_unconditional_startup_deletion():
     sys.platform != "win32" or not os.environ.get("CAFE_FIN_TEST_MAKENSIS"),
     reason="opt-in native NSIS probe; local AppControl restriction is not bypassed",
 )
-def test_native_cleanup_exact_raw_value_only(tmp_path):
-    import ctypes
-    import winreg
-    from ctypes import wintypes
-
+def test_native_cleanup_exact_raw_value_only(tmp_path, isolated_raw_registry):
+    winreg, subkey, access, write_exact, query = isolated_raw_registry
     compiler = Path(os.environ["CAFE_FIN_TEST_MAKENSIS"])
     assert compiler.is_absolute() and compiler.is_file()
-    subkey = rf"Software\CafeFinPackagingTest-{uuid.uuid4().hex}"
-    assert subkey.startswith("Software\\CafeFinPackagingTest-")
-    install = "C:\\CafeFin test\\Cà phê 𠮷"
-    command = f'"{install}\\cafe-fin-desktop.exe" --startup-v1'
-    expected = (command + "\0").encode("utf-16-le")
     exe = tmp_path / "cleanup-probe.exe"
 
     def nsis(value):
@@ -79,49 +182,12 @@ def test_native_cleanup_exact_raw_value_only(tmp_path):
         f'OutFile "{nsis(exe)}"\nName "CafeFin isolated cleanup probe"\n'
         '!define MAINBINARYNAME "cafe-fin-desktop"\n'
         f'!include "{nsis(ROOT / "desktop/scripts/startup-cleanup.nsh")}"\n'
-        f'Section\nStrCpy $INSTDIR "{nsis(install)}"\n'
+        f'Section\nStrCpy $INSTDIR "{nsis(TEST_INSTALL)}"\n'
         f'!insertmacro CF_CLEANUP_OWNED_STARTUP "{subkey}"\nSectionEnd\n',
         encoding="utf-8-sig",
     )
     subprocess.run([str(compiler), "/NOCD", "/V2", str(script)], check=True, timeout=60)
     assert exe.is_file()
-    api = ctypes.WinDLL("advapi32", use_last_error=True)
-    api.RegSetValueExW.argtypes = (
-        wintypes.HKEY,
-        wintypes.LPCWSTR,
-        wintypes.DWORD,
-        wintypes.DWORD,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-    )
-    api.RegSetValueExW.restype = wintypes.LONG
-    api.RegQueryValueExW.argtypes = (
-        wintypes.HKEY,
-        wintypes.LPCWSTR,
-        ctypes.c_void_p,
-        ctypes.POINTER(wintypes.DWORD),
-        ctypes.c_void_p,
-        ctypes.POINTER(wintypes.DWORD),
-    )
-    api.RegQueryValueExW.restype = wintypes.LONG
-    access = winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY
-
-    def query(key, name):
-        kind, size = wintypes.DWORD(), wintypes.DWORD()
-        rc = api.RegQueryValueExW(
-            int(key), name, None, ctypes.byref(kind), None, ctypes.byref(size)
-        )
-        if rc == 2:
-            return None
-        assert rc == 0
-        buffer = ctypes.create_string_buffer(size.value)
-        assert (
-            api.RegQueryValueExW(
-                int(key), name, None, ctypes.byref(kind), buffer, ctypes.byref(size)
-            )
-            == 0
-        )
-        return kind.value, buffer.raw[: size.value]
 
     def run():
         subprocess.run([str(exe)], check=True, timeout=20)
@@ -141,25 +207,14 @@ def test_native_cleanup_exact_raw_value_only(tmp_path):
         assert_missing_key()
         run()
         assert_missing_key()  # cleanup never creates a missing key
-        cases = [
-            ("exact", winreg.REG_SZ, expected, True),
-            ("expand-type", winreg.REG_EXPAND_SZ, expected, False),
-            ("binary-type", winreg.REG_BINARY, expected, False),
-            ("case", winreg.REG_SZ, expected.replace(b"C\0", b"c\0", 1), False),
-            ("path", winreg.REG_SZ, expected.replace(b"t\0e\0s\0t\0", b"b\0e\0s\0t\0"), False),
-            ("flag", winreg.REG_SZ, expected.replace(b"v\0" + b"1\0", b"v\0" + b"2\0"), False),
-            ("arguments", winreg.REG_SZ, (command + " --foreign\0").encode("utf-16-le"), False),
-            ("missing-nul", winreg.REG_SZ, expected[:-2], False),
-            ("extra-nul", winreg.REG_SZ, expected + b"\0\0", False),
-            ("embedded-nul", winreg.REG_SZ, expected[:12] + b"\0\0" + expected[14:], False),
-            ("odd-byte-count", winreg.REG_SZ, expected[:-1], False),
-            ("empty", winreg.REG_SZ, b"", False),
-        ]
-        for name, kind, raw, deleted in cases:
+        for name, kind, raw, deleted in raw_cases():
             with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, subkey, 0, access) as key:
                 winreg.SetValueEx(key, "OtherEntry", 0, winreg.REG_SZ, "keep me")
-                buffer = ctypes.create_string_buffer(raw)
-                assert api.RegSetValueExW(int(key), "CafeFin", 0, kind, buffer, len(raw)) == 0
+                write_exact(key, "CafeFin", kind, raw)
+            # Verify the actual persisted precondition on a reopened handle,
+            # before the macro is allowed to run. Never relax the expected bytes.
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey, 0, access) as key:
+                assert query(key, "CafeFin") == (kind, raw), f"{name}: before cleanup"
             run()
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey, 0, access) as key:
                 assert query(key, "CafeFin") == (None if deleted else (kind, raw)), name
