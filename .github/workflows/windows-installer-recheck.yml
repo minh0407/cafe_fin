@@ -1,0 +1,139 @@
+name: Windows installer recheck with unchanged application source
+
+on:
+  push:
+    branches: ['codex/cafe-fin-installer-recheck-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: installer-recheck-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CAFE_FIN_MARKET_NETWORK: '0'
+  PYTHONUTF8: '1'
+  CARGO_TERM_COLOR: never
+
+jobs:
+  windows:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout reviewed source and its validation ancestor
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require unchanged application and previously passed source gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $base = '0f72018f5dd4025d46b89de282ba25b7cad3e47f'
+          $priorRun = 42454419287
+          git merge-base --is-ancestor $base HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Validation source is not an ancestor.' }
+          $changed = @(git diff --name-only $base HEAD)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot compare validation source.' }
+          # Only the malformed-registry fixture, its documentation and this
+          # guarded workflow may differ. No app, dependency or recipe changes.
+          $unexpected = @($changed | Where-Object { $_ -notmatch '^((\.github/workflows/windows-installer-recheck\.yml)|(tests/packaging_delivery/[^/]+\.py)|(docs/handoffs/packaging/[^/]+\.md))$' })
+          if ($unexpected.Count) { throw 'Application/build inputs changed; full source checks are required.' }
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          $api = 'https://api.github.com/repos/minh0407/cafe_fin/actions/runs/' + $priorRun
+          $run = Invoke-RestMethod -Uri $api -Headers $headers
+          if ($run.head_sha -ne $base -or $run.status -ne 'completed') { throw 'Prior validation identity differs.' }
+          $jobs = (Invoke-RestMethod -Uri ($api + '/jobs?per_page=100') -Headers $headers).jobs
+          $native = @($jobs | Where-Object { $_.name -eq 'native-library' })
+          $source = @($jobs | Where-Object { $_.name -eq 'windows' })
+          if ($native.Count -ne 1 -or $native[0].conclusion -ne 'success' -or $source.Count -ne 1) { throw 'Prior native/source validation missing.' }
+          $required = @('Backend regression tests', 'Lint and compile backend', 'Frontend production build', 'Browser and real sidecar tests', 'Feature browser integration tests', 'Check Rust formatting', 'Build Python sidecar and notices', 'Smoke frozen sidecar without developer PATH', 'Test production native controller with matching frozen sidecar', 'Build native installer candidate')
+          foreach ($name in $required) {
+            $step = @($source[0].steps | Where-Object { $_.name -eq $name })
+            if ($step.Count -ne 1 -or $step[0].conclusion -ne 'success') { throw "Prior gate did not pass: $name" }
+          }
+          $failed = @($source[0].steps | Where-Object { $_.conclusion -eq 'failure' })
+          if ($failed.Count -ne 1 -or $failed[0].name -ne 'Test uninstall cleanup against a synthetic registry key') { throw 'Prior failure is outside the corrected fixture.' }
+          New-Item -ItemType Directory -Path build -ErrorAction Stop | Out-Null
+          [ordered]@{ schema_version=1; source_commit=$env:GITHUB_SHA; unchanged_application_base=$base; prior_run=$priorRun; prior_url=$run.html_url; reused_successful_gates=$required; native_library='SUCCESS'; changed_paths=$changed; scope='Application and recipes unchanged; corrected installer fixture is rerun below' } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath build/source-gate-reuse.json -Encoding utf8
+      - name: Set up uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: '0.13.7'
+          enable-cache: false
+      - name: Install locked Python environment
+        run: |
+          uv python install 3.12.16
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv sync --frozen --python 3.12.16
+      - name: Test corrected fixture and packaging guards
+        run: |
+          uv run --frozen python -m pytest tests/packaging_delivery -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --frozen python -m ruff check scripts/packaging tests/packaging_delivery
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Install locked frontend packages
+        working-directory: frontend
+        run: npm ci
+      - name: Build production frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Pin Rust build toolchain
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup default 1.99.1
+      - name: Test native runtime and formatting
+        run: |
+          cargo fmt --manifest-path desktop/Cargo.toml -- --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path tests/desktop/Cargo.toml --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build fresh Python sidecar and notices
+        run: ./desktop/scripts/build-sidecar.ps1
+      - name: Smoke the fresh frozen sidecar
+        run: |
+          $env:CAFE_FIN_TEST_SIDECAR = (Resolve-Path 'desktop/binaries/cafe-fin-sidecar-x86_64-pc-windows-msvc.exe').Path
+          uv run --frozen python -m pytest tests/core/test_api_sidecar.py::test_sidecar_real_loopback_unicode_second_instance_and_restart -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test production native controller with fresh frozen sidecar
+        run: cargo test --manifest-path desktop/Cargo.toml --bin cafe-fin-desktop --locked -- --ignored --test-threads=1
+      - name: Build native installer candidate
+        working-directory: desktop
+        run: ../frontend/node_modules/.bin/tauri.cmd build --bundles nsis --ci -- --locked
+      - name: Test native cleanup with exact malformed registry bytes
+        run: |
+          $compiler = @("$env:LOCALAPPDATA/tauri/NSIS/makensis.exe", "$env:LOCALAPPDATA/tauri/NSIS/Bin/makensis.exe") | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $compiler) { throw 'NSIS compiler from successful bundle missing.' }
+          $env:CAFE_FIN_TEST_MAKENSIS = (Resolve-Path -LiteralPath $compiler).Path
+          uv run --frozen python -m pytest tests/packaging_delivery/test_startup_cleanup.py -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Collect exact-source candidate and verify NSIS payload
+        run: |
+          uv run --frozen python scripts/packaging/candidate_receipt.py --source $env:GITHUB_SHA --output build/release-candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $archiveTool = (Get-Command 7z.exe -ErrorAction Stop).Source
+          uv run --frozen python scripts/packaging/verify_nsis_payload.py --candidate build/release-candidate --source $env:GITHUB_SHA --sevenzip $archiveTool --output build/nsis-payload-proof.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain checked owner-trial installer and evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cafe-fin-windows-x64-${{ github.sha }}
+          path: |
+            build/release-candidate/
+            build/nsis-payload-proof.json
+            build/source-gate-reuse.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          include-hidden-files: false
