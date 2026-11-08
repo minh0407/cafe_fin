@@ -114,3 +114,17 @@ Kết quả phân biệt đã ghi pending, đã công bố, lỗi và phần ch�
 ## Giấy phép và công thức
 
 Foundation spike ghi license/version của grid và evaluator trong ADR. Lane accounting chỉ thêm dependency đã được duyệt hoặc gửi đề xuất thay đổi shared manifest. Không dùng formula result cache để giả là đã tính lại; unsupported, circular reference và range quá lớn có code lỗi riêng. Không chạy VBA, external link, arbitrary script hoặc network formula.
+
+## Khay hệ thống và startup desktop
+
+Ba lệnh Tauri mới chỉ được cấp cho capability `main` local, không phải API HTTP:
+
+| Lệnh | Input | Output |
+|---|---|---|
+| `desktop_runtime_status` | Không | `{startup_enabled: boolean, startup_supported: boolean}` |
+| `set_desktop_startup` | `{enabled: boolean}` | Cùng DTO; chỉ gọi từ thao tác bật/tắt của người dùng |
+| `desktop_background_ready` | Không | Void; chỉ cân nhắc thu cửa sổ startup về khay sau bootstrap khỏe |
+
+Startup mặc định tắt. Native chỉ nhận boolean, tự tạo command cố định cho executable hiện tại và `--startup-v1`; không nhận path/args từ renderer. Lệnh bật/tắt chỉ thay exact owned value `HKCU/Software/Microsoft/Windows/CurrentVersion/Run/CafeFin`, kiểm giao dịch và đọc lại. Value khác được giữ, trả `STARTUP_CONFLICT`; các lỗi còn lại là `STARTUP_COMMAND_INVALID` hoặc `STARTUP_UNAVAILABLE`, không trả raw exception/path. Không sửa policy hay override StartupApproved.
+
+`desktop_background_ready` không spawn sidecar hoặc scheduler, không đăng nhập thay người dùng. Root lỗi/held/setup chưa xong/tray không có sẽ giữ cửa sổ hiện. Đóng cửa sổ giữ WebView và nháp; Thoát có xác nhận, fence command và chờ sidecar dừng sạch. Xem [handoff runtime](handoffs/foundation/desktop-runtime-20261108.md). Không migration DB, đổi HTTP API hoặc shared read bridge trong increment này.

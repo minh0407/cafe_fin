@@ -12,6 +12,8 @@ Repo đã ghép core/API local, ghi nhận với ledger chặn tồn âm, hợp 
 
 [Giá thị trường 14](docs/reviews/AUTOMATIC_MARKET_INCREMENT_14.md) nối nguồn Robusta nhân xô Gia Lai của CRM vào bảng giá nhập đúng ngày, có lịch kiểm tra và bằng chứng nguồn. Quả tươi nhập tay, giá bán cài riêng. Nguồn thật hiện trả trang xác minh truy cập; app báo bị chặn và không tạo giá thay thế.
 
+[Bộ cài dùng thử 15](docs/reviews/DESKTOP_TRIAL_INSTALLER_15.md) bổ sung khay hệ thống, đóng cửa sổ về khay và tùy chọn tự mở cùng Windows, mặc định tắt. Đã giữ bộ cài Windows 11 x64 phiên bản 0.1.0 cùng source/checksum và bằng chứng CI. Người dùng mở shortcut để dùng app, không cần Docker hoặc terminal. File chưa ký số; cài máy sạch và nghiệm thu GUI vẫn còn mở.
+
 Baseline phát triển `cafe-fin-foundation-ready-v1` và [baseline tích hợp](docs/reviews/INTEGRATION_BASELINE_V1.md) `cafe-fin-integration-ready-v1` đã được điều phối chốt. Bản tích hợp qua CI Windows với 1.029 backend tests, các bộ browser, frozen sidecar và build NSIS. Lane đóng gói tiếp tục hoàn thiện và nghiệm thu desktop; chưa gọi production-ready. Windows sạch, native GUI/offline và các bước phát hành vẫn phải qua [gate phát hành](docs/adr/20261106_COORDINATION_GATES.md).
 
 [Tích hợp quản lý dữ liệu 06](docs/reviews/DESKTOP_MAINTENANCE_INCREMENT_06.md) bổ sung core/protocol sao lưu, chuyển/khôi phục và giao diện đối soát; [native controller 07](docs/reviews/NATIVE_CONTROLLER_INCREMENT_07.md) đã nối các lệnh desktop. Lượt CI backend đạt 1.119 tests; các kiểm thử adapter native thật được chạy riêng trước nghiệm thu. Khôi phục giữ các lượt gửi chưa rõ, tạm dừng lịch đến khi Admin kiểm tra và tạo lại tệp báo cáo trong thư mục mới từ bản gốc đã xác minh.
