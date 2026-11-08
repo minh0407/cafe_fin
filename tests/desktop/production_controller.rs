@@ -448,3 +448,88 @@ fn frozen_controller_old_closed_dead_source_never_returns_authenticated_view() {
     assert!(journal.source_root.is_dir());
     assert!(journal.destination.is_dir());
 }
+
+#[test]
+#[ignore = "Permitted Windows runner only; first build the matching genuine frozen sidecar"]
+fn frozen_explicit_exit_preserves_root_and_requires_fresh_login_after_relaunch() {
+    let mut fixture = Fixture::new();
+    let (first, admin, _) = fixture.initial();
+    let identity = fixture.controller.identity(&fixture.store, &admin).unwrap();
+    let draft = fixture
+        .controller
+        .begin(&fixture.store, MaintenanceKind::Backup)
+        .unwrap();
+    let ticket = fixture
+        .controller
+        .select_begin(
+            &fixture.store,
+            &draft.operation_id,
+            SelectionPurpose::Destination,
+        )
+        .unwrap();
+    assert_eq!(
+        fixture.controller.shutdown_for_exit().err().as_deref(),
+        Some("DRAFT_BUSY")
+    );
+    assert!(fixture.controller.status(&fixture.store).unwrap().running);
+    fixture.controller.cancel_selection(ticket).unwrap();
+
+    fixture.controller.shutdown_for_exit().unwrap();
+    assert!(fixture.controller.backend.is_none());
+    assert!(!fixture.controller.status(&fixture.store).unwrap().running);
+    assert!(fixture.store.load().unwrap().is_none());
+    assert_root(&first, Path::new(&first.data_root), &fixture.store);
+
+    let second = fixture.controller.start(&fixture.store, false).unwrap();
+    assert_root(&second, Path::new(&first.data_root), &fixture.store);
+    assert_ne!(second.generation, first.generation);
+    assert_ne!(second.session_token, first.session_token);
+    assert!(
+        fixture.controller.identity(&fixture.store, &admin).is_err(),
+        "a prior user token cannot authenticate the new sidecar"
+    );
+    let fresh_admin = login(&second, false, "adapter-admin");
+    assert_eq!(
+        fixture
+            .controller
+            .identity(&fixture.store, &fresh_admin)
+            .unwrap()
+            .root_id,
+        identity.root_id
+    );
+    fixture.controller.shutdown_for_exit().unwrap();
+}
+
+#[test]
+#[ignore = "Permitted Windows runner only; first build the matching genuine frozen sidecar"]
+fn frozen_picker_completion_after_child_crash_does_not_strand_busy_latch() {
+    let mut fixture = Fixture::new();
+    fixture.initial();
+    let draft = fixture
+        .controller
+        .begin(&fixture.store, MaintenanceKind::Backup)
+        .unwrap();
+    let ticket = fixture
+        .controller
+        .select_begin(
+            &fixture.store,
+            &draft.operation_id,
+            SelectionPurpose::Destination,
+        )
+        .unwrap();
+    let child = &mut fixture.controller.backend.as_mut().unwrap().child;
+    child.kill().unwrap(); // Only this source-matched synthetic fixture's child.
+    child.wait().unwrap();
+    assert!(fixture
+        .controller
+        .select_finish(&fixture.store, ticket, None)
+        .is_err());
+    assert!(!fixture.controller.draft.is_busy());
+    assert_ne!(
+        fixture.controller.shutdown_for_exit().err().as_deref(),
+        Some("DRAFT_BUSY")
+    );
+    assert!(fixture.controller.backend.is_none());
+    fixture.controller.shutdown_for_exit().unwrap();
+    assert!(fixture.store.load().unwrap().is_none());
+}

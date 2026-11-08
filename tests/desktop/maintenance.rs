@@ -1006,3 +1006,123 @@ fn persistent_corrupt_uncertain_intent_attempt_or_dispatch_cannot_be_discarded_a
         }
     }
 }
+
+#[test]
+fn picker_cancel_settles_matching_ticket_without_touching_selected_handles_or_corrupt_journal() {
+    let fixture = Fixture::new();
+    let config = fixture.directory("cancel-config");
+    let store = JournalStore::new(&config).unwrap();
+    let parent = fixture.directory("cancel-parent");
+    let mut handles = PickerHandles::new(GENERATION.into());
+    let mut slot = DraftSlot::default();
+    slot.begin(
+        OP.into(),
+        GENERATION.into(),
+        MaintenanceKind::Backup,
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    let selected = slot
+        .start_selection(OP, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    let nonce = format!("{:064x}", 1);
+    slot.finish_selection(selected, Some(&parent), nonce.clone(), &store, &mut handles)
+        .unwrap();
+    let previous = handles
+        .resolve(&nonce, GENERATION, OP, PickerPurpose::BackupDestination)
+        .unwrap()
+        .to_path_buf();
+    let ticket = slot
+        .start_selection(OP, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    let journal = config.join("maintenance.json");
+    fs::write(&journal, b"synthetic-corrupt-journal").unwrap();
+    assert!(slot.is_busy());
+    slot.cancel_selection(&ticket).unwrap();
+    assert!(!slot.is_busy());
+    assert_eq!(slot.operation_id(), Some(OP));
+    assert_eq!(
+        handles
+            .resolve(&nonce, GENERATION, OP, PickerPurpose::BackupDestination)
+            .unwrap(),
+        previous
+    );
+    assert_eq!(fs::read(&journal).unwrap(), b"synthetic-corrupt-journal");
+    assert!(store.load().is_err());
+    assert_eq!(slot.cancel_selection(&ticket), Err("PICKER_RESULT_STALE"));
+}
+
+#[test]
+fn picker_cancel_stale_sequence_never_clears_a_new_selection_for_the_same_operation() {
+    let fixture = Fixture::new();
+    let store = JournalStore::new(&fixture.directory("cancel-config")).unwrap();
+    let mut handles = PickerHandles::new(GENERATION.into());
+    let mut slot = DraftSlot::default();
+    slot.begin(
+        OP.into(),
+        GENERATION.into(),
+        MaintenanceKind::Backup,
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    let old = slot
+        .start_selection(OP, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    slot.cancel_selection(&old).unwrap();
+    let current = slot
+        .start_selection(OP, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    assert_eq!(slot.cancel_selection(&old), Err("PICKER_RESULT_STALE"));
+    assert!(slot.is_busy());
+    assert_eq!(
+        slot.finish_selection(old, None, String::new(), &store, &mut handles),
+        Err("PICKER_RESULT_STALE")
+    );
+    assert!(slot.is_busy());
+    slot.cancel_selection(&current).unwrap();
+    assert!(!slot.is_busy());
+    assert_eq!(slot.operation_id(), Some(OP));
+    assert!(store.load().unwrap().is_none());
+}
+
+#[test]
+fn picker_cancel_from_replaced_draft_never_clears_the_current_operation() {
+    let fixture = Fixture::new();
+    let store = JournalStore::new(&fixture.directory("cancel-config")).unwrap();
+    let mut handles = PickerHandles::new(GENERATION.into());
+    let mut slot = DraftSlot::default();
+    slot.begin(
+        OP.into(),
+        GENERATION.into(),
+        MaintenanceKind::Backup,
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    let old = slot
+        .start_selection(OP, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    slot.cancel_selection(&old).unwrap();
+    slot.begin(
+        REQUEST.into(),
+        GENERATION.into(),
+        MaintenanceKind::Move,
+        &store,
+        &mut handles,
+    )
+    .unwrap();
+    let current = slot
+        .start_selection(REQUEST, GENERATION, SelectionPurpose::Destination, &store)
+        .unwrap();
+    assert_eq!(slot.cancel_selection(&old), Err("PICKER_RESULT_STALE"));
+    assert!(slot.is_busy());
+    assert_eq!(slot.operation_id(), Some(REQUEST));
+    assert_eq!(
+        slot.view(&store, &handles, None).unwrap().operation_id,
+        REQUEST
+    );
+    slot.cancel_selection(&current).unwrap();
+    assert!(!slot.is_busy());
+}

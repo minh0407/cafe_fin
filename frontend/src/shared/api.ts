@@ -23,6 +23,15 @@ export class ApiError extends Error {
     super(message);
   }
 }
+export interface DesktopRuntimeStatus {
+  startup_enabled: boolean;
+  startup_supported: boolean;
+}
+export function hasNativeDesktop(): boolean {
+  if (isBrowserPreview || typeof window === "undefined") return false;
+  const bridge = (window as unknown as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__;
+  return typeof bridge?.invoke === "function";
+}
 export const desktop = {
   status: () => isBrowserPreview ? browserPreviewStatus() : invoke<DesktopStatus>("desktop_status"),
   chooseDataRoot: () => isBrowserPreview ? previewUnsupported<string | null>() : invoke<string | null>("choose_data_root"),
@@ -42,7 +51,20 @@ export const desktop = {
   maintenanceActivate: (operationId: string, userToken: string) =>
     nativeMaintenance<MaintenanceResult>("maintenance_activate", { operationId, userToken }),
   openReports: (userToken: string) => nativeMaintenance<null>("open_reports", { userToken }),
+  runtimeStatus: () => nativeRuntimeStatus("desktop_runtime_status"),
+  setStartup: (enabled: boolean) => nativeRuntimeStatus("set_desktop_startup", { enabled }),
+  backgroundReady: () => nativeMaintenance<void>("desktop_background_ready", {}),
 };
+
+async function nativeRuntimeStatus(command: string, args: Record<string, unknown> = {}): Promise<DesktopRuntimeStatus> {
+  const value = await nativeMaintenance<unknown>(command, args);
+  if (!value || typeof value !== "object" ||
+    typeof (value as DesktopRuntimeStatus).startup_enabled !== "boolean" ||
+    typeof (value as DesktopRuntimeStatus).startup_supported !== "boolean")
+    throw new ApiError("STARTUP_UNAVAILABLE", nativeMessages.STARTUP_UNAVAILABLE);
+  const status = value as DesktopRuntimeStatus;
+  return { startup_enabled: status.startup_enabled, startup_supported: status.startup_supported };
+}
 
 async function previewUnsupported<T>(): Promise<T> {
   throw new ApiError("PREVIEW_NATIVE_UNAVAILABLE", previewNativeLimitation);
@@ -61,6 +83,9 @@ const nativeMessages: Record<string, string> = {
   MOVE_DESTINATION_EXISTS: "Thư mục đích đã tồn tại; ứng dụng không ghi đè.",
   RESTORE_DESTINATION_EXISTS: "Thư mục đích đã tồn tại; ứng dụng không ghi đè.",
   SHUTDOWN_FAILED: "Dịch vụ chưa xác nhận dừng an toàn. Chưa thể hoàn tất chuyển dữ liệu.",
+  STARTUP_CONFLICT: "Cấu hình khởi động hiện tại không khớp Cafe Fin. Ứng dụng giữ nguyên cấu hình đó.",
+  STARTUP_UNAVAILABLE: "Chưa xác nhận được tùy chọn khởi động Windows. Hãy kiểm tra trạng thái trước khi thử lại.",
+  STARTUP_COMMAND_INVALID: "Lệnh khởi động Cafe Fin không hợp lệ. Chưa thay đổi thiết lập Windows.",
 };
 export function isMaintenanceBoot(boot: BootSession | null | undefined): boot is BootSession & { generation: string } {
   return !!boot && boot.protocol_version === 1 && boot.maintenance_protocol === 1 &&

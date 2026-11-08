@@ -23,7 +23,7 @@ struct Draft {
 }
 
 /// Opaque native correlation ticket, not a renderer DTO or path capability.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SelectionTicket {
     sequence: u64,
     operation_id: String,
@@ -112,6 +112,17 @@ impl DraftSlot {
         Ok(ticket)
     }
 
+    /// Settle only the native dialog identified by this already-issued ticket.
+    /// This requires no healthy sidecar/journal and changes no draft, capability,
+    /// or durable state. A late callback cannot cancel a newer selection.
+    pub fn cancel_selection(&mut self, ticket: &SelectionTicket) -> Result<(), &'static str> {
+        if self.selection.as_ref() != Some(ticket) {
+            return Err("PICKER_RESULT_STALE");
+        }
+        self.selection = None;
+        Ok(())
+    }
+
     /// None means native dialog cancellation: keep the prior known selection.
     /// An error in an actual path result also keeps the old purpose binding.
     pub fn finish_selection(
@@ -123,11 +134,7 @@ impl DraftSlot {
         handles: &mut PickerHandles,
     ) -> Result<(), &'static str> {
         let active = self.selection.as_ref().ok_or("PICKER_RESULT_STALE")?;
-        if active.sequence != ticket.sequence
-            || active.operation_id != ticket.operation_id
-            || active.generation != ticket.generation
-            || active.purpose != ticket.purpose
-        {
+        if active != &ticket {
             return Err("PICKER_RESULT_STALE");
         }
         let draft = self.current.as_mut().ok_or("DRAFT_NOT_FOUND")?;

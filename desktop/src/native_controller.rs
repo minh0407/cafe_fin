@@ -11,6 +11,7 @@ use cafe_fin_desktop::{
     },
     native_attach::{attach_existing, ExistingChild},
     native_draft::{DraftSlot, SelectionTicket},
+    native_exit::{explicit_exit, GracefulExitProcess},
     native_guards::{CloseProof, PickerHandles},
     native_journal::{JournalStore, NativeJournal, StartupDisposition},
     native_paths::check_local_path,
@@ -26,6 +27,7 @@ use std::{
 
 const STARTUP: Duration = Duration::from_secs(20);
 const CONTROL_WAIT: Duration = Duration::from_secs(30);
+const EXPLICIT_EXIT_WAIT: Duration = Duration::from_secs(8);
 
 pub fn fresh_id() -> String {
     let mut bytes: [u8; 16] = rand::random();
@@ -73,6 +75,17 @@ struct Backend {
     generation: String,
     verified: bool,
     pending_close: Option<CloseProof>,
+}
+impl GracefulExitProcess for Backend {
+    fn poll_exit(&mut self) -> Result<Option<bool>, ()> {
+        self.child
+            .try_wait()
+            .map(|status| status.map(|status| status.success()))
+            .map_err(|_| ())
+    }
+    fn request_exit(&mut self) -> Result<(), ()> {
+        self.control.send_legacy_shutdown().map_err(|_| ())
+    }
 }
 impl ExistingChild for Backend {
     fn generation(&self) -> &str {
@@ -659,10 +672,19 @@ impl NativeController {
         ticket: SelectionTicket,
         path: Option<PathBuf>,
     ) -> TransitionResult<Option<MaintenanceView>> {
-        let runtime = self.current(store)?.session.runtime_state;
-        let handles = self.handles.as_mut().ok_or("MAINTENANCE_UNAVAILABLE")?;
-        self.draft.finish_selection(
-            ticket,
+        let runtime = match self.current(store) {
+            Ok(backend) => backend.session.runtime_state,
+            Err(error) => {
+                let _ = self.draft.cancel_selection(&ticket);
+                return Err(error);
+            }
+        };
+        let Some(handles) = self.handles.as_mut() else {
+            let _ = self.draft.cancel_selection(&ticket);
+            return Err("MAINTENANCE_UNAVAILABLE".into());
+        };
+        if let Err(error) = self.draft.finish_selection(
+            ticket.clone(),
             path.as_deref(),
             if path.is_some() {
                 fresh_nonce()
@@ -671,12 +693,19 @@ impl NativeController {
             },
             store,
             handles,
-        )?;
+        ) {
+            let _ = self.draft.cancel_selection(&ticket);
+            return Err(error.into());
+        }
         if path.is_none() {
             Ok(None)
         } else {
             Ok(Some(self.draft.view(store, handles, runtime)?))
         }
+    }
+    /// Native callback settlement only; never exposed as a renderer command.
+    pub fn cancel_selection(&mut self, ticket: SelectionTicket) -> Result<(), String> {
+        self.draft.cancel_selection(&ticket).map_err(str::to_owned)
     }
     pub fn open_reports(&mut self, store: &JournalStore, token: &str) -> TransitionResult<()> {
         if store.load()?.is_some() {
@@ -991,6 +1020,39 @@ impl NativeController {
         }
         self.update_pending(store)
     }
+    /// Caller holds the lifecycle mutex and has fenced new IPC/dialog admission.
+    /// This explicit user action never kills a child or changes maintenance state.
+    pub fn shutdown_for_exit(&mut self) -> Result<(), String> {
+        if self.draft.is_busy() {
+            return Err("DRAFT_BUSY".into());
+        }
+        let Some(backend) = self.backend.as_mut() else {
+            return Ok(());
+        };
+        let mut outcome = explicit_exit(backend, EXPLICIT_EXIT_WAIT);
+        if outcome.terminal {
+            backend.verified = false;
+            if outcome.result.is_ok() {
+                let reader_deadline = Instant::now() + Duration::from_secs(1);
+                loop {
+                    match backend.control.finish_reader() {
+                        Ok(()) => break,
+                        Err("CONTROL_READER_PENDING") if Instant::now() < reader_deadline => {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(_) => {
+                            outcome.result = Err("SHUTDOWN_PIPE_FAILED");
+                            break;
+                        }
+                    }
+                }
+            }
+            // Only a witnessed process exit permits releasing the child handle.
+            self.backend = None;
+        }
+        outcome.result.map_err(str::to_owned)
+    }
+
     pub fn shutdown(&mut self) {
         if let Some(mut backend) = self.backend.take() {
             backend.ordinary_shutdown();

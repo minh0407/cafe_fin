@@ -15,15 +15,16 @@ import {
   Typography,
 } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, desktop, isMaintenanceBoot, messageOf } from "../shared/api";
+import { api, ApiError, desktop, hasNativeDesktop, isMaintenanceBoot, messageOf } from "../shared/api";
 import { useSession } from "../shared/session";
 import { isBrowserPreview } from "../shared/browserPreview";
-import { maintenanceHeld, type AuthResponse, type DesktopStatus, type Health } from "../shared/types";
+import { maintenanceHeld, type AuthResponse, type BootSession, type DesktopStatus, type Health } from "../shared/types";
 import { GridSpike } from "../shared/GridSpike";
 import { DocumentSpike } from "../shared/DocumentSpike";
 import { modules } from "./registry";
 import { LocalAccountsPage } from "./LocalAccountsPage";
 import { DataManagementPanel } from "./DataManagementPanel";
+import { DesktopRuntimeSettings } from "./DesktopRuntimeSettings";
 
 // Technical proofs are opt-in development fixtures, never product navigation.
 const showProofs = import.meta.env.DEV && import.meta.env.VITE_CAFE_FIN_PROOFS === "1";
@@ -40,6 +41,8 @@ export function App() {
   const [route, setRoute] = useState(location.hash.slice(1) || initialRoute);
   const initialized = useRef(false);
   const mounted = useRef(false);
+  const autoStarted = useRef<{ boot: BootSession; generation: number } | null>(null);
+  const backgroundChecked = useRef(false);
   const [desktopState, setDesktopState] = useState<DesktopStatus | null>(null);
   const held = maintenanceHeld(session.boot);
   const setupHeld = !desktopState || desktopState.running || !!desktopState.pending_transition || (!!desktopState.runtime_state && desktopState.runtime_state !== "ACTIVE");
@@ -81,6 +84,7 @@ export function App() {
           try {
             const boot = await desktop.start(false);
             if (!mounted.current || useSession.getState().generation !== generation) return;
+            autoStarted.current = { boot, generation: generation + 1 };
             useSession.getState().setBoot(boot);
             generation += 1;
           } finally {
@@ -104,6 +108,21 @@ export function App() {
     refetchInterval: held ? false : 5000,
     retry: false,
   });
+  useEffect(() => {
+    const automatic = autoStarted.current;
+    if (!automatic || backgroundChecked.current || !session.boot) return;
+    if (session.boot !== automatic.boot || session.generation !== automatic.generation) {
+      backgroundChecked.current = true;
+      return;
+    }
+    if (health.isPending) return;
+    backgroundChecked.current = true;
+    if (!hasNativeDesktop() || held || error || health.error || !session.connected ||
+      session.boot.pending_transition || health.data?.status !== "ok" || health.data.setup_required !== false) return;
+    // Native independently verifies --startup-v1, the running root, ACTIVE and
+    // absence of a journal. Failure leaves the visible login/recovery UI intact.
+    void desktop.backgroundReady().catch(() => {});
+  }, [session.boot, session.generation, session.connected, held, error, health.isPending, health.error, health.data]);
   async function start(restart = false) {
     if (held || (!session.boot && setupHeld)) return;
     let generation = useSession.getState().generation + 1;
@@ -233,6 +252,7 @@ export function App() {
           <span>Dữ liệu trên máy của bạn</span>
         </div>
         <Space>
+          <DesktopRuntimeSettings />
           <Tag color={!held && session.connected && !health.error ? "green" : "orange"}>
             {held ? "Dữ liệu đang tạm giữ" : session.connected && !health.error
               ? "Local đã kết nối"

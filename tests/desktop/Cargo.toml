@@ -13,6 +13,17 @@ path = "../../desktop/src/lib.rs"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 
+[target.'cfg(windows)'.dependencies]
+winreg = { version = "=0.56.0", features = ["transactions"] }
+
+[[test]]
+name = "lifecycle"
+path = "lifecycle.rs"
+
+[[test]]
+name = "startup"
+path = "startup.rs"
+
 [[test]]
 name = "native_guards"
 path = "native_guards.rs"

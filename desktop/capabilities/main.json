@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "Only local first-party main window may use these bounded commands.",
   "windows": ["main"],
-  "permissions": ["allow-desktop-status", "allow-choose-data-root", "allow-start-backend", "allow-restart-backend", "allow-maintenance-begin", "allow-maintenance-select", "allow-maintenance-run", "allow-maintenance-status", "allow-maintenance-activate", "allow-open-reports"]
+  "permissions": ["allow-desktop-status", "allow-choose-data-root", "allow-start-backend", "allow-restart-backend", "allow-maintenance-begin", "allow-maintenance-select", "allow-maintenance-run", "allow-maintenance-status", "allow-maintenance-activate", "allow-open-reports", "allow-desktop-runtime-status", "allow-set-desktop-startup", "allow-desktop-background-ready"]
 }
