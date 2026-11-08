@@ -2,7 +2,7 @@ name: Windows source checks and candidate build
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/cafe-fin-desktop-candidate-*']
     paths:
       - '.github/workflows/windows-checks.yml'
       - 'backend/**'
@@ -145,6 +145,20 @@ jobs:
       - name: Build native installer candidate
         working-directory: desktop
         run: ../frontend/node_modules/.bin/tauri.cmd build --bundles nsis --ci -- --locked
+      # Narrow internal-retention exception to the historical no-upload comment.
+      - name: Collect source-matched internal acceptance files
+        run: |
+          uv run --frozen python scripts/packaging/candidate_receipt.py --source $env:GITHUB_SHA --output build/release-candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain internal Windows acceptance candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cafe-fin-windows-x64-${{ github.sha }}
+          path: build/release-candidate/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          include-hidden-files: false
       - name: Record candidate hashes
         run: |
           $candidateFiles = @(Get-ChildItem -LiteralPath 'desktop/target/release/bundle/nsis' -Filter '*.exe' -File)
@@ -160,4 +174,5 @@ jobs:
           }
 
 # Only source and synthetic fixtures run here. No application data, credentials,
-# production release, persistent runner, artifact upload, or larger paid runner.
+# production release, persistent runner or larger paid runner. Exact candidate
+# installers/source/notices are retained for seven days for owner-requested tests.

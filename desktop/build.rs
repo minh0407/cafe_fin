@@ -11,6 +11,9 @@ fn main() {
             "maintenance_status",
             "maintenance_activate",
             "open_reports",
+            "desktop_runtime_status",
+            "set_desktop_startup",
+            "desktop_background_ready",
         ]));
     tauri_build::try_build(attributes).expect("Tauri build configuration failed");
 }

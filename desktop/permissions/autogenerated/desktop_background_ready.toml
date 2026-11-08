@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-background-ready"
+description = "Enables the desktop_background_ready command without any pre-configured scope."
+commands.allow = ["desktop_background_ready"]
+
+[[permission]]
+identifier = "deny-desktop-background-ready"
+description = "Denies the desktop_background_ready command without any pre-configured scope."
+commands.deny = ["desktop_background_ready"]
