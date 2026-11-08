@@ -212,7 +212,13 @@ def _goods(data: ContractData, computed: dict) -> str:
             if value is not None:
                 pieces.append(f"{label}: {_display(value)} kg.")
         if line.quantity_source is not None:
-            pieces.append("Cách ghi lượng: " + line.quantity_source)
+            quantity_label = {
+                "direct": "Nhập kg tịnh trực tiếp",
+                "direct_net": "Nhập kg tịnh trực tiếp",
+                "gross_minus_tare": "Cân đầy trừ cân rỗng",
+                "gross_tare": "Cân đầy trừ cân rỗng",
+            }.get(line.quantity_source, line.quantity_source)
+            pieces.append("Cách ghi lượng: " + quantity_label)
         if line.note is not None:
             pieces.append("Ghi chú: " + line.note)
         if line.source:
@@ -226,7 +232,7 @@ def _goods(data: ContractData, computed: dict) -> str:
         if line.source_snapshot:
             weight = line.source_snapshot
             original = [
-                (label + ": " + getattr(weight, key))
+                (label + ": " + _display(getattr(weight, key)))
                 for label, key in (
                     ("đầy (kg)", "gross_kg"),
                     ("rỗng (kg)", "tare_kg"),

@@ -189,6 +189,43 @@ def test_source_snapshot_stays_distinct_from_selected_quantity():
             ContractData.model_validate(payload)
 
 
+@pytest.mark.parametrize(
+    ("source", "label"),
+    [
+        ("direct", "Nhập kg tịnh trực tiếp"),
+        ("direct_net", "Nhập kg tịnh trực tiếp"),
+        ("gross_minus_tare", "Cân đầy trừ cân rỗng"),
+        ("gross_tare", "Cân đầy trừ cân rỗng"),
+        ("Theo cân kiểm tra của hai bên", "Theo cân kiểm tra của hai bên"),
+    ],
+)
+def test_document_translates_known_quantity_methods_and_keeps_custom_text(source, label):
+    payload = contract_payload()
+    payload["lines"][0]["quantity_source"] = source
+    data = ContractData.model_validate(payload)
+    body = "\n".join(build_document(data, totals(data), template()).paragraphs)
+    assert "Cách ghi lượng: " + label in body
+    assert data.lines[0].quantity_source == source
+    if source != label:
+        assert "Cách ghi lượng: " + source not in body
+
+
+def test_source_weights_use_same_vietnamese_decimal_format_as_selected_quantity():
+    payload = contract_payload()
+    payload["lines"][0].update(
+        quantity_kg="100.005",
+        source_snapshot={"gross_kg": "1000.125", "tare_kg": "0.125", "net_kg": "1000.000"},
+    )
+    data = ContractData.model_validate(payload)
+    body = "\n".join(build_document(data, totals(data), template()).paragraphs)
+    assert "Lượng hợp đồng: 100,005 kg" in body
+    assert (
+        "Số cân nguồn (bản chụp): đầy (kg): 1.000,125; rỗng (kg): 0,125; tịnh (kg): 1.000." in body
+    )
+    assert data.lines[0].source_snapshot.net_kg == "1000.000"
+    assert data.lines[0].quantity_kg == "100.005"
+
+
 def test_weighing_identity_must_be_uuid():
     payload = contract_payload()
     payload["lines"][0]["source"] = {
