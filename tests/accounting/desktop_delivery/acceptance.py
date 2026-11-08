@@ -391,9 +391,25 @@ def bulk_finish(client, manifest, evidence, probe=None):
     source, phases = manifest["files"]["csv"], evidence["phases"]
     book_id, batch_id = evidence["book_id"], evidence["batch_id"]
     batch = client.request("GET", f"/accounting/import-jobs/{batch_id}")
-    if batch["state"] in {"RECOVERABLE", "CANCELLED", "FAILED"}:
+    parse_job_id = batch["job"]["id"]
+    parse_generation_before = batch["job"]["generation"]
+    resumed = batch["state"] in {"RECOVERABLE", "CANCELLED", "FAILED"}
+    if resumed:
         client.request("POST", f"/accounting/import-jobs/{batch_id}/resume", command())
     batch = wait_batch(client, batch_id, phases=phases, timeout=86400, probe=probe)
+    require(batch["job"]["id"] == parse_job_id, "RESUME_CREATED_DIFFERENT_PARSE_JOB")
+    require(batch["job"]["checkpoint"]["parsed"] == manifest["rows"], "RESUME_PARSE_COUNT_MISMATCH")
+    if resumed:
+        require(
+            batch["job"]["generation"] == parse_generation_before + 1, "RESUME_GENERATION_MISMATCH"
+        )
+    evidence["parse_resume"] = {
+        "job_id": parse_job_id,
+        "state": batch["job"]["state"],
+        "generation_before": parse_generation_before,
+        "generation_after": batch["job"]["generation"],
+        "parsed_rows": batch["job"]["checkpoint"]["parsed"],
+    }
     batch = client.request(
         "POST",
         f"/accounting/import-jobs/{batch_id}/mapping",

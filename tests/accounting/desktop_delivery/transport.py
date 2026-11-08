@@ -228,7 +228,8 @@ class Sidecar:
             content = response.read(2 * 1024 * 1024 + 1)
             if len(content) > 2 * 1024 * 1024:
                 raise AcceptanceError("HTTP_RESPONSE_LIMIT")
-            if response.status != expected:
+            accepted = (expected,) if isinstance(expected, int) else expected
+            if response.status not in accepted:
                 raise AcceptanceError("HTTP_STATUS_UNEXPECTED")
             return json.loads(content)
         except (OSError, ValueError) as exc:

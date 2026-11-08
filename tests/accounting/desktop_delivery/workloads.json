@@ -1,7 +1,7 @@
 {
   "schema_id": "cafe-fin.accounting.desktop-workloads",
   "schema_version": 1,
-  "manifest_revision": "2026-11-08.2",
+  "manifest_revision": "2026-11-08.3",
   "planning_baseline": {
     "source_sha": "eab8c96b851f039de515083189f4301cc09437c0",
     "branch": "codex/cafe-fin-accounting-desktop-20261108",
@@ -17,7 +17,7 @@
     "clean_windows_client": "NOT_RUN"
   },
   "run_policy": {
-    "default": "SOURCE_MINI_AUTHORIZED; PACKAGED_MINI_REQUIRES_APPROVED_CANDIDATE; LARGE_REQUIRES_FINAL_CANDIDATE_AND_EXPLICIT_SLOT",
+    "default": "SOURCE_MINI_AND_NAMED_BOUNDED_CHECKPOINT_AUTHORIZED; FROZEN_REQUIRES_APPROVED_CANDIDATE; LARGE_50K_PLUS_REQUIRES_FINAL_CANDIDATE_AND_EXPLICIT_SLOT",
     "large_requires_final_candidate": true,
     "mini_may_use_explicitly_designated_nonfinal_candidate": true,
     "slot_receipt_fields": [
@@ -57,7 +57,22 @@
     "mini_slot_required": false,
     "mini_slot_override": "Coordinator may explicitly require a slot; any supplied receipt must validate.",
     "source_developer_minis_already_authorized": true,
-    "frozen_mini_requires_coordinator_approved_candidate_identity": true
+    "frozen_mini_requires_coordinator_approved_candidate_identity": true,
+    "bounded_checkpoint_authorization": {
+      "workload_ids": [
+        "csv-checkpoint-5000"
+      ],
+      "rows": 5000,
+      "allowed_modes": [
+        "source",
+        "frozen-sidecar"
+      ],
+      "basis": "Explicit coordinator authorization for this named bounded checkpoint test; not blanket permission for other sizes or 50k/500k/1m.",
+      "coordinator_slot_required": false,
+      "candidate_identity_required_for_frozen": true,
+      "automatic_execution_allowed": false
+    },
+    "large_slot_threshold_rows": 50000
   },
   "identity_contract": {
     "packaged_candidate_manifest_required_for": [
@@ -102,7 +117,7 @@
         "gui_native",
         "clean_windows_client"
       ],
-      "slot_policy": "Required for large; optional for mini unless coordinator explicitly requests one."
+      "slot_policy": "Required for large (50k/500k/1m); optional for mini or explicitly authorized csv-checkpoint-5000 unless coordinator requests one. GUI is separate and not implemented by this CLI."
     },
     "frozen_sidecar": {
       "status": "NOT_RUN",
@@ -117,7 +132,7 @@
         "gui_native",
         "clean_windows_client"
       ],
-      "slot_policy": "Required for large; optional for mini unless coordinator explicitly requests one."
+      "slot_policy": "Required for large (50k/500k/1m); optional for mini or explicitly authorized csv-checkpoint-5000 unless coordinator requests one. GUI is separate and not implemented by this CLI."
     },
     "gui_native": {
       "status": "NOT_RUN",
@@ -131,7 +146,7 @@
       "does_not_prove": [
         "clean_windows_client_unless_separately_observed"
       ],
-      "slot_policy": "Required for large; optional for mini unless coordinator explicitly requests one."
+      "slot_policy": "Required for large (50k/500k/1m); optional for mini or explicitly authorized csv-checkpoint-5000 unless coordinator requests one. GUI is separate and not implemented by this CLI."
     },
     "clean_windows_client": {
       "status": "NOT_RUN",
@@ -160,12 +175,17 @@
     "persist_same_batch_job_source_and_fixture_hashes": true,
     "restart_requires_old_process_exit_and_new_process_creation_identity": true,
     "resume_same_job_no_duplicate_source_identity": true,
-    "if_window_missed": "NOT_RUN checkpoint probe; do not claim mid-parse recovery. Mandatory checkpoint absence prevents overall PASS.",
+    "if_window_missed": "Record WINDOW_MISSED/overall BLOCKED with functional acceptance separate; do not relabel later reopen as durable partial checkpoint PASS.",
     "no_monkeypatching_frozen_binary_or_new_unauthorized_test_endpoint": true,
     "graceful_restart_is_not_hard_kill_or_power_loss_test": true,
     "pending_visibility": "Record staged_committed_rows separately; pending must not appear as published rows, report sums or export data.",
     "unobservable_pending_window": "NOT_MEASURED visibility-window observation; final counts alone do not prove every intermediate window.",
-    "default_parse_scope": "Required only where the workload explicitly requests mid_parse_same_job. Rich mini requires a completed-validation restart instead."
+    "default_parse_scope": "CSV workloads require cooperative_cancel_partial_parse_same_job. Rich mini still requires completed-validation restart; optional unobserved probes are not claimed.",
+    "stop_method": "Existing public cancel API after a durable parsed/checkpoint counter >=500 and <source_rows. Await CANCELLED with partial count before graceful owned process close.",
+    "restart_job_state": "CANCELLED with identical parsed checkpoint, batch/job/book/file/file_hash; explicit existing resume API afterwards. Not a RECOVERABLE/crash claim.",
+    "closed_checkpoint_proof": "After verified sidecar exit and closed WAL, open only synthetic DB read-only immutable: require state CANCELLED, 500<=parsed<source_rows, staged count=distinct source IDs=job counter=checkpoint, parse:{parsed} receipt/result; hash ordered row_id/source_sheet/source_row/raw_json prefix.",
+    "final_checkpoint_retention": "After resumed complete parse and final exit: staged/distinct source rows equal input rows; original stopped receipt payload and source-prefix SHA retained; published=lineage=distinct targets and two publications.",
+    "cancel_race_policy": "A pre-cancel 500-row observation is insufficient if cooperative cancellation stops at all source rows. WINDOW_MISSED remains BLOCKED for required checkpoint scope."
   },
   "profiles": {
     "csv_v1": {
@@ -432,10 +452,11 @@
       "detailed_webview_process_role_classification": "NOT_MEASURED",
       "cpu_model_physical_cores_RAM_and_disk_model": "NOT_MEASURED",
       "separate_cpu_user_kernel_and_phase_deltas": "NOT_MEASURED",
-      "receipt_counts_and_dbstat": "NOT_MEASURED"
+      "all_phase_receipt_counts_and_dbstat": "NOT_MEASURED; only stopped parse receipt is verified by the closed checkpoint probe when that scope succeeds."
     },
     "latency_summary_implementation": "Current helper emits count/p50/p95/max grouped by request label. Explicit timeout/failure aggregate counters are NOT_MEASURED; an operation failure still fails the run with its reason code. Not every planned GUI operation is implemented.",
-    "disk_implementation": "Samples synthetic data-root database_bytes/wal_bytes/shm_bytes/app_data_bytes/app_import_temp_bytes plus free-volume before/after. app_import_temp_bytes counts files under any imports path, not isolated transient temp; originals/export may be inside app_data_bytes and are not disjoint totals. Fixture/controller output tree and OS temp are outside this sampler."
+    "disk_implementation": "Samples synthetic data-root database_bytes/wal_bytes/shm_bytes/app_data_bytes/app_import_temp_bytes plus free-volume before/after. app_import_temp_bytes counts files under any imports path, not isolated transient temp; originals/export may be inside app_data_bytes and are not disjoint totals. Fixture/controller output tree and OS temp are outside this sampler.",
+    "parse_checkpoint_poll_interval_ms": 10
   },
   "phase_order": [
     "identity_and_authorization_preflight",
@@ -443,7 +464,10 @@
     "generate_or_resolve_fixture_and_hash",
     "ingest_original_and_parse",
     "observe_partial_parse_checkpoint",
-    "owned_graceful_exit_and_restart_resume",
+    "public_api_cancel_and_wait_partial_CANCELLED",
+    "owned_graceful_exit",
+    "readonly_closed_synthetic_checkpoint_reconciliation",
+    "restart_same_CANCELLED_job_and_explicit_public_api_resume",
     "schema_mapping",
     "validate_first",
     "record_duplicate_and_skip_decisions",
@@ -533,8 +557,11 @@
           "pending_commit_total": 3,
           "seal_total": 2
         },
-        "receipt_observation": "Record actual receipts only via an authorized diagnostic; otherwise NOT_MEASURED. Expected counts are not observed proof.",
-        "required_restart_scope": "mid_parse_same_job"
+        "receipt_observation": "Conditional totals remain expectations, not observed receipts. The implemented closed synthetic-DB probe verifies the single stopped parse receipt, staged/distinct count and source-prefix digest; it does not inventory every phase receipt.",
+        "required_restart_scope": "cooperative_cancel_partial_parse_same_job",
+        "required_stopped_job_state": "CANCELLED",
+        "required_restarted_job_state": "CANCELLED",
+        "explicit_public_api_resume_required": true
       },
       "identity_status": {
         "source": "NOT_RUN",
@@ -554,6 +581,106 @@
         ],
         "gui_native": "NOT_IMPLEMENTED_BY_THIS_RUNNER"
       }
+    },
+    {
+      "id": "csv-checkpoint-5000",
+      "profile": "csv_v1",
+      "run_class": "bounded_checkpoint",
+      "execution_status": "NOT_RUN",
+      "evidence_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN",
+        "clean_windows_client": "NOT_RUN"
+      },
+      "preferred_evidence_mode": "frozen_sidecar",
+      "final_candidate_required": false,
+      "coordinator_slot_required": false,
+      "automatic_execution_allowed": false,
+      "fixture": {
+        "origin": "parent_pure_csv_v1_generator",
+        "fixture_manifest_required": true,
+        "sha256": null,
+        "bytes": null,
+        "identity_status": "NOT_PROVIDED"
+      },
+      "rows": 5000,
+      "columns": 8,
+      "data_cells": 40000,
+      "header_rows": 1,
+      "total_records_including_header": 5001,
+      "expected": {
+        "invalid_rows": 5,
+        "invalid_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "exact_duplicate_pairs": 5,
+        "extra_exact_duplicate_rows": 5,
+        "duplicate_warning_rows": 10,
+        "extra_duplicate_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "valid_before_decisions": 4995,
+        "excluded_rows": 0,
+        "eligible_before_keep": 4985,
+        "eligible_after_keep": 4995,
+        "first_published_rows": 4995,
+        "second_repair_rows": 5,
+        "second_published_rows": 5,
+        "final_published_rows": 5000,
+        "final_lineage_rows": 5000,
+        "final_distinct_target_rows": 5000,
+        "final_unpublished_rows": 0,
+        "published_attempts": 2,
+        "first_income_cents": "62437495",
+        "final_income_cents": "62502495",
+        "first_income_vnd": "624374.95",
+        "final_income_vnd": "625024.95",
+        "currency": "VND",
+        "export_rows": 5000,
+        "export_columns": 8,
+        "export_data_cells": 40000
+      },
+      "checkpoint_expectations": {
+        "first_partial_parse_target": 500,
+        "full_parsed_rows": 5000,
+        "first_pending_rows_if_fully_staged_before_publish": 4995,
+        "published_before_first_publication": 0,
+        "receipt_counts_if_actual_500_row_chunks_and_v1_fixture": {
+          "parse": 10,
+          "normalize_total": 11,
+          "dedup_total": 11,
+          "snapshot_total": 11,
+          "pending_commit_total": 11,
+          "seal_total": 2
+        },
+        "receipt_observation": "Conditional totals remain expectations, not observed receipts. The implemented closed synthetic-DB probe verifies the single stopped parse receipt, staged/distinct count and source-prefix digest; it does not inventory every phase receipt.",
+        "required_restart_scope": "cooperative_cancel_partial_parse_same_job",
+        "required_stopped_job_state": "CANCELLED",
+        "required_restarted_job_state": "CANCELLED",
+        "explicit_public_api_resume_required": true
+      },
+      "identity_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN"
+      },
+      "slot_required_if_coordinator_requests": true,
+      "candidate_identity_required_in_modes": [
+        "frozen_sidecar",
+        "gui_native"
+      ],
+      "runner_support": {
+        "module": "tests.accounting.desktop_delivery.runner",
+        "supported_modes": [
+          "source",
+          "frozen-sidecar"
+        ],
+        "gui_native": "NOT_IMPLEMENTED_BY_THIS_RUNNER"
+      },
+      "authorization_scope": "Explicitly approved named bounded checkpoint test only; source or source-bound approved frozen candidate. Does not authorize 50k/500k/1m."
     },
     {
       "id": "csv-50k",
@@ -629,8 +756,11 @@
           "pending_commit_total": 101,
           "seal_total": 2
         },
-        "receipt_observation": "Record actual receipts only via an authorized diagnostic; otherwise NOT_MEASURED. Expected counts are not observed proof.",
-        "required_restart_scope": "mid_parse_same_job"
+        "receipt_observation": "Conditional totals remain expectations, not observed receipts. The implemented closed synthetic-DB probe verifies the single stopped parse receipt, staged/distinct count and source-prefix digest; it does not inventory every phase receipt.",
+        "required_restart_scope": "cooperative_cancel_partial_parse_same_job",
+        "required_stopped_job_state": "CANCELLED",
+        "required_restarted_job_state": "CANCELLED",
+        "explicit_public_api_resume_required": true
       },
       "identity_status": {
         "source": "NOT_RUN",
@@ -724,8 +854,11 @@
           "pending_commit_total": 1000,
           "seal_total": 2
         },
-        "receipt_observation": "Record actual receipts only via an authorized diagnostic; otherwise NOT_MEASURED. Expected counts are not observed proof.",
-        "required_restart_scope": "mid_parse_same_job"
+        "receipt_observation": "Conditional totals remain expectations, not observed receipts. The implemented closed synthetic-DB probe verifies the single stopped parse receipt, staged/distinct count and source-prefix digest; it does not inventory every phase receipt.",
+        "required_restart_scope": "cooperative_cancel_partial_parse_same_job",
+        "required_stopped_job_state": "CANCELLED",
+        "required_restarted_job_state": "CANCELLED",
+        "explicit_public_api_resume_required": true
       },
       "identity_status": {
         "source": "NOT_RUN",
@@ -819,8 +952,11 @@
           "pending_commit_total": 2000,
           "seal_total": 2
         },
-        "receipt_observation": "Record actual receipts only via an authorized diagnostic; otherwise NOT_MEASURED. Expected counts are not observed proof.",
-        "required_restart_scope": "mid_parse_same_job"
+        "receipt_observation": "Conditional totals remain expectations, not observed receipts. The implemented closed synthetic-DB probe verifies the single stopped parse receipt, staged/distinct count and source-prefix digest; it does not inventory every phase receipt.",
+        "required_restart_scope": "cooperative_cancel_partial_parse_same_job",
+        "required_stopped_job_state": "CANCELLED",
+        "required_restarted_job_state": "CANCELLED",
+        "explicit_public_api_resume_required": true
       },
       "identity_status": {
         "source": "NOT_RUN",
@@ -1081,12 +1217,13 @@
     "runner_cli_workloads": [
       "desktop-mini-xlsm-1000",
       "csv-mini-1000",
+      "csv-checkpoint-5000",
       "csv-50k",
       "csv-500k",
       "csv-1m"
     ],
     "manifest_consumption": "Runner binds this file SHA in result; CLI WORKLOADS and acceptance/fixture code drive execution. It does not interpret every planned assertion or metric from this JSON.",
-    "slot_gate": "rows>1000: frozen-sidecar mode and valid explicit receipt before output/fixture creation. Mini: validates receipt only when supplied.",
+    "slot_gate": "rows>=50000: frozen-sidecar and valid explicit final-candidate slot before output/fixture creation. Mini and named authorized csv-checkpoint-5000: optional receipt validated when supplied; approved frozen identity still required.",
     "output_gate": "Fresh resolved local output-root outside repository; existing roots and UNC paths rejected.",
     "source_gate": "Current Git HEAD recorded; dirty backend/frontend/src/desktop rejected; Python source sidecar never relabelled frozen.",
     "frozen_gate": "Candidate source equals --expected-source-sha; local absolute .exe/positive bytes/raw SHA checked; launched root image path checked and Python fallback denied; artifact SHA checked after run. Trusted coordinator declaration, not embedded source attestation. Final-candidate designation is external coordinator approval, not independently attested by this CLI.",
@@ -1099,11 +1236,16 @@
       "derived_export.sha256"
     ],
     "rich_restart": "Completed first validation before decisions; invalid17 and zero published rows checked after restart. This is not mid-parse recovery.",
-    "csv_restart": "Post-restart same batch/job; 500<=parsed_before<=parsed_after<rows and RECOVERABLE required for DURABLE_PARTIAL_OBSERVED; otherwise WINDOW_MISSED/BLOCKED even if later functional assertions pass.",
-    "closed_reconciliation": "After verified owned-sidecar exit and closed WAL: immutable read-only synthetic DB verifies published=lineage=distinct targets and two PUBLISHED attempts.",
-    "export_limit": "Current acceptance hashes downloaded derived CSV bytes; it does not parse/count exported records or cells. Manifest export row/cell counts remain expectations, not observed runner assertions.",
+    "csv_restart": "Public API cooperative cancel at observed durable parse>=500; wait for CANCELLED partial, close owned sidecar, verify closed checkpoint DB/receipt/staging/prefix, restart same CANCELLED job with identical source/checkpoint, then explicit resume. Full stopped count is WINDOW_MISSED/BLOCKED. Not RECOVERABLE or crash recovery. Explicit resume must complete the same parse job, full parsed checkpoint and exactly one generation increment.",
+    "closed_reconciliation": "After verified owned-sidecar exit and closed WAL: immutable read-only synthetic DB verifies published=lineage=distinct targets and two PUBLISHED attempts. Successful cancelled checkpoint additionally verifies retained prefix/receipt and complete resumed distinct staged IDs.",
+    "export_limit": "Current acceptance streams derived CSV with bounded 256KiB line limit; checks raw bytes/SHA, exact header/record width, data-row/cell counts and Decimal income against fixture expectations. This is synthetic derived-export reconciliation, not original workbook fidelity.",
     "gui_limit": "No GUI mode or desktop-mini-xlsx-1000 in this CLI. Separate real native app acceptance required. Headless GUI measurements NOT_MEASURED; GUI evidence NOT_RUN.",
-    "checkpoint_receipts": "Expected receipt counts are definitions; no runtime receipt diagnostic implemented by this runner.",
+    "checkpoint_receipts": "Single stopped parse receipt/result/counter and staged-prefix digest verified read-only after exit, then retained receipt/prefix and complete distinct source count checked at final exit. Expected total receipt counts are not runtime inventory.",
     "newer_parent_edits": "Parent owns runner/acceptance/measurements and may extend them; result harness file hashes identify the implementation actually run."
+  },
+  "definition_delta": {
+    "after_source_sha": "f1bfc4f0fd12e8bd586e5ebdded6cf9e176b9913",
+    "scope": "Named bounded 5000-row cooperative checkpoint test; no execution evidence added and historical results unchanged.",
+    "execution_status": "NOT_RUN"
   }
 }

@@ -1,4 +1,4 @@
-"""CSV v1 volume definition; generation >1000 is gated by the runner, not automatic."""
+"""CSV v1 definition; only named mini/checkpoint workloads bypass large-slot gates."""
 
 import csv
 import json

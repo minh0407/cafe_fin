@@ -28,6 +28,12 @@ from .acceptance import (
     require,
 )
 from .bulk_fixture import generate_bulk_csv
+from .checkpoint import (
+    cancel_at_checkpoint,
+    cancelled_restart_observation,
+    closed_parse_reconciliation,
+    stage_prefix_digest,
+)
 from .fixtures import generate_fixture_kit
 from .measurements import Sampler, latency_summary, windows_process_tree
 from .transport import AcceptanceError, Sidecar, artifact_identity, outside_repo, sha256
@@ -36,6 +42,7 @@ BASELINE = "eab8c96b851f039de515083189f4301cc09437c0"
 WORKLOADS = {
     "desktop-mini-xlsm-1000": 1000,
     "csv-mini-1000": 1000,
+    "csv-checkpoint-5000": 5000,
     "csv-50k": 50000,
     "csv-500k": 500000,
     "csv-1m": 1000000,
@@ -99,12 +106,40 @@ def closed_db_reconciliation(data_root, evidence):
         require(
             count == distinct == published == expected and attempts == 2, "CLOSED_LINEAGE_MISMATCH"
         )
+        checkpoint = evidence.get("parse_checkpoint_closed")
+        parse_result = {}
+        if checkpoint is not None:
+            total, distinct_source = connection.execute(
+                "SELECT COUNT(*),COUNT(DISTINCT row_id) FROM accounting_staged_rows WHERE batch_id=?",
+                (evidence["batch_id"],),
+            ).fetchone()
+            require(total == distinct_source == evidence["rows"], "RESUMED_STAGING_COUNT_MISMATCH")
+            require(
+                stage_prefix_digest(connection, evidence["batch_id"], checkpoint["parsed_rows"])
+                == checkpoint["source_prefix_sha256"],
+                "RESUMED_SOURCE_PREFIX_CHANGED",
+            )
+            receipt = connection.execute(
+                "SELECT payload_hash FROM core_job_receipts WHERE job_id=? AND chunk_id=?",
+                (checkpoint["job_id"], checkpoint["receipt_chunk_id"]),
+            ).fetchone()
+            require(
+                receipt is not None and receipt[0] == checkpoint["receipt_payload_sha256"],
+                "RESUMED_PARSE_RECEIPT_CHANGED",
+            )
+            parse_result = {
+                "resumed_staging_rows": total,
+                "resumed_distinct_source_ids": distinct_source,
+                "retained_checkpoint_prefix": "PASS",
+                "retained_parse_receipt": "PASS",
+            }
         return {
             "published_rows": published,
             "lineage_rows": count,
             "distinct_targets": distinct,
             "published_attempts": attempts,
             "scope": "read-only immutable synthetic DB after verified process exit",
+            **parse_result,
         }
 
 
@@ -162,7 +197,7 @@ def run(args):
             "SOURCE_PRODUCT_TREE_DIRTY",
         )
     slot = None
-    if rows > 1000:
+    if rows >= 50000:
         # A prepared workload is not authorization. No fixture or data root is
         # created until the coordinator's exact-candidate slot receipt validates.
         require(args.mode == "frozen-sidecar", "LARGE_PACKAGED_CANDIDATE_REQUIRED")
@@ -295,30 +330,24 @@ def run(args):
             )
         else:
             book_id, file_id, batch_id = bulk_begin(client, manifest)
-            probe = ForegroundProbe(client, manifest, book_id)
             result.update(book_id=book_id, file_id=file_id, batch_id=batch_id)
-            deadline = time.monotonic() + 86400
-            while time.monotonic() < deadline:
-                batch = client.request(
-                    "GET", f"/accounting/import-jobs/{batch_id}", label="parse_checkpoint_status"
-                )
-                parsed = batch.get("job", {}).get("counts", {}).get("parsed", 0)
-                if 500 <= parsed < rows and batch["job"]["state"] == "RUNNING":
-                    break
-                if batch["job"]["state"] == "COMPLETED":
-                    break
-                require(batch["job"]["state"] not in {"FAILED", "CANCELLED"}, "PARSE_FAILED")
-                probe(batch)
-                time.sleep(0.1)
-            else:
-                raise AcceptanceError("PARSE_CHECKPOINT_TIMEOUT")
-            before_restart = batch
+            before_restart, stop = cancel_at_checkpoint(
+                client, batch_id, rows, timeout=86400 if rows >= 50000 else 120
+            )
+            result["parse_stop"] = stop
+            result["restart_process"] = {"old_pid": client.process.pid}
             close_client(client)
+            if stop["status"] == "PARTIAL_CANCELLED":
+                result["parse_checkpoint_closed"] = closed_parse_reconciliation(
+                    data_root, before_restart, rows
+                )
+            result["restart_process"]["old_exit_code"] = client.process.returncode
             client = new_client(False)
-            probe.client = client
+            result["restart_process"]["new_pid"] = client.process.pid
             after_restart = client.request("GET", f"/accounting/import-jobs/{batch_id}")
-            checkpoint = checkpoint_observation(before_restart, after_restart, rows)
+            checkpoint = cancelled_restart_observation(before_restart, after_restart, rows)
             result["mid_parse_checkpoint_resume"] = checkpoint
+            probe = ForegroundProbe(client, manifest, book_id)
             sampler.stage = "volume_validate_confirm_repair_export"
             bulk_finish(client, manifest, result, probe=probe)
             checkpoint["resume_completed_same_batch"] = (

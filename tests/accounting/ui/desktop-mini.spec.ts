@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from '../../../frontend/node_modules/@playwright/test';
-import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,8 +7,8 @@ import path from 'node:path';
 import { encodeTSV } from '../../../frontend/src/features/accounting/drafts';
 import type { Batch, Book, StageRow, Values } from '../../../frontend/src/features/accounting/types';
 import { HARNESS_ORIGIN } from './harness-origin';
+import { verifySourceIdentity } from './mini-source-identity.cjs';
 
-const BASELINE = 'eab8c96b851f039de515083189f4301cc09437c0';
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const recordPath = (value: string | { path: string }) => typeof value === 'string' ? value : value.path;
 async function jsonLines<T>(filename: string | { path: string }): Promise<T[]> { return (await readFile(recordPath(filename), 'utf8')).split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line) as T); }
@@ -17,14 +17,7 @@ async function paste(grid: Locator, text: string) { await grid.evaluate((node, t
 
 test('source desktop mini1000: sheet/header, bounded preview edits, duplicates, partial/resume/repair and immutable original', async ({ page }) => {
   const repository = path.resolve(__dirname, '../../..');
-  const git = (args: string[]) => execFileSync('git', args, { cwd: repository, encoding: 'utf8', windowsHide: true }).trim();
-  const harnessHead = git(['rev-parse', 'HEAD']);
-  const productPaths = ['backend', 'frontend/src', 'desktop'];
-  // Tests/docs may be committed after the approved product source. Require its
-  // ancestry and unchanged, clean product paths rather than pinning harness HEAD.
-  git(['merge-base', '--is-ancestor', BASELINE, harnessHead]);
-  expect(git(['diff', '--no-ext-diff', '--name-only', BASELINE, '--', ...productPaths]), 'Product paths must still match the approved baseline.').toBe('');
-  expect(git(['status', '--porcelain=v1', '--untracked-files=all', '--', ...productPaths]), 'Product paths must have no staged, unstaged or untracked changes.').toBe('');
+  const identity = verifySourceIdentity(repository, process.env.CAFE_FIN_MINI_APPROVED_SOURCE_SHA);
   const manifestPath = process.env.CAFE_FIN_MINI_MANIFEST;
   expect(manifestPath, 'Generate the synthetic1000 fixture kit and supply CAFE_FIN_MINI_MANIFEST.').toBeTruthy();
   const manifest = JSON.parse(await readFile(manifestPath!, 'utf8'));
@@ -40,7 +33,7 @@ test('source desktop mini1000: sheet/header, bounded preview edits, duplicates, 
   const python = process.env.CAFE_FIN_MINI_PYTHON ?? path.join(repository, '.venv/Scripts/python.exe');
   const root = await mkdtemp(path.join(tmpdir(), 'cafe-fin-desktop-mini-data-'));
   const token = randomBytes(32).toString('hex'); const password = `Synthetic-mini-${randomBytes(24).toString('base64url')}`;
-  const evidence: Record<string, any> = { status: 'RUNNING', scope: 'source Vite/Chromium + real source Python HTTP backend; NOT native/packaged/clean-client', baseline: BASELINE, product_baseline: BASELINE, harness_head: harnessHead, product_paths: productPaths, product_guard: { baseline_is_ancestor: true, baseline_diff_empty: true, worktree_clean: true }, market_network: '0', fixture_manifest: manifestPath, format, source_sha256: fixture.sha256, source_bytes: sourceBefore.length, synthetic_data_root: root, checkpoints: [], staging_responses: [], page_errors: [], non_loopback_browser_requests: [], unknown_ack: {}, native_gui: 'NOT RUN: no approved05 artifact provided to this driver', limitations: ['A1000-row case is not a bulk benchmark.', 'Native invokes only bootstrap the source App; this does not test Tauri/WebView2, installer, tray, startup, native lifecycle or offline client.', 'Clipboard coverage dispatches browser copy/paste events through the actual grid handlers; OS clipboard integration remains native NOT RUN.', 'Controlled interruption uses the real cancel API immediately after an accepted confirm; it is not a process-crash or power-loss test.', 'Pending-chunk visibility is claimed only if a nonzero pending checkpoint is actually observed.'] };
+  const evidence: Record<string, any> = { status: 'RUNNING', scope: 'source Vite/Chromium + real source Python HTTP backend; NOT native/packaged/clean-client', baseline: identity.approved_source_sha, product_baseline: identity.approved_source_sha, ...identity, market_network: '0', fixture_manifest: manifestPath, format, source_sha256: fixture.sha256, source_bytes: sourceBefore.length, synthetic_data_root: root, checkpoints: [], staging_responses: [], page_errors: [], non_loopback_browser_requests: [], unknown_ack: {}, native_gui: 'NOT RUN: no approved05 artifact provided to this driver', limitations: ['A1000-row case is not a bulk benchmark.', 'Native invokes only bootstrap the source App; this does not test Tauri/WebView2, installer, tray, startup, native lifecycle or offline client.', 'Clipboard coverage dispatches browser copy/paste events through the actual grid handlers; OS clipboard integration remains native NOT RUN.', 'Controlled interruption uses the real cancel API immediately after an accepted confirm; it is not a process-crash or power-loss test.', 'Pending-chunk visibility is claimed only if a nonzero pending checkpoint is actually observed.'] };
   let child: ChildProcessWithoutNullStreams | undefined; const releaseAck = deferred(); const intercepted = deferred();
   page.on('pageerror', error => evidence.page_errors.push(error.message));
   page.on('request', request => { const url = new URL(request.url()); if (['http:', 'https:'].includes(url.protocol) && !['127.0.0.1', 'localhost'].includes(url.hostname)) evidence.non_loopback_browser_requests.push(url.origin); });
