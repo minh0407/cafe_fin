@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "provenance": "historical native candidate; not wheel attestation",
+  "materials": [
+    {
+      "file": "native-build-4e8ae01f61145dc823ce2ae1d79f06241b7b46de.tar.gz",
+      "url": "https://codeload.github.com/lxml/libxml2-win-binaries/tar.gz/4e8ae01f61145dc823ce2ae1d79f06241b7b46de",
+      "bytes": 4262,
+      "sha256": "cd155987f5269d04acb549d8664b50b1ea0bf3580e1ab709587a03e4bda4396e",
+      "extract_to": "trees/native"
+    },
+    {
+      "file": "libiconv-880a1fa8b5581e37e136a7b051947d3ea39097b6.tar.gz",
+      "url": "https://codeload.github.com/winlibs/libiconv/tar.gz/880a1fa8b5581e37e136a7b051947d3ea39097b6",
+      "bytes": 5313881,
+      "sha256": "89dd45d7f074ddae04dcd25cc4ceace3432c04b72dc36a6508854aac713f3eb6",
+      "extract_to": "trees/native/libiconv"
+    },
+    {
+      "file": "libxml2-bb84678855e3407fc88180295c992f9c984e28e0.tar.gz",
+      "url": "https://codeload.github.com/winlibs/libxml2/tar.gz/bb84678855e3407fc88180295c992f9c984e28e0",
+      "bytes": 4225102,
+      "sha256": "5182396205f97b183d34ab8dadd7693523c7d4e2137394aec02514a5a9a9dcf0",
+      "extract_to": "trees/native/libxml2"
+    },
+    {
+      "file": "libxslt-c0076eaa6e0d1f99e01107e8db225a308eb1e543.tar.gz",
+      "url": "https://codeload.github.com/winlibs/libxslt/tar.gz/c0076eaa6e0d1f99e01107e8db225a308eb1e543",
+      "bytes": 2705214,
+      "sha256": "d687aaf48527e042d942dccbc74fbcd150588522305e63d3e91785d9b6590677",
+      "extract_to": "trees/native/libxslt"
+    },
+    {
+      "file": "zlib-0089522e62e6b5d4950e62bd20f0cb06a9288413.tar.gz",
+      "url": "https://codeload.github.com/winlibs/zlib/tar.gz/0089522e62e6b5d4950e62bd20f0cb06a9288413",
+      "bytes": 1559272,
+      "sha256": "e2af9f28fcdf723e464b40af73fdeed07ce3e581a9ea110702c1ba733983f8a0",
+      "extract_to": "trees/native/zlib"
+    },
+    {
+      "file": "iconv-1.17.1.win64.zip",
+      "url": "https://github.com/lxml/libxml2-win-binaries/releases/download/2026.05.17/iconv-1.17.1.win64.zip",
+      "bytes": 992481,
+      "sha256": "090225898fc0b37fe1f0d3ecc3938c926de77cd7f8c3636a5c9712b61e7af849"
+    },
+    {
+      "file": "libxml2-2.11.9.win64.zip",
+      "url": "https://github.com/lxml/libxml2-win-binaries/releases/download/2026.05.17/libxml2-2.11.9.win64.zip",
+      "bytes": 3455109,
+      "sha256": "ff23c75d4b3991042f9bbe7fd38ccc50616349a3c1b583c328d996be22e52b64"
+    },
+    {
+      "file": "libxslt-1.1.45.win64.zip",
+      "url": "https://github.com/lxml/libxml2-win-binaries/releases/download/2026.05.17/libxslt-1.1.45.win64.zip",
+      "bytes": 461024,
+      "sha256": "e6fcfa1cf6719630e83c39a5448687db65084b0a375af366c9a857b62c3e4bf7"
+    },
+    {
+      "file": "zlib-1.3.2.win64.zip",
+      "url": "https://github.com/lxml/libxml2-win-binaries/releases/download/2026.05.17/zlib-1.3.2.win64.zip",
+      "bytes": 206914,
+      "sha256": "e1c1bcaa1dea202057f96614565c5773ee9c9be7033b470f2b746ab8a9070f01"
+    },
+    {
+      "file": "lxml-6.1.1.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/05/3b/aab6728cae887456f409b4d75e8a01856e4f04bd510de38052a47768b680/lxml-6.1.1.tar.gz",
+      "bytes": 4197430,
+      "sha256": "ba96ae44888e0185281e937633a743ea90d5a196c6000f82565ebb0580012d40",
+      "extract_to": "trees/lxml"
+    },
+    {
+      "file": "lxml-6.1.1-cp312-cp312-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/1b/89/45198e9624762af2dfd2cb8782598477ceb29f6e59caab560388ae1f4ec1/lxml-6.1.1-cp312-cp312-win_amd64.whl",
+      "bytes": 3997255,
+      "sha256": "26e6eda8d38c1fcab1090dd196ee87cbd13788e531937610e2589085de074e77"
+    },
+    {
+      "file": "setuptools-84.2.1.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/70/b3/c19426f783614d625699a4b247faf628ea9ab1db228674491767b417f9e1/setuptools-84.2.1.tar.gz",
+      "bytes": 1230289,
+      "sha256": "3ff8b3b5492a0aa66960f4419365a86b84e013070d4313e4d4a6894f5d64d6bc",
+      "extract_to": "trees/setuptools"
+    }
+  ]
+}

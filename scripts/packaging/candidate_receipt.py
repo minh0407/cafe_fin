@@ -2,24 +2,29 @@
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import re
 import shutil
+import sqlite3
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 APP_INPUTS = (
     "backend",
-    "frontend/src",
-    "frontend/package.json",
-    "frontend/package-lock.json",
+    "frontend",
     "desktop/src",
     "desktop/Cargo.toml",
     "desktop/Cargo.lock",
     "desktop/build.rs",
     "desktop/sidecar.spec",
     "desktop/tauri.conf.json",
+    "desktop/capabilities",
+    "desktop/permissions",
+    "desktop/icons",
+    "desktop/scripts",
     "pyproject.toml",
     "uv.lock",
 )
@@ -63,6 +68,8 @@ def collect(repo, source, output, allow_missing=False):
         raise ValueError("source commit does not resolve exactly")
     if git(repo, "diff", "--name-only", source, "--", *APP_INPUTS):
         raise ValueError("application build inputs differ from the assigned source")
+    if git(repo, "ls-files", "--others", "--exclude-standard", "--", *APP_INPUTS):
+        raise ValueError("untracked application input cannot be assigned to source")
     if output.exists():
         raise ValueError("output must be new; existing evidence is never overwritten")
     config = json.loads((repo / "desktop/tauri.conf.json").read_text(encoding="utf-8"))
@@ -115,6 +122,16 @@ def collect(repo, source, output, allow_missing=False):
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "version": config["version"],
         "target": "x86_64-pc-windows-msvc",
+        "build_environment": {
+            "python": sys.version.split()[0],
+            "sqlite": sqlite3.sqlite_version,
+            "pyinstaller": importlib.metadata.version("pyinstaller"),
+        },
+        "lock_hashes": {
+            name: digest(repo / name)
+            for name in ("uv.lock", "frontend/package-lock.json", "desktop/Cargo.lock")
+        },
+        "dependency_manifest_scope": "Locked inputs and full notices; includes conservative build dependencies",
         "install_scope": "currentUser",
         "webview2_mode": "offlineInstaller",
         "webview2_install_acceptance": "NOT_RUN",

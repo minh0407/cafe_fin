@@ -1,0 +1,23 @@
+{
+  "status": "DOWNLOADED_NOT_EXECUTED",
+  "materials": [
+    {
+      "file": "vbaProject.bin",
+      "url": "https://raw.githubusercontent.com/jmcnamara/XlsxWriter/e943bee8c9cdf0661cfdb83d5497e0725390e41e/examples/vbaProject.bin",
+      "bytes": 15872,
+      "sha256": "0ced1464b3677e98f5e3a8c5d80135e18dc98dca39299f1a8cfd2a00999fbf9f"
+    },
+    {
+      "file": "LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/jmcnamara/XlsxWriter/e943bee8c9cdf0661cfdb83d5497e0725390e41e/LICENSE.txt",
+      "bytes": 1349,
+      "sha256": "cf08b60a4ded986b58a617cb8304373bda5c4eff42fb4e30d7597b616e116e87"
+    },
+    {
+      "file": "macros.py",
+      "url": "https://raw.githubusercontent.com/jmcnamara/XlsxWriter/e943bee8c9cdf0661cfdb83d5497e0725390e41e/examples/macros.py",
+      "bytes": 1001,
+      "sha256": "188fe2f357658c1bd165a2cce2de48187381125b9f1ff22fd6e589e8f3a34798"
+    }
+  ]
+}

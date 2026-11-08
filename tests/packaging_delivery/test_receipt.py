@@ -19,6 +19,9 @@ def repository(tmp_path):
     repo.mkdir()
     for folder in ("desktop/binaries", "desktop/notices", "desktop/src"):
         (repo / folder).mkdir(parents=True, exist_ok=True)
+    (repo / "frontend").mkdir()
+    for name in ("uv.lock", "frontend/package-lock.json", "desktop/Cargo.lock"):
+        (repo / name).write_text("synthetic lock fixture\n")
     (repo / "desktop/tauri.conf.json").write_text(
         json.dumps(
             {
@@ -76,6 +79,13 @@ def test_changed_app_or_inventory_is_refused(repository, tmp_path):
     (repo / "desktop/binaries/cafe-fin-sidecar-x86_64-pc-windows-msvc.exe").write_bytes(b"changed")
     with pytest.raises(ValueError, match="inventory do not match"):
         receipt.collect(repo, source, tmp_path / "mismatch", True)
+
+
+def test_untracked_application_code_cannot_use_clean_source_receipt(repository, tmp_path):
+    repo, source = repository
+    (repo / "desktop/src/untracked.rs").write_text("// synthetic untracked input\n")
+    with pytest.raises(ValueError, match="untracked application"):
+        receipt.collect(repo, source, tmp_path / "untracked", True)
 
 
 def test_no_unlisted_notice_or_existing_output_overwrite(repository, tmp_path):
