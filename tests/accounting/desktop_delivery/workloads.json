@@ -1,0 +1,1109 @@
+{
+  "schema_id": "cafe-fin.accounting.desktop-workloads",
+  "schema_version": 1,
+  "manifest_revision": "2026-11-08.2",
+  "planning_baseline": {
+    "source_sha": "eab8c96b851f039de515083189f4301cc09437c0",
+    "branch": "codex/cafe-fin-accounting-desktop-20261108",
+    "coordinator_business_candidate_ancestor": "828d575b4a3c7b18ffafd8e2665a9d79b54ea403",
+    "purpose": "Definitions only; not the identity of an unbuilt final packaged candidate"
+  },
+  "overall_execution_status": "NOT_RUN",
+  "contains_runtime_measurements": false,
+  "evidence_status": {
+    "source": "NOT_RUN",
+    "frozen_sidecar": "NOT_RUN",
+    "gui_native": "NOT_RUN",
+    "clean_windows_client": "NOT_RUN"
+  },
+  "run_policy": {
+    "default": "SOURCE_MINI_AUTHORIZED; PACKAGED_MINI_REQUIRES_APPROVED_CANDIDATE; LARGE_REQUIRES_FINAL_CANDIDATE_AND_EXPLICIT_SLOT",
+    "large_requires_final_candidate": true,
+    "mini_may_use_explicitly_designated_nonfinal_candidate": true,
+    "slot_receipt_fields": [
+      "slot_id",
+      "coordinator_decision_ref",
+      "approved_source_sha",
+      "workload_ids",
+      "evidence_modes",
+      "granted_at_utc",
+      "expires_at_utc",
+      "declared_host_scope"
+    ],
+    "no_parallel_cargo_build_or_large_benchmark_in_granted_scope": true,
+    "slot_does_not_prove_host_exclusive": true,
+    "shared_host_interference_must_be_recorded": true,
+    "fresh_synthetic_data_root_required": true,
+    "raw_artifacts_outside_git": true,
+    "one_workload_at_a_time": true,
+    "no_automatic_large_run": true,
+    "allowed_execution_statuses": [
+      "NOT_RUN",
+      "PASS",
+      "FAIL",
+      "BLOCKED",
+      "INTERRUPTED"
+    ],
+    "allowed_metric_statuses": [
+      "MEASURED",
+      "NOT_MEASURED",
+      "NOT_RUN"
+    ],
+    "no_policy_bypass": true,
+    "no_startup_setting_change_or_external_send": true,
+    "coordinator_slot_required_for_run_classes": [
+      "large"
+    ],
+    "mini_slot_required": false,
+    "mini_slot_override": "Coordinator may explicitly require a slot; any supplied receipt must validate.",
+    "source_developer_minis_already_authorized": true,
+    "frozen_mini_requires_coordinator_approved_candidate_identity": true
+  },
+  "identity_contract": {
+    "packaged_candidate_manifest_required_for": [
+      "frozen_sidecar",
+      "gui_native"
+    ],
+    "packaged_candidate_manifest_required_fields": [
+      "source_sha",
+      "sidecar.path",
+      "sidecar.sha256",
+      "sidecar.bytes"
+    ],
+    "gui_requires_additional_fields": [
+      "app.path",
+      "app.sha256",
+      "app.bytes"
+    ],
+    "source_sha_format": "full_40_hex_git_commit",
+    "artifact_sha256_format": "64_hex_raw_file_bytes",
+    "artifact_bytes": "positive_integer",
+    "expected_candidate_source_from": "explicit_coordinator_candidate_not_planning_baseline_by_inference",
+    "runtime_image_hashes_before_after_required": true,
+    "actual_process_image_must_match_manifest": true,
+    "source_and_artifact_build_binding_required": true,
+    "version_string_or_ready_handshake_is_not_source_identity": true,
+    "workload_manifest_sha256_bound_in_result": true,
+    "independent_fixture_manifest_sha256_bound_in_result": true,
+    "fixture_files_raw_sha256_before_after_required": true,
+    "export_is_separate_derived_artifact": true,
+    "no_python_fallback_for_frozen_evidence": true,
+    "no_browser_or_injected_tauri_mock_for_gui_evidence": true,
+    "no_credentials_tokens_private_frames_or_controller_journals_in_manifests_results_or_command_line": true
+  },
+  "evidence_modes": {
+    "source": {
+      "status": "NOT_RUN",
+      "requires": [
+        "exact_source_identity"
+      ],
+      "does_not_prove": [
+        "frozen_sidecar",
+        "gui_native",
+        "clean_windows_client"
+      ],
+      "slot_policy": "Required for large; optional for mini unless coordinator explicitly requests one."
+    },
+    "frozen_sidecar": {
+      "status": "NOT_RUN",
+      "requires": [
+        "candidate_manifest",
+        "actual_frozen_image_hash",
+        "private_in_memory_launch_auth",
+        "real_loopback_api",
+        "coordinator_approved_candidate_identity"
+      ],
+      "does_not_prove": [
+        "gui_native",
+        "clean_windows_client"
+      ],
+      "slot_policy": "Required for large; optional for mini unless coordinator explicitly requests one."
+    },
+    "gui_native": {
+      "status": "NOT_RUN",
+      "requires": [
+        "candidate_manifest_with_app",
+        "actual_app_and_sidecar_images",
+        "real_native_window_and_controls",
+        "native_picker_if_claimed",
+        "coordinator_approved_candidate_identity"
+      ],
+      "does_not_prove": [
+        "clean_windows_client_unless_separately_observed"
+      ],
+      "slot_policy": "Required for large; optional for mini unless coordinator explicitly requests one."
+    },
+    "clean_windows_client": {
+      "status": "NOT_RUN",
+      "requires": [
+        "separate_machine_baseline",
+        "actual_install_offline_first_launch_evidence",
+        "retained_installer_identity",
+        "coordinator_approved_access"
+      ]
+    }
+  },
+  "runtime_limits_to_record": {
+    "max_row_utf8_bytes": 262144,
+    "max_chunk_serialized_bytes": 4194304,
+    "max_chunk_rows": 500,
+    "api_page_rows": 500,
+    "patch_rows_max": 500,
+    "formula_cost_per_row": 100000,
+    "formula_lease_callback_throttle_ms": 50,
+    "callback_is_not_hard_wall_clock_cancellation_guarantee": true
+  },
+  "checkpoints": {
+    "parse_target_first_durable_rows": 500,
+    "must_observe_partial_parse": "500 <= durable_parsed_rows < source_rows",
+    "interrupt_only_owned_app_or_sidecar_via_supported_lifecycle": true,
+    "persist_same_batch_job_source_and_fixture_hashes": true,
+    "restart_requires_old_process_exit_and_new_process_creation_identity": true,
+    "resume_same_job_no_duplicate_source_identity": true,
+    "if_window_missed": "NOT_RUN checkpoint probe; do not claim mid-parse recovery. Mandatory checkpoint absence prevents overall PASS.",
+    "no_monkeypatching_frozen_binary_or_new_unauthorized_test_endpoint": true,
+    "graceful_restart_is_not_hard_kill_or_power_loss_test": true,
+    "pending_visibility": "Record staged_committed_rows separately; pending must not appear as published rows, report sums or export data.",
+    "unobservable_pending_window": "NOT_MEASURED visibility-window observation; final counts alone do not prove every intermediate window.",
+    "default_parse_scope": "Required only where the workload explicitly requests mid_parse_same_job. Rich mini requires a completed-validation restart instead."
+  },
+  "profiles": {
+    "csv_v1": {
+      "algorithm_id": "accounting.csv.v1",
+      "generator_reference": {
+        "source_sha": "eab8c96b851f039de515083189f4301cc09437c0",
+        "path": "tests/accounting/benchmark.py",
+        "functions": [
+          "record_for",
+          "cents_for",
+          "amount_for",
+          "generate"
+        ],
+        "git_blob_sha256": "9239f0a253dc2d76fcbceba926fdf227b0352074ecfc706d2a9fa6cc58f1a0d4",
+        "checkout_sha256_at_preparation": "107bdcf43396b2d2f26bd9944ecbf760a2153aa9d69763713080ee0895edd19e",
+        "note": "Reference algorithm only. Parent owns pure packaged-fixture generator; do not run the old in-process benchmark as packaged evidence."
+      },
+      "format": {
+        "kind": "csv",
+        "encoding": "utf-8-sig",
+        "delimiter": ",",
+        "quotechar": "\"",
+        "quoting": "minimal",
+        "record_terminator": "CRLF",
+        "header_rows": 1,
+        "header_row_number": 1,
+        "decimal_separator": ".",
+        "thousands_separator": ""
+      },
+      "columns": [
+        {
+          "id": "code",
+          "name": "Mã",
+          "kind": "text",
+          "required": true
+        },
+        {
+          "id": "day",
+          "name": "Ngày",
+          "kind": "date",
+          "required": true
+        },
+        {
+          "id": "amount",
+          "name": "Thu VND",
+          "kind": "money",
+          "scale": 2,
+          "precision": 19,
+          "required": true
+        },
+        {
+          "id": "quantity",
+          "name": "Khối lượng",
+          "kind": "decimal",
+          "scale": 3,
+          "required": true
+        },
+        {
+          "id": "category",
+          "name": "Loại",
+          "kind": "choice",
+          "choices": [
+            "Robusta",
+            "Arabica"
+          ]
+        },
+        {
+          "id": "note",
+          "name": "Ghi chú",
+          "kind": "text"
+        },
+        {
+          "id": "currency",
+          "name": "Đơn vị tiền",
+          "kind": "choice",
+          "choices": [
+            "VND"
+          ]
+        },
+        {
+          "id": "warehouse",
+          "name": "Kho tham khảo",
+          "kind": "text"
+        }
+      ],
+      "mapping": {
+        "code": "A",
+        "day": "B",
+        "amount": "C",
+        "quantity": "D",
+        "category": "E",
+        "note": "F",
+        "currency": "G",
+        "warehouse": "H"
+      },
+      "semantics": {
+        "date_column": "day",
+        "income_column": "amount",
+        "currency_column": "currency",
+        "business_key_columns": [
+          "code"
+        ]
+      },
+      "rules": {
+        "data_ordinal": "i in 1..N; source_row=i+1",
+        "original_ordinal": "i-1 if i mod1000=2 else i",
+        "code": "12-digit zero-padded original_ordinal",
+        "day": "2026-01-01 + original_ordinal mod28 days",
+        "amount_cents": "10000 + original_ordinal mod100000",
+        "invalid_amount": "INVALID_AMOUNT at i mod1000=0",
+        "quantity_milliunits": "1000 + original_ordinal mod1000",
+        "category": "Robusta for odd original_ordinal, Arabica otherwise",
+        "note": "=literal source text if original_ordinal mod113=0; otherwise Cà phê tổng hợp, kiểm chứng",
+        "currency": "VND",
+        "warehouse": "LOCAL-01",
+        "exact_duplicate_extra_rows": "i mod1000=2 repeats previous valid row across all eight columns",
+        "repair": "For invalid source_row r, replace amount with cents_for(r-1) formatted scale2",
+        "decisions": "keep all exact-duplicate warnings; exclude none"
+      },
+      "counts_policy": "Duplicate flags overlap valid rows. Do not add valid+invalid+duplicate flags as disjoint source counts.",
+      "report_interval": {
+        "from_on": "2026-01-01",
+        "through_on": "2026-01-31",
+        "bounds": "inclusive_business_dates"
+      },
+      "money_representation": "integer-cent strings plus Decimal VND strings; never float"
+    },
+    "rich_mini": {
+      "algorithm_id": "accounting.desktop.rich-mini.v1",
+      "generator_reference_path": "tests/accounting/desktop_delivery/fixtures.py",
+      "fixture_owner": "file_parser subtask",
+      "expectations_source": "independent generated rich fixture manifest",
+      "columns_count": 8,
+      "schema_mapping_and_repairs_from_fixture_manifest": true,
+      "business_key_columns": [],
+      "invalid_breakdown": {
+        "money": 10,
+        "date": 5,
+        "formula": 2
+      },
+      "duplicate_pairs": 10,
+      "duplicate_warning_rows": 20,
+      "decision_policy": {
+        "exclude_source_row_numbers": [
+          5
+        ],
+        "duplicate_decision": "keep_all",
+        "excluded_row_is_valid_and_remains_excluded": true
+      },
+      "exact_money_expectations": "Required from rich fixture manifest; null here is unavailable, never zero and never CSV-v1 totals.",
+      "macro_external_policy": "XLSM is a genuine inert fixture from its manifest, raw original bytes preserved; no macro, DDE or external-reference execution. XLSX is its separately hashed rich GUI input, not a renamed XLSM.",
+      "fixture_manifest_kit_version": "accounting-desktop-fixtures-v1",
+      "header_row_number": 3,
+      "preamble_rows": 2,
+      "first_data_source_row": 4,
+      "source_sheet_id": "2",
+      "source_sheet_name": "Sổ cà phê",
+      "macro_fixture_scope": {
+        "entry": "xl/vbaProject.bin",
+        "kind": "opaque inert sentinel",
+        "valid_vba_project": false,
+        "execution_claim": false
+      }
+    }
+  },
+  "measurement_contract": {
+    "clock": "Windows monotonic high-resolution QueryPerformanceCounter/perf_counter; record implementation and resolution",
+    "resource_sample_interval_ms": 500,
+    "job_status_poll_interval_ms": 100,
+    "process_identity_fields": [
+      "pid",
+      "creation_filetime_100ns",
+      "parent_pid",
+      "image_path",
+      "executable",
+      "architecture",
+      "role_scope"
+    ],
+    "roles": [
+      "launcher_or_controller",
+      "frozen_bootloader_if_separate",
+      "serving_sidecar",
+      "parser",
+      "api",
+      "worker",
+      "tauri_app",
+      "webview2_browser",
+      "webview2_renderer",
+      "webview2_gpu"
+    ],
+    "pid_role_rule": "Parser/API/worker may share one serving-sidecar PID; one process record with multiple roles. PID reuse requires creation_time.",
+    "cpu": [
+      "GetProcessTimes combined user+kernel seconds since process start per PID+creation_filetime_100ns",
+      "resource_summary.cpu_observed_delta_seconds = last sampled minus first sampled combined CPU seconds; excludes unobserved startup/exit intervals",
+      "Per-stage samples exist; separate per-phase CPU delta and percent normalization are NOT_MEASURED unless derived and labelled explicitly."
+    ],
+    "memory": [
+      "GetProcessMemoryInfo WorkingSetSize sampled peak by unique PID",
+      "PrivateUsage sampled peak by unique PID",
+      "PeakWorkingSetSize cumulative since process creation, not phase-local"
+    ],
+    "memory_aggregation": "NONE: never sum parser/API/worker roles or app/WebView RSS into a unique-memory total; shared pages/process role aliases would double count.",
+    "ui_memory_in_headless_mode": "NOT_MEASURED; GUI execution evidence remains NOT_RUN",
+    "missing_metric": "NOT_MEASURED with null, not numeric zero",
+    "disk_fields": [
+      "database_file_bytes",
+      "wal_file_bytes",
+      "shm_file_bytes",
+      "staging_table_pages_if_dbstat_available",
+      "app_temp_bytes",
+      "original_bytes",
+      "derived_export_bytes",
+      "retained_app_root_bytes",
+      "peak_observed_app_root_bytes",
+      "free_volume_bytes_before_after"
+    ],
+    "os_temp": "NOT_MEASURED unless actual owned paths/measurement method are recorded; app-root sampling does not cover PyInstaller extraction or all SQLite OS-temp files.",
+    "latency_operations": [
+      "job_status",
+      "whole_dataset_filter_page",
+      "foreground_versioned_update_separate_book",
+      "preview_page_or_jump",
+      "gui_edit_paste_save_if_native"
+    ],
+    "latency_fields": [
+      "sample_count",
+      "p50_seconds",
+      "p95_seconds",
+      "max_seconds",
+      "timeouts",
+      "failures",
+      "phase_and_publication_state"
+    ],
+    "p50_definition": "median of observed samples",
+    "p95_definition": "linear interpolation at zero-based rank (n-1)*0.95; null for n=0; record definition with every result",
+    "latency_scope": "State whether direct API or real GUI; mixed pending/published samples are not steady-state full-data measurements.",
+    "host_fields": [
+      "Windows_build_architecture",
+      "CPU_model_core_counts",
+      "RAM_bytes",
+      "disk_model_media_bus_free_bytes",
+      "runtime_versions",
+      "app_sidecar_webview_versions",
+      "concurrent_load_and_slot_scope",
+      "cache_warm_cold_not_controlled_unless_observed"
+    ],
+    "claim_limits": [
+      "No old source timing copied as packaged/native measurement",
+      "No quiet/fastest-host claim from a coordinator slot alone",
+      "No source/Python fallback relabelled frozen",
+      "No headless or browser harness relabelled real GUI",
+      "No NSIS build relabelled clean-Windows install/offline PASS"
+    ],
+    "process_identity_scope": "Current Windows snapshots supply these fields; architecture is NOT_MEASURED. Descendant image SHA and detailed role classification are planned, not emitted by the sampler.",
+    "planned_additional_process_identity_fields": [
+      "canonical_image_sha256_for_each_process",
+      "detailed_native_process_role_labels"
+    ],
+    "availability_without_separate_evidence": {
+      "process_architecture": "NOT_MEASURED",
+      "os_temp": "NOT_MEASURED",
+      "gui_native_resources_and_latency": "NOT_MEASURED",
+      "per_process_image_hashes_except_validated_root_artifact": "NOT_MEASURED",
+      "detailed_webview_process_role_classification": "NOT_MEASURED",
+      "cpu_model_physical_cores_RAM_and_disk_model": "NOT_MEASURED",
+      "separate_cpu_user_kernel_and_phase_deltas": "NOT_MEASURED",
+      "receipt_counts_and_dbstat": "NOT_MEASURED"
+    },
+    "latency_summary_implementation": "Current helper emits count/p50/p95/max grouped by request label. Explicit timeout/failure aggregate counters are NOT_MEASURED; an operation failure still fails the run with its reason code. Not every planned GUI operation is implemented.",
+    "disk_implementation": "Samples synthetic data-root database_bytes/wal_bytes/shm_bytes/app_data_bytes/app_import_temp_bytes plus free-volume before/after. app_import_temp_bytes counts files under any imports path, not isolated transient temp; originals/export may be inside app_data_bytes and are not disjoint totals. Fixture/controller output tree and OS temp are outside this sampler."
+  },
+  "phase_order": [
+    "identity_and_authorization_preflight",
+    "bootstrap_and_auth_in_memory",
+    "generate_or_resolve_fixture_and_hash",
+    "ingest_original_and_parse",
+    "observe_partial_parse_checkpoint",
+    "owned_graceful_exit_and_restart_resume",
+    "schema_mapping",
+    "validate_first",
+    "record_duplicate_and_skip_decisions",
+    "confirm_first_valid_rows",
+    "observe_pending_vs_published_if_available",
+    "repair_invalid_rows_in_bounded_patches",
+    "validate_second",
+    "confirm_second_remainder",
+    "verify_counts_lineage_exact_sums",
+    "export_derived_and_count",
+    "download_original_and_verify_raw_hash",
+    "graceful_exit_and_verify_owned_processes_closed",
+    "final_identity_and_evidence_seal"
+  ],
+  "workloads": [
+    {
+      "id": "csv-mini-1000",
+      "profile": "csv_v1",
+      "run_class": "mini",
+      "execution_status": "NOT_RUN",
+      "evidence_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN",
+        "clean_windows_client": "NOT_RUN"
+      },
+      "preferred_evidence_mode": "frozen_sidecar",
+      "final_candidate_required": false,
+      "coordinator_slot_required": false,
+      "automatic_execution_allowed": false,
+      "fixture": {
+        "origin": "parent_pure_csv_v1_generator",
+        "fixture_manifest_required": true,
+        "sha256": null,
+        "bytes": null,
+        "identity_status": "NOT_PROVIDED"
+      },
+      "rows": 1000,
+      "columns": 8,
+      "data_cells": 8000,
+      "header_rows": 1,
+      "total_records_including_header": 1001,
+      "expected": {
+        "invalid_rows": 1,
+        "invalid_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "exact_duplicate_pairs": 1,
+        "extra_exact_duplicate_rows": 1,
+        "duplicate_warning_rows": 2,
+        "extra_duplicate_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "valid_before_decisions": 999,
+        "excluded_rows": 0,
+        "eligible_before_keep": 997,
+        "eligible_after_keep": 999,
+        "first_published_rows": 999,
+        "second_repair_rows": 1,
+        "second_published_rows": 1,
+        "final_published_rows": 1000,
+        "final_lineage_rows": 1000,
+        "final_distinct_target_rows": 1000,
+        "final_unpublished_rows": 0,
+        "published_attempts": 2,
+        "first_income_cents": "10489499",
+        "final_income_cents": "10500499",
+        "first_income_vnd": "104894.99",
+        "final_income_vnd": "105004.99",
+        "currency": "VND",
+        "export_rows": 1000,
+        "export_columns": 8,
+        "export_data_cells": 8000
+      },
+      "checkpoint_expectations": {
+        "first_partial_parse_target": 500,
+        "full_parsed_rows": 1000,
+        "first_pending_rows_if_fully_staged_before_publish": 999,
+        "published_before_first_publication": 0,
+        "receipt_counts_if_actual_500_row_chunks_and_v1_fixture": {
+          "parse": 2,
+          "normalize_total": 3,
+          "dedup_total": 3,
+          "snapshot_total": 3,
+          "pending_commit_total": 3,
+          "seal_total": 2
+        },
+        "receipt_observation": "Record actual receipts only via an authorized diagnostic; otherwise NOT_MEASURED. Expected counts are not observed proof.",
+        "required_restart_scope": "mid_parse_same_job"
+      },
+      "identity_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN"
+      },
+      "slot_required_if_coordinator_requests": true,
+      "candidate_identity_required_in_modes": [
+        "frozen_sidecar",
+        "gui_native"
+      ],
+      "runner_support": {
+        "module": "tests.accounting.desktop_delivery.runner",
+        "supported_modes": [
+          "source",
+          "frozen-sidecar"
+        ],
+        "gui_native": "NOT_IMPLEMENTED_BY_THIS_RUNNER"
+      }
+    },
+    {
+      "id": "csv-50k",
+      "profile": "csv_v1",
+      "run_class": "large",
+      "execution_status": "NOT_RUN",
+      "evidence_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN",
+        "clean_windows_client": "NOT_RUN"
+      },
+      "preferred_evidence_mode": "frozen_sidecar",
+      "final_candidate_required": true,
+      "coordinator_slot_required": true,
+      "automatic_execution_allowed": false,
+      "fixture": {
+        "origin": "parent_pure_csv_v1_generator",
+        "fixture_manifest_required": true,
+        "sha256": null,
+        "bytes": null,
+        "identity_status": "NOT_PROVIDED"
+      },
+      "rows": 50000,
+      "columns": 8,
+      "data_cells": 400000,
+      "header_rows": 1,
+      "total_records_including_header": 50001,
+      "expected": {
+        "invalid_rows": 50,
+        "invalid_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "exact_duplicate_pairs": 50,
+        "extra_exact_duplicate_rows": 50,
+        "duplicate_warning_rows": 100,
+        "extra_duplicate_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "valid_before_decisions": 49950,
+        "excluded_rows": 0,
+        "eligible_before_keep": 49850,
+        "eligible_after_keep": 49950,
+        "first_published_rows": 49950,
+        "second_repair_rows": 50,
+        "second_published_rows": 50,
+        "final_published_rows": 50000,
+        "final_lineage_rows": 50000,
+        "final_distinct_target_rows": 50000,
+        "final_unpublished_rows": 0,
+        "published_attempts": 2,
+        "first_income_cents": "1748249950",
+        "final_income_cents": "1750024950",
+        "first_income_vnd": "17482499.50",
+        "final_income_vnd": "17500249.50",
+        "currency": "VND",
+        "export_rows": 50000,
+        "export_columns": 8,
+        "export_data_cells": 400000
+      },
+      "checkpoint_expectations": {
+        "first_partial_parse_target": 500,
+        "full_parsed_rows": 50000,
+        "first_pending_rows_if_fully_staged_before_publish": 49950,
+        "published_before_first_publication": 0,
+        "receipt_counts_if_actual_500_row_chunks_and_v1_fixture": {
+          "parse": 100,
+          "normalize_total": 101,
+          "dedup_total": 101,
+          "snapshot_total": 101,
+          "pending_commit_total": 101,
+          "seal_total": 2
+        },
+        "receipt_observation": "Record actual receipts only via an authorized diagnostic; otherwise NOT_MEASURED. Expected counts are not observed proof.",
+        "required_restart_scope": "mid_parse_same_job"
+      },
+      "identity_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN"
+      },
+      "slot_required_if_coordinator_requests": true,
+      "candidate_identity_required_in_modes": [
+        "frozen_sidecar",
+        "gui_native"
+      ],
+      "runner_support": {
+        "module": "tests.accounting.desktop_delivery.runner",
+        "supported_modes": [
+          "frozen-sidecar"
+        ],
+        "gui_native": "NOT_IMPLEMENTED_BY_THIS_RUNNER"
+      }
+    },
+    {
+      "id": "csv-500k",
+      "profile": "csv_v1",
+      "run_class": "large",
+      "execution_status": "NOT_RUN",
+      "evidence_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN",
+        "clean_windows_client": "NOT_RUN"
+      },
+      "preferred_evidence_mode": "frozen_sidecar",
+      "final_candidate_required": true,
+      "coordinator_slot_required": true,
+      "automatic_execution_allowed": false,
+      "fixture": {
+        "origin": "parent_pure_csv_v1_generator",
+        "fixture_manifest_required": true,
+        "sha256": null,
+        "bytes": null,
+        "identity_status": "NOT_PROVIDED"
+      },
+      "rows": 500000,
+      "columns": 8,
+      "data_cells": 4000000,
+      "header_rows": 1,
+      "total_records_including_header": 500001,
+      "expected": {
+        "invalid_rows": 500,
+        "invalid_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "exact_duplicate_pairs": 500,
+        "extra_exact_duplicate_rows": 500,
+        "duplicate_warning_rows": 1000,
+        "extra_duplicate_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "valid_before_decisions": 499500,
+        "excluded_rows": 0,
+        "eligible_before_keep": 498500,
+        "eligible_after_keep": 499500,
+        "first_published_rows": 499500,
+        "second_repair_rows": 500,
+        "second_published_rows": 500,
+        "final_published_rows": 500000,
+        "final_lineage_rows": 500000,
+        "final_distinct_target_rows": 500000,
+        "final_unpublished_rows": 0,
+        "published_attempts": 2,
+        "first_income_cents": "29969999500",
+        "final_income_cents": "29999749500",
+        "first_income_vnd": "299699995.00",
+        "final_income_vnd": "299997495.00",
+        "currency": "VND",
+        "export_rows": 500000,
+        "export_columns": 8,
+        "export_data_cells": 4000000
+      },
+      "checkpoint_expectations": {
+        "first_partial_parse_target": 500,
+        "full_parsed_rows": 500000,
+        "first_pending_rows_if_fully_staged_before_publish": 499500,
+        "published_before_first_publication": 0,
+        "receipt_counts_if_actual_500_row_chunks_and_v1_fixture": {
+          "parse": 1000,
+          "normalize_total": 1001,
+          "dedup_total": 1001,
+          "snapshot_total": 1000,
+          "pending_commit_total": 1000,
+          "seal_total": 2
+        },
+        "receipt_observation": "Record actual receipts only via an authorized diagnostic; otherwise NOT_MEASURED. Expected counts are not observed proof.",
+        "required_restart_scope": "mid_parse_same_job"
+      },
+      "identity_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN"
+      },
+      "slot_required_if_coordinator_requests": true,
+      "candidate_identity_required_in_modes": [
+        "frozen_sidecar",
+        "gui_native"
+      ],
+      "runner_support": {
+        "module": "tests.accounting.desktop_delivery.runner",
+        "supported_modes": [
+          "frozen-sidecar"
+        ],
+        "gui_native": "NOT_IMPLEMENTED_BY_THIS_RUNNER"
+      }
+    },
+    {
+      "id": "csv-1m",
+      "profile": "csv_v1",
+      "run_class": "large",
+      "execution_status": "NOT_RUN",
+      "evidence_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN",
+        "clean_windows_client": "NOT_RUN"
+      },
+      "preferred_evidence_mode": "frozen_sidecar",
+      "final_candidate_required": true,
+      "coordinator_slot_required": true,
+      "automatic_execution_allowed": false,
+      "fixture": {
+        "origin": "parent_pure_csv_v1_generator",
+        "fixture_manifest_required": true,
+        "sha256": null,
+        "bytes": null,
+        "identity_status": "NOT_PROVIDED"
+      },
+      "rows": 1000000,
+      "columns": 8,
+      "data_cells": 8000000,
+      "header_rows": 1,
+      "total_records_including_header": 1000001,
+      "expected": {
+        "invalid_rows": 1000,
+        "invalid_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "exact_duplicate_pairs": 1000,
+        "extra_exact_duplicate_rows": 1000,
+        "duplicate_warning_rows": 2000,
+        "extra_duplicate_rate": {
+          "numerator": 1,
+          "denominator": 1000
+        },
+        "valid_before_decisions": 999000,
+        "excluded_rows": 0,
+        "eligible_before_keep": 997000,
+        "eligible_after_keep": 999000,
+        "first_published_rows": 999000,
+        "second_repair_rows": 1000,
+        "second_published_rows": 1000,
+        "final_published_rows": 1000000,
+        "final_lineage_rows": 1000000,
+        "final_distinct_target_rows": 1000000,
+        "final_unpublished_rows": 0,
+        "published_attempts": 2,
+        "first_income_cents": "59939999000",
+        "final_income_cents": "59999499000",
+        "first_income_vnd": "599399990.00",
+        "final_income_vnd": "599994990.00",
+        "currency": "VND",
+        "export_rows": 1000000,
+        "export_columns": 8,
+        "export_data_cells": 8000000
+      },
+      "checkpoint_expectations": {
+        "first_partial_parse_target": 500,
+        "full_parsed_rows": 1000000,
+        "first_pending_rows_if_fully_staged_before_publish": 999000,
+        "published_before_first_publication": 0,
+        "receipt_counts_if_actual_500_row_chunks_and_v1_fixture": {
+          "parse": 2000,
+          "normalize_total": 2002,
+          "dedup_total": 2002,
+          "snapshot_total": 2000,
+          "pending_commit_total": 2000,
+          "seal_total": 2
+        },
+        "receipt_observation": "Record actual receipts only via an authorized diagnostic; otherwise NOT_MEASURED. Expected counts are not observed proof.",
+        "required_restart_scope": "mid_parse_same_job"
+      },
+      "identity_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN"
+      },
+      "slot_required_if_coordinator_requests": true,
+      "candidate_identity_required_in_modes": [
+        "frozen_sidecar",
+        "gui_native"
+      ],
+      "runner_support": {
+        "module": "tests.accounting.desktop_delivery.runner",
+        "supported_modes": [
+          "frozen-sidecar"
+        ],
+        "gui_native": "NOT_IMPLEMENTED_BY_THIS_RUNNER"
+      }
+    },
+    {
+      "id": "desktop-mini-xlsm-1000",
+      "profile": "rich_mini",
+      "run_class": "mini",
+      "execution_status": "NOT_RUN",
+      "evidence_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN",
+        "clean_windows_client": "NOT_RUN"
+      },
+      "preferred_evidence_mode": "frozen_sidecar",
+      "final_candidate_required": false,
+      "coordinator_slot_required": false,
+      "automatic_execution_allowed": false,
+      "fixture": {
+        "origin": "independent_rich_fixture_manifest",
+        "format": "xlsm",
+        "fixture_manifest_required": true,
+        "sha256": null,
+        "bytes": null,
+        "identity_status": "NOT_PROVIDED",
+        "input_variant": "API_XLSM",
+        "manifest_kit_version": "accounting-desktop-fixtures-v1",
+        "input_json_pointer": "/files/xlsm",
+        "book_json_pointer": "/book",
+        "profile_json_pointer": "/files/xlsm/profile",
+        "mapping_json_pointer": "/files/xlsm/mapping"
+      },
+      "rows": 1000,
+      "columns": 8,
+      "data_cells": 8000,
+      "header_rows": 1,
+      "expected": {
+        "invalid_rows": 17,
+        "invalid_breakdown": {
+          "money": 10,
+          "date": 5,
+          "formula": 2
+        },
+        "exact_duplicate_pairs": 10,
+        "duplicate_warning_rows": 20,
+        "business_key_columns": [],
+        "excluded_source_rows": [
+          5
+        ],
+        "excluded_rows": 1,
+        "valid_before_decisions": 983,
+        "first_published_rows": 982,
+        "second_repair_rows": 17,
+        "second_published_rows": 17,
+        "final_published_rows": 999,
+        "final_lineage_rows": 999,
+        "final_distinct_target_rows": 999,
+        "final_unpublished_rows": 1,
+        "published_attempts": 2,
+        "export_rows": 999,
+        "export_columns": 8,
+        "export_data_cells": 7992,
+        "money": {
+          "source": "independent_rich_fixture_manifest",
+          "required_exact": true,
+          "first_income_cents": null,
+          "final_income_cents": null,
+          "first_income_vnd": null,
+          "final_income_vnd": null,
+          "missing_value_policy": "BLOCKED; never infer CSV-v1 sums or zero",
+          "first_income_vnd_json_pointer": "/files/xlsm/scenarios/skip_first_duplicate/first_income",
+          "final_income_vnd_json_pointer": "/files/xlsm/scenarios/skip_first_duplicate/final_income",
+          "cents_conversion": "Decimal VND *100, require exact integer cents; do not round"
+        }
+      },
+      "checkpoint_expectations": {
+        "first_partial_parse_target": 500,
+        "full_parsed_rows": 1000,
+        "first_pending_rows_if_fully_staged_before_publish": 982,
+        "published_before_first_publication": 0,
+        "must_keep_excluded_source_row_5_out_of_both_attempts": true,
+        "required_restart_scope": "after_completed_validation_before_decisions",
+        "mid_parse_probe": "OPTIONAL_NOT_RUN_UNLESS_ACTUALLY_OBSERVED",
+        "restart_requires_invalid_rows_retained": 17,
+        "restart_requires_unconfirmed_visible_rows": 0
+      },
+      "additional_assertions": [
+        "Source raw hash unchanged after preview/patch/import/export/download",
+        "Formula raw/cache/calculated/status provenance remains separate; unsupported/external never becomes zero",
+        "No macro or external-reference execution; original XLSM and derived export remain distinct",
+        "Native GUI evidence requires actual app/WebView interaction, not just API calls"
+      ],
+      "identity_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN"
+      },
+      "preamble_rows": 2,
+      "header_row_number": 3,
+      "first_data_source_row": 4,
+      "selected_sheet_id": "2",
+      "selected_sheet_name": "Sổ cà phê",
+      "selected_sheet_last_source_row": 1003,
+      "slot_required_if_coordinator_requests": true,
+      "candidate_identity_required_in_modes": [
+        "frozen_sidecar",
+        "gui_native"
+      ],
+      "runner_support": {
+        "module": "tests.accounting.desktop_delivery.runner",
+        "supported_modes": [
+          "source",
+          "frozen-sidecar"
+        ],
+        "gui_native": "NOT_IMPLEMENTED_BY_THIS_RUNNER"
+      }
+    },
+    {
+      "id": "desktop-mini-xlsx-1000",
+      "profile": "rich_mini",
+      "run_class": "mini",
+      "execution_status": "NOT_RUN",
+      "evidence_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN",
+        "clean_windows_client": "NOT_RUN"
+      },
+      "preferred_evidence_mode": "gui_native",
+      "final_candidate_required": false,
+      "coordinator_slot_required": false,
+      "automatic_execution_allowed": false,
+      "fixture": {
+        "origin": "independent_rich_fixture_manifest",
+        "format": "xlsx",
+        "fixture_manifest_required": true,
+        "sha256": null,
+        "bytes": null,
+        "identity_status": "NOT_PROVIDED",
+        "input_variant": "GUI_NATIVE_XLSX",
+        "manifest_kit_version": "accounting-desktop-fixtures-v1",
+        "input_json_pointer": "/files/xlsx",
+        "book_json_pointer": "/book",
+        "profile_json_pointer": "/files/xlsx/profile",
+        "mapping_json_pointer": "/files/xlsx/mapping"
+      },
+      "rows": 1000,
+      "columns": 8,
+      "data_cells": 8000,
+      "header_rows": 1,
+      "expected": {
+        "invalid_rows": 17,
+        "invalid_breakdown": {
+          "money": 10,
+          "date": 5,
+          "formula": 2
+        },
+        "exact_duplicate_pairs": 10,
+        "duplicate_warning_rows": 20,
+        "business_key_columns": [],
+        "excluded_source_rows": [
+          5
+        ],
+        "excluded_rows": 1,
+        "valid_before_decisions": 983,
+        "first_published_rows": 982,
+        "second_repair_rows": 17,
+        "second_published_rows": 17,
+        "final_published_rows": 999,
+        "final_lineage_rows": 999,
+        "final_distinct_target_rows": 999,
+        "final_unpublished_rows": 1,
+        "published_attempts": 2,
+        "export_rows": 999,
+        "export_columns": 8,
+        "export_data_cells": 7992,
+        "money": {
+          "source": "independent_rich_fixture_manifest",
+          "required_exact": true,
+          "first_income_cents": null,
+          "final_income_cents": null,
+          "first_income_vnd": null,
+          "final_income_vnd": null,
+          "missing_value_policy": "BLOCKED; never infer CSV-v1 sums or zero",
+          "first_income_vnd_json_pointer": "/files/xlsx/scenarios/skip_first_duplicate/first_income",
+          "final_income_vnd_json_pointer": "/files/xlsx/scenarios/skip_first_duplicate/final_income",
+          "cents_conversion": "Decimal VND *100, require exact integer cents; do not round"
+        }
+      },
+      "checkpoint_expectations": {
+        "first_partial_parse_target": 500,
+        "full_parsed_rows": 1000,
+        "first_pending_rows_if_fully_staged_before_publish": 982,
+        "published_before_first_publication": 0,
+        "must_keep_excluded_source_row_5_out_of_both_attempts": true,
+        "required_restart_scope": "after_completed_validation_before_decisions",
+        "mid_parse_probe": "OPTIONAL_NOT_RUN_UNLESS_ACTUALLY_OBSERVED",
+        "restart_requires_invalid_rows_retained": 17,
+        "restart_requires_unconfirmed_visible_rows": 0
+      },
+      "additional_assertions": [
+        "Source raw hash unchanged after preview/patch/import/export/download",
+        "Formula raw/cache/calculated/status provenance remains separate; unsupported/external never becomes zero",
+        "No macro or external-reference execution; original XLSM and derived export remain distinct",
+        "Native GUI evidence requires actual app/WebView interaction, not just API calls"
+      ],
+      "identity_status": {
+        "source": "NOT_RUN",
+        "frozen_sidecar": "NOT_RUN",
+        "gui_native": "NOT_RUN"
+      },
+      "preamble_rows": 2,
+      "header_row_number": 3,
+      "first_data_source_row": 4,
+      "selected_sheet_id": "2",
+      "selected_sheet_name": "Sổ cà phê",
+      "selected_sheet_last_source_row": 1003,
+      "slot_required_if_coordinator_requests": true,
+      "candidate_identity_required_in_modes": [
+        "frozen_sidecar",
+        "gui_native"
+      ],
+      "runner_support": {
+        "module": null,
+        "supported_modes": [],
+        "gui_native": "SEPARATE_NATIVE_UI_ACCEPTANCE_REQUIRED"
+      }
+    }
+  ],
+  "identity_status": {
+    "source": "NOT_RUN",
+    "frozen_sidecar": "NOT_RUN",
+    "gui_native": "NOT_RUN"
+  },
+  "phase_order_scope": "Template only; workload-specific required restart scope determines sequence. Optional unobserved probes stay NOT_RUN.",
+  "implementation_alignment": {
+    "status": "READ_ONLY_IMPLEMENTATION_RECONCILIATION_NOT_EXECUTION",
+    "runner_cli_modes": [
+      "source",
+      "frozen-sidecar"
+    ],
+    "runner_cli_workloads": [
+      "desktop-mini-xlsm-1000",
+      "csv-mini-1000",
+      "csv-50k",
+      "csv-500k",
+      "csv-1m"
+    ],
+    "manifest_consumption": "Runner binds this file SHA in result; CLI WORKLOADS and acceptance/fixture code drive execution. It does not interpret every planned assertion or metric from this JSON.",
+    "slot_gate": "rows>1000: frozen-sidecar mode and valid explicit receipt before output/fixture creation. Mini: validates receipt only when supplied.",
+    "output_gate": "Fresh resolved local output-root outside repository; existing roots and UNC paths rejected.",
+    "source_gate": "Current Git HEAD recorded; dirty backend/frontend/src/desktop rejected; Python source sidecar never relabelled frozen.",
+    "frozen_gate": "Candidate source equals --expected-source-sha; local absolute .exe/positive bytes/raw SHA checked; launched root image path checked and Python fallback denied; artifact SHA checked after run. Trusted coordinator declaration, not embedded source attestation. Final-candidate designation is external coordinator approval, not independently attested by this CLI.",
+    "result_hashes": [
+      "workload_manifest.sha256",
+      "harness_files *.py SHA256",
+      "fixture_manifest.sha256",
+      "candidate identity manifest SHA when frozen",
+      "source and downloaded original raw SHA256",
+      "derived_export.sha256"
+    ],
+    "rich_restart": "Completed first validation before decisions; invalid17 and zero published rows checked after restart. This is not mid-parse recovery.",
+    "csv_restart": "Post-restart same batch/job; 500<=parsed_before<=parsed_after<rows and RECOVERABLE required for DURABLE_PARTIAL_OBSERVED; otherwise WINDOW_MISSED/BLOCKED even if later functional assertions pass.",
+    "closed_reconciliation": "After verified owned-sidecar exit and closed WAL: immutable read-only synthetic DB verifies published=lineage=distinct targets and two PUBLISHED attempts.",
+    "export_limit": "Current acceptance hashes downloaded derived CSV bytes; it does not parse/count exported records or cells. Manifest export row/cell counts remain expectations, not observed runner assertions.",
+    "gui_limit": "No GUI mode or desktop-mini-xlsx-1000 in this CLI. Separate real native app acceptance required. Headless GUI measurements NOT_MEASURED; GUI evidence NOT_RUN.",
+    "checkpoint_receipts": "Expected receipt counts are definitions; no runtime receipt diagnostic implemented by this runner.",
+    "newer_parent_edits": "Parent owns runner/acceptance/measurements and may extend them; result harness file hashes identify the implementation actually run."
+  }
+}
