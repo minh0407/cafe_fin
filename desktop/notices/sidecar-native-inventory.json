@@ -1,6 +1,6 @@
 {
-  "exe_sha256": "b7549bac636945b967d639761d1c50dcf563f7ca3498c146381da247429310d6",
-  "exe_bytes": 33412442,
+  "exe_sha256": "de82669e30c0ff247f8667faa95252799e5ac091a4432f170b3c6ae9d885325f",
+  "exe_bytes": 33475329,
   "native_files": [
     {
       "key": "PIL\\_avif.cp312-win_amd64.pyd",
